@@ -28,21 +28,25 @@ modelo = cargar_modelo()
 # --------------------------------
 
 materiales = {
-    "bottle": ("Plástico", 0.05),
-    "cup": ("Plástico", 0.03),
-    "wine glass": ("Vidrio", 0.20),
-    "book": ("Papel", 0.30),
-    "tv": ("Electrónico", 8.0),
-    "cell phone": ("Electrónico", 0.20),
-    "keyboard": ("Electrónico", 0.60),
-    "mouse": ("Electrónico", 0.10),
-    "chair": ("Aprovechable", 2.0),
-    "backpack": ("Textil", 0.50),
-    "suitcase": ("Mixto", 2.50),
-    "banana": ("Orgánico", 0.10),
-    "apple": ("Orgánico", 0.15),
-    "orange": ("Orgánico", 0.20),
-    "bicycle": ("Metal", 8.0)
+    "bottle": ("Botella", "Plástico", 0.05, True),
+    "cup": ("Vaso", "Plástico", 0.03, True),
+    "wine glass": ("Vidrio", "Vidrio", 0.20, True),
+    "book": ("Libro", "Papel", 0.30, True),
+    "chair": ("Silla", "Plástico", 2.00, True),
+    "backpack": ("Mochila", "Textil", 0.50, True),
+    "suitcase": ("Maleta", "Mixto", 2.50, True),
+    "cell phone": ("Celular", "Electrónico", 0.20, True),
+    "keyboard": ("Teclado", "Electrónico", 0.60, True),
+    "mouse": ("Ratón", "Electrónico", 0.10, True),
+    "tv": ("Televisor", "Electrónico", 8.00, True),
+    "banana": ("Banano", "Orgánico", 0.10, True),
+    "apple": ("Manzana", "Orgánico", 0.15, True),
+    "orange": ("Naranja", "Orgánico", 0.20, True),
+
+    "person": ("Persona", "No aplica", 0, False),
+    "dog": ("Perro", "No aplica", 0, False),
+    "cat": ("Gato", "No aplica", 0, False),
+    "car": ("Vehículo", "No aplica", 0, False)
 }
 
 # --------------------------------
@@ -109,8 +113,9 @@ elif menu == "Reportar residuo":
         ]
     )
 
-    referencia = st.text_input(
-        "Ingrese una referencia"
+   if referencia and len(referencia) < 8:
+    st.warning(
+        "Ingrese una referencia más específica."
     )
 
     imagen = st.file_uploader(
@@ -171,29 +176,51 @@ elif menu == "Reportar residuo":
 
                     if obj in materiales:
 
-                        material, peso = materiales[obj]
+                       nombre_es, material, peso, reciclable = materiales[obj]
 
-                        peso_total += peso
+if reciclable:
 
-                        st.write(
-                            f"♻️ {obj} → {material}"
-                        )
+    st.success(
+        f"♻️ {nombre_es} - {material}"
+    )
 
-                cantidad = len(objetos)
+    peso_total += peso
 
-                if cantidad >= 8:
-                    nivel = "🔴 Punto crítico alto"
-                elif cantidad >= 4:
-                    nivel = "🟡 Punto crítico medio"
-                else:
-                    nivel = "🟢 Punto crítico bajo"
+else:
+
+    st.warning(
+        f"⚠️ {nombre_es} no corresponde a un residuo."
+    )
+               if cantidad >= 10:
+    nivel = "🔴 Punto crítico confirmado"
+
+elif cantidad >= 5:
+    nivel = "🟡 Posible punto crítico"
+
+elif cantidad >= 1:
+    nivel = "🟢 Residuo individual"
+
+else:
+    nivel = "⚪ Evidencia insuficiente"
 
                 st.write(f"📍 Barrio: {barrio}")
                 st.write(f"📌 Referencia: {referencia}")
                 st.write(f"🗑️ Objetos detectados: {cantidad}")
                 st.write(f"⚖️ Peso aproximado: {peso_total:.2f} kg")
-                st.write(f"🚨 Clasificación: {nivel}")
+               if cantidad == 0:
+    st.error(
+        "❌ La evidencia no es suficiente para generar un reporte."
+    )
 
+elif cantidad <= 2:
+    st.info(
+        "📷 Se recomienda tomar una fotografía más cercana."
+    )
+
+else:
+    st.success(
+        "✅ Reporte validado correctamente."
+    )
             else:
 
                 st.error(
