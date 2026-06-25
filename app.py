@@ -262,13 +262,13 @@ elif menu == "Punto crítico":
 
             st.write(f"📍 Barrio: {barrio}")
             st.write(f"📌 Referencia: {referencia}")
-            st.write(f"🗑️ Objetos detectados: {cantidad})"
+            st.write(f"🗑️ Objetos detectados: {cantidad}")
     "keyboard": ("Electrónico",0.60),
     "mouse": ("Electrónico",0.10),
     "chair": ("Aprovechable",2.00),
     "backpack": ("Textil",0.50),
     "suitcase": ("Mixto",2.50)
-}
+
 
 st.sidebar.title("♻️ EcoCom2")
 
