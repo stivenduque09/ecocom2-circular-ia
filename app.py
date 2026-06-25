@@ -1,3 +1,4 @@
+```python
 import streamlit as st
 from ultralytics import YOLO
 from PIL import Image
@@ -86,7 +87,7 @@ elif menu == "Información":
     st.header("¿Qué es EcoCom2 Circular IA?")
 
     st.write(
-        "EcoCom2 Circular IA es un sistema que identifica residuos y puntos críticos mediante fotografías e inteligencia artificial."
+        "EcoCom2 Circular IA identifica residuos y puntos críticos mediante fotografías e inteligencia artificial."
     )
 
     st.header("Objetivos")
@@ -112,14 +113,15 @@ elif menu == "Reportar residuo":
             "Moscú"
         ]
     )
-referencia = st.text_input(
-    "Ingrese una referencia"
-)
 
-if referencia and len(referencia) < 8:
-    st.warning(
-        "Ingrese una referencia más específica."
+    referencia = st.text_input(
+        "Ingrese una referencia"
     )
+
+    if referencia and len(referencia) < 8:
+        st.warning(
+            "Ingrese una referencia más específica."
+        )
 
     imagen = st.file_uploader(
         "Seleccione una fotografía",
@@ -164,7 +166,6 @@ if referencia and len(referencia) < 8:
                 for box in r.boxes:
 
                     clase = int(box.cls[0])
-
                     nombre = modelo.names[clase]
 
                     objetos.append(nombre)
@@ -179,81 +180,61 @@ if referencia and len(referencia) < 8:
 
                     if obj in materiales:
 
-                       nombre_es, material, peso, reciclable = materiales[obj]
+                        nombre_es, material, peso, reciclable = materiales[obj]
 
-if reciclable:
+                        if reciclable:
 
-    st.success(
-        f"♻️ {nombre_es} - {material}"
-    )
+                            st.success(
+                                f"♻️ {nombre_es} → {material}"
+                            )
 
-    peso_total += peso
+                            peso_total += peso
 
-else:
+                        else:
 
-    st.warning(
-        f"⚠️ {nombre_es} no corresponde a un residuo."
-    )
-if len(objetos) > 0:
+                            st.warning(
+                                f"⚠️ {nombre_es} no corresponde a un residuo."
+                            )
 
-    st.success("Análisis completado")
+                cantidad = len(objetos)
 
-    peso_total = 0
+                if cantidad >= 10:
+                    nivel = "🔴 Punto crítico confirmado"
 
-    for obj in set(objetos):
+                elif cantidad >= 5:
+                    nivel = "🟡 Posible punto crítico"
 
-        if obj in materiales:
+                elif cantidad >= 1:
+                    nivel = "🟢 Residuo individual"
 
-            nombre_es, material, peso, reciclable = materiales[obj]
+                else:
+                    nivel = "⚪ Evidencia insuficiente"
 
-            if reciclable:
-                st.success(
-                    f"♻️ {nombre_es} - {material}"
-                )
-                peso_total += peso
+                st.write(f"📍 Barrio: {barrio}")
+                st.write(f"📌 Referencia: {referencia}")
+                st.write(f"🗑️ Objetos detectados: {cantidad}")
+                st.write(f"⚖️ Peso aproximado: {peso_total:.2f} kg")
+                st.write(f"🚨 Clasificación: {nivel}")
 
-            else:
-                st.warning(
-                    f"⚠️ {nombre_es} no corresponde a un residuo."
-                )
+                if cantidad == 0:
+                    st.error(
+                        "❌ Evidencia insuficiente."
+                    )
 
-    cantidad = len(objetos)
+                elif cantidad <= 2:
+                    st.info(
+                        "📷 Se recomienda una fotografía más cercana."
+                    )
 
-    if cantidad >= 10:
-        nivel = "🔴 Punto crítico confirmado"
+                else:
+                    st.success(
+                        "✅ Reporte validado correctamente."
+                    )
 
-    elif cantidad >= 5:
-        nivel = "🟡 Posible punto crítico"
-
-    elif cantidad >= 1:
-        nivel = "🟢 Residuo individual"
-
-    else:
-        nivel = "⚪ Evidencia insuficiente"
-
-    st.write(f"📍 Barrio: {barrio}")
-    st.write(f"📌 Referencia: {referencia}")
-    st.write(f"🗑️ Objetos detectados: {cantidad}")
-    st.write(f"⚖️ Peso aproximado: {peso_total:.2f} kg")
-    st.write(f"🚨 Clasificación: {nivel}")
-
-else:
-
-    st.error("No se detectaron objetos.")
-
-elif cantidad <= 2:
-    st.info(
-        "📷 Se recomienda tomar una fotografía más cercana."
-    )
-
-else:
-    st.success(
-        "✅ Reporte validado correctamente."
-    )
             else:
 
                 st.error(
-                    "No se detectaron objetos."
+                    "❌ No se detectaron objetos."
                 )
 
 # --------------------------------
@@ -294,9 +275,7 @@ elif menu == "Punto crítico":
             use_container_width=True
         )
 
-        if st.button(
-            "Evaluar punto crítico"
-        ):
+        if st.button("Evaluar punto crítico"):
 
             with tempfile.NamedTemporaryFile(
                 delete=False,
@@ -317,10 +296,13 @@ elif menu == "Punto crítico":
 
             if cantidad >= 8:
                 nivel = "🔴 Punto crítico alto"
+
             elif cantidad >= 4:
                 nivel = "🟡 Punto crítico medio"
+
             elif cantidad >= 1:
                 nivel = "🟢 Punto crítico bajo"
+
             else:
                 nivel = "⚪ Sin evidencia"
 
@@ -329,3 +311,4 @@ elif menu == "Punto crítico":
             st.write(f"📍 Barrio: {barrio}")
             st.write(f"📌 Referencia: {referencia}")
             st.write(f"🗑️ Objetos detectados: {cantidad}")
+```
