@@ -194,28 +194,52 @@ else:
     st.warning(
         f"⚠️ {nombre_es} no corresponde a un residuo."
     )
-            st.write(f"⚖️ Peso aproximado: {peso_total:.2f} kg")
+if len(objetos) > 0:
 
-if cantidad >= 10:
-    nivel = " 🔴 Punto crítico confirmado "
+    st.success("Análisis completado")
 
-elif cantidad >= 5:
-    nivel = " 🟡 Posible punto crítico "
+    peso_total = 0
 
-elif cantidad >= 1:
-    nivel = " 🟢 Residuo individua l"
+    for obj in set(objetos):
+
+        if obj in materiales:
+
+            nombre_es, material, peso, reciclable = materiales[obj]
+
+            if reciclable:
+                st.success(
+                    f"♻️ {nombre_es} - {material}"
+                )
+                peso_total += peso
+
+            else:
+                st.warning(
+                    f"⚠️ {nombre_es} no corresponde a un residuo."
+                )
+
+    cantidad = len(objetos)
+
+    if cantidad >= 10:
+        nivel = "🔴 Punto crítico confirmado"
+
+    elif cantidad >= 5:
+        nivel = "🟡 Posible punto crítico"
+
+    elif cantidad >= 1:
+        nivel = "🟢 Residuo individual"
+
+    else:
+        nivel = "⚪ Evidencia insuficiente"
+
+    st.write(f"📍 Barrio: {barrio}")
+    st.write(f"📌 Referencia: {referencia}")
+    st.write(f"🗑️ Objetos detectados: {cantidad}")
+    st.write(f"⚖️ Peso aproximado: {peso_total:.2f} kg")
+    st.write(f"🚨 Clasificación: {nivel}")
 
 else:
-    nivel = " ⚪ Evidencia insuficiente "
 
-                st.write(f"📍 Barrio: {barrio}")
-                st.write(f"📌 Referencia: {referencia}")
-                st.write(f"🗑️ Objetos detectados: {cantidad}")
-                st.write(f"⚖️ Peso aproximado: {peso_total:.2f} kg")
-               if cantidad == 0:
-    st.error(
-        "❌ La evidencia no es suficiente para generar un reporte."
-    )
+    st.error("No se detectaron objetos.")
 
 elif cantidad <= 2:
     st.info(
