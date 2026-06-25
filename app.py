@@ -3,6 +3,7 @@ import streamlit as st
 from ultralytics import YOLO
 from PIL import Image
 import tempfile
+from collections import Counter
 
 # --------------------------------
 # CONFIGURACIÓN
@@ -20,7 +21,7 @@ st.set_page_config(
 
 @st.cache_resource
 def cargar_modelo():
-    return YOLO("yolov8n.pt")
+   return YOLO("yolov8m.pt")
 
 modelo = cargar_modelo()
 
@@ -37,7 +38,12 @@ materiales = {
     "paper": ("Papel", "Papel", 0.05, True),
     "newspaper": ("Periódico", "Papel", 0.10, True),
     "box": ("Caja", "Cartón", 0.30, True),
-
+     "notebook": ("Cuaderno", "Papel", 0.20, True),
+"toy": ("Juguete", "Plástico", 0.50, True),
+"bench": ("Banco", "Plástico", 2.50, True),
+"bucket": ("Balde", "Plástico", 0.50, True),
+"laptop": ("Portátil", "Electrónico", 2.50, True),
+"remote": ("Control remoto", "Electrónico", 0.20, True),
     # ----------------------
     # PLÁSTICOS
     # ----------------------
@@ -215,7 +221,7 @@ elif menu == "Reportar residuo":
 
                 resultados = modelo(
                     tmp.name,
-                    conf=0.20
+                    conf=0.10
                 )
 
             imagen_resultado = resultados[0].plot()
@@ -242,7 +248,9 @@ elif menu == "Reportar residuo":
 
                 peso_total = 0
 
-                for obj in set(objetos):
+            conteo = Counter(objetos)
+
+            for obj, cantidad_obj in conteo.items():
 
                     if obj in materiales:
 
@@ -250,11 +258,23 @@ elif menu == "Reportar residuo":
 
                         if reciclable:
 
-                            st.success(
-                                f"♻️ {nombre_es} → {material}"
-                            )
+    residuos += cantidad_obj
 
-                            peso_total += peso
+    st.success(
+        f"♻️ {nombre_es}: {cantidad_obj} unidad(es)"
+           )
+
+                st.write(
+                   f"Material: {material}"
+                )
+ 
+                  peso_total += peso * cantidad_obj
+
+                 else:
+
+               st.warning(
+        f"⚠️ {nombre_es} no corresponde a un residuo."
+    )j
 
                         else:
 
@@ -263,6 +283,7 @@ elif menu == "Reportar residuo":
                             )
 
                 cantidad = len(objetos)
+                residuos = 0
 
                 if cantidad >= 10:
                     nivel = "🔴 Punto crítico confirmado"
@@ -279,6 +300,14 @@ elif menu == "Reportar residuo":
                 st.write(f"📍 Barrio: {barrio}")
                 st.write(f"📌 Referencia: {referencia}")
                 st.write(f"🗑️ Objetos detectados: {cantidad}")
+                st.write(
+                  f"♻️ Residuos reciclables: {residuos}"
+                       )
+                  
+
+                st.write(
+                f"⚖️ Peso aproximado: {peso_total:.2f} kg"
+                  )
                 st.write(f"⚖️ Peso aproximado: {peso_total:.2f} kg")
                 st.write(f"🚨 Clasificación: {nivel}")
 
