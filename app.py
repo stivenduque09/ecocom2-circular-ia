@@ -112,8 +112,11 @@ elif menu == "Reportar residuo":
             "Moscú"
         ]
     )
+referencia = st.text_input(
+    "Ingrese una referencia"
+)
 
-   if referencia and len(referencia) < 8:
+if referencia and len(referencia) < 8:
     st.warning(
         "Ingrese una referencia más específica."
     )
