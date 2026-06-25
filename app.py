@@ -194,17 +194,19 @@ else:
     st.warning(
         f"⚠️ {nombre_es} no corresponde a un residuo."
     )
-               if cantidad >= 10:
-    nivel = "🔴 Punto crítico confirmado"
+            st.write(f"⚖️ Peso aproximado: {peso_total:.2f} kg")
+
+if cantidad >= 10:
+    nivel = " 🔴 Punto crítico confirmado "
 
 elif cantidad >= 5:
-    nivel = "🟡 Posible punto crítico"
+    nivel = " 🟡 Posible punto crítico "
 
 elif cantidad >= 1:
-    nivel = "🟢 Residuo individual"
+    nivel = " 🟢 Residuo individua l"
 
 else:
-    nivel = "⚪ Evidencia insuficiente"
+    nivel = " ⚪ Evidencia insuficiente "
 
                 st.write(f"📍 Barrio: {barrio}")
                 st.write(f"📌 Referencia: {referencia}")
