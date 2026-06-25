@@ -3,11 +3,19 @@ from ultralytics import YOLO
 from PIL import Image
 import tempfile
 
+# --------------------------------
+# CONFIGURACIÓN
+# --------------------------------
+
 st.set_page_config(
     page_title="EcoCom2 Circular IA",
     page_icon="♻️",
     layout="wide"
 )
+
+# --------------------------------
+# CARGAR MODELO
+# --------------------------------
 
 @st.cache_resource
 def cargar_modelo():
@@ -15,27 +23,36 @@ def cargar_modelo():
 
 modelo = cargar_modelo()
 
+# --------------------------------
+# MATERIALES
+# --------------------------------
+
 materiales = {
     "bottle": ("Plástico", 0.05),
     "cup": ("Plástico", 0.03),
     "wine glass": ("Vidrio", 0.20),
     "book": ("Papel", 0.30),
-    "chair": ("Material aprovechable", 2.0),
-    "backpack": ("Textil", 0.50),
-    "suitcase": ("Material mixto", 2.5),
     "tv": ("Electrónico", 8.0),
     "cell phone": ("Electrónico", 0.20),
     "keyboard": ("Electrónico", 0.60),
     "mouse": ("Electrónico", 0.10),
+    "chair": ("Aprovechable", 2.0),
+    "backpack": ("Textil", 0.50),
+    "suitcase": ("Mixto", 2.50),
     "banana": ("Orgánico", 0.10),
     "apple": ("Orgánico", 0.15),
     "orange": ("Orgánico", 0.20),
     "bicycle": ("Metal", 8.0)
 }
 
+# --------------------------------
+# MENÚ
+# --------------------------------
+
 st.sidebar.title("♻️ EcoCom2")
+
 menu = st.sidebar.radio(
-    "Seleccione una opción",
+    "Menú",
     [
         "Inicio",
         "Reportar residuo",
@@ -44,21 +61,21 @@ menu = st.sidebar.radio(
     ]
 )
 
-# -----------------------------
+# --------------------------------
 # INICIO
-# -----------------------------
+# --------------------------------
 
 if menu == "Inicio":
 
     st.title("♻️ EcoCom2 Circular IA")
 
     st.write(
-        "Sistema inteligente para la gestión de residuos mediante inteligencia artificial."
+        "Sistema inteligente de gestión de residuos mediante inteligencia artificial."
     )
 
-# -----------------------------
+# --------------------------------
 # INFORMACIÓN
-# -----------------------------
+# --------------------------------
 
 elif menu == "Información":
 
@@ -75,9 +92,9 @@ elif menu == "Información":
     st.write("📍 Identificar puntos críticos.")
     st.write("🤝 Apoyar la comunidad.")
 
-# -----------------------------
+# --------------------------------
 # REPORTE DE RESIDUOS
-# -----------------------------
+# --------------------------------
 
 elif menu == "Reportar residuo":
 
@@ -101,7 +118,7 @@ elif menu == "Reportar residuo":
         type=["jpg", "jpeg", "png"]
     )
 
-    if imagen:
+    if imagen is not None:
 
         img = Image.open(imagen)
 
@@ -122,8 +139,7 @@ elif menu == "Reportar residuo":
 
                 resultados = modelo(
                     tmp.name,
-                    conf=0.20,
-                    iou=0.45
+                    conf=0.20
                 )
 
             imagen_resultado = resultados[0].plot()
@@ -147,9 +163,9 @@ elif menu == "Reportar residuo":
 
             if len(objetos) > 0:
 
-                peso_total = 0
+                st.success("Análisis completado")
 
-                st.subheader("Materiales detectados")
+                peso_total = 0
 
                 for obj in set(objetos):
 
@@ -167,14 +183,10 @@ elif menu == "Reportar residuo":
 
                 if cantidad >= 8:
                     nivel = "🔴 Punto crítico alto"
-
                 elif cantidad >= 4:
                     nivel = "🟡 Punto crítico medio"
-
                 else:
                     nivel = "🟢 Punto crítico bajo"
-
-                st.success("Análisis finalizado")
 
                 st.write(f"📍 Barrio: {barrio}")
                 st.write(f"📌 Referencia: {referencia}")
@@ -185,218 +197,19 @@ elif menu == "Reportar residuo":
             else:
 
                 st.error(
-                    "No se detectaron materiales."
+                    "No se detectaron objetos."
                 )
 
-# -----------------------------
+# --------------------------------
 # PUNTO CRÍTICO
-# -----------------------------
+# --------------------------------
 
 elif menu == "Punto crítico":
-
-    st.header("🚨 Reporte de punto crítico")
-
-    barrio = st.selectbox(
-        "Seleccione el barrio",
-        [
-            "Andalucía",
-            "Villa del Socorro",
-            "Moscú"
-        ],
-        key="pc1"
-    )
-
-    referencia = st.text_input(
-        "Ingrese una referencia",
-        key="pc2"
-    )
-
-    imagen = st.file_uploader(
-        "Suba una fotografía",
-        type=["jpg", "jpeg", "png"],
-        key="pc3"
-    )
-
-    if imagen:
-
-        img = Image.open(imagen)
-
-        st.image(
-            img,
-            use_container_width=True
-        )
-
-        if st.button("Evaluar punto crítico"):
-
-            with tempfile.NamedTemporaryFile(
-                delete=False,
-                suffix=".jpg"
-            ) as tmp:
-
-                img.save(tmp.name)
-
-                resultados = modelo(
-                    tmp.name,
-                    conf=0.20,
-                    iou=0.45
-                )
-
-            cantidad = 0
-
-            for r in resultados:
-                cantidad += len(r.boxes)
-
-            if cantidad >= 8:
-                nivel = "🔴 Punto crítico alto"
-
-            elif cantidad >= 4:
-                nivel = "🟡 Punto crítico medio"
-
-            elif cantidad >= 1:
-                nivel = "🟢 Punto crítico bajo"
-
-            else:
-                nivel = "⚪ Sin evidencia"
-
-            st.warning(nivel)
-
-            st.write(f"📍 Barrio: {barrio}")
-            st.write(f"📌 Referencia: {referencia}")
-            st.write(f"🗑️ Objetos detectados: {cantidad}")
-    "keyboard": ("Electrónico",0.60),
-    "mouse": ("Electrónico",0.10),
-    "chair": ("Aprovechable",2.00),
-    "backpack": ("Textil",0.50),
-    "suitcase": ("Mixto",2.50)
-
-
-st.sidebar.title("♻️ EcoCom2")
-
-menu = st.sidebar.radio(
-    "Menú",
-    [
-        "Inicio",
-        "Reportar residuo",
-        "Punto crítico",
-        "Información"
-    ]
-)
-
-if menu == "Inicio":
-
-    st.title("♻️ EcoCom2 Circular IA")
-
-    st.write(
-        "Sistema inteligente de gestión de residuos mediante inteligencia artificial."
-    )
-
-if menu == "Información":
-
-    st.header("¿Qué es EcoCom2?")
-
-    st.write(
-        "EcoCom2 Circular IA es un sistema que identifica residuos y puntos críticos utilizando fotografías e inteligencia artificial."
-    )
-
-    st.header("Objetivos")
-
-    st.write("• Promover el reciclaje.")
-    st.write("• Reducir la contaminación.")
-    st.write("• Identificar puntos críticos.")
-    st.write("• Apoyar la comunidad.")
-
-if menu == "Reportar residuo":
-
-    st.header("♻️ Reporte de residuos")
-
-    barrio = st.selectbox(
-        "Barrio",
-        [
-            "Andalucía",
-            "Villa del Socorro",
-            "Moscú"
-        ]
-    )
-
-    referencia = st.text_input(
-        "Referencia del lugar"
-    )
-
-    imagen = st.file_uploader(
-        "Suba una fotografía",
-        type=["jpg","jpeg","png"]
-    )
-
-    if imagen:
-
-        img = Image.open(imagen)
-
-        st.image(img)
-
-        if st.button("Analizar"):
-
-            with tempfile.NamedTemporaryFile(
-                delete=False,
-                suffix=".jpg"
-            ) as tmp:
-
-                img.save(tmp.name)
-
-                resultados = modelo(tmp.name)
-
-            objetos = []
-
-            for r in resultados:
-                for box in r.boxes:
-
-                    clase = int(box.cls[0])
-
-                    nombre = modelo.names[clase]
-
-                    objetos.append(nombre)
-
-            if objetos:
-
-                st.success("Análisis terminado.")
-
-                peso_total = 0
-
-                for obj in set(objetos):
-
-                    if obj in materiales:
-
-                        material,peso = materiales[obj]
-
-                        peso_total += peso
-
-                        st.write(
-                            f"♻️ {obj}: {material}"
-                        )
-
-                st.write(
-                    f"⚖️ Peso aproximado: {peso_total:.2f} kg"
-                )
-
-                st.write(
-                    f"📍 Barrio: {barrio}"
-                )
-
-                st.write(
-                    f"📌 Referencia: {referencia}"
-                )
-
-            else:
-
-                st.error(
-                    "No se detectaron materiales."
-                )
-
-if menu == "Punto crítico":
 
     st.header("🚨 Punto crítico")
 
     barrio = st.selectbox(
-        "Barrio",
+        "Seleccione el barrio",
         [
             "Andalucía",
             "Villa del Socorro",
@@ -407,46 +220,56 @@ if menu == "Punto crítico":
 
     referencia = st.text_input(
         "Referencia",
-        key="ref2"
+        key="referencia2"
     )
 
     imagen = st.file_uploader(
         "Suba una fotografía",
-        type=["jpg","jpeg","png"],
+        type=["jpg", "jpeg", "png"],
         key="imagen2"
     )
 
-    if imagen:
+    if imagen is not None:
 
         img = Image.open(imagen)
 
-        st.image(img)
+        st.image(
+            img,
+            use_container_width=True
+        )
 
-        if st.button("Evaluar"):
+        if st.button(
+            "Evaluar punto crítico"
+        ):
 
-            st.warning(
-                "🚨 Posible punto crítico detectado."
-            )
+            with tempfile.NamedTemporaryFile(
+                delete=False,
+                suffix=".jpg"
+            ) as tmp:
 
-            st.write(
-                f"📍 {barrio}"
-            )
+                img.save(tmp.name)
 
-            st.write(
-                f"📌 {referencia}"
-            )
+                resultados = modelo(
+                    tmp.name,
+                    conf=0.20
+                )
 
-imagen = st.file_uploader(
-    "Suba una fotografía",
-    type=["jpg", "jpeg", "png"]
-)
+            cantidad = 0
 
-if imagen:
+            for r in resultados:
+                cantidad += len(r.boxes)
 
-    img = Image.open(imagen)
+            if cantidad >= 8:
+                nivel = "🔴 Punto crítico alto"
+            elif cantidad >= 4:
+                nivel = "🟡 Punto crítico medio"
+            elif cantidad >= 1:
+                nivel = "🟢 Punto crítico bajo"
+            else:
+                nivel = "⚪ Sin evidencia"
 
-    st.image(img, caption="Imagen cargada")
+            st.warning(nivel)
 
-    if st.button("Analizar imagen"):
-        st.success("Imagen recibida correctamente.")
-        st.write("🤖 Próximamente se ejecutará la IA.")
+            st.write(f"📍 Barrio: {barrio}")
+            st.write(f"📌 Referencia: {referencia}")
+            st.write(f"🗑️ Objetos detectados: {cantidad}")
