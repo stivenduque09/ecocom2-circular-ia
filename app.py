@@ -311,4 +311,3 @@ elif menu == "Punto crítico":
             st.write(f"📍 Barrio: {barrio}")
             st.write(f"📌 Referencia: {referencia}")
             st.write(f"🗑️ Objetos detectados: {cantidad}")
-```
