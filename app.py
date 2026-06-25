@@ -242,7 +242,7 @@ elif menu == "Reportar residuo":
 
                     objetos.append(nombre)
 
-         if len(objetos) > 0:
+        if len(objetos) > 0:
 
     st.success("Análisis completado")
 
