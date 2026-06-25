@@ -250,38 +250,31 @@ elif menu == "Reportar residuo":
 
             conteo = Counter(objetos)
 
-            for obj, cantidad_obj in conteo.items():
+           for obj, cantidad_obj in conteo.items():
 
-                    if obj in materiales:
+    if obj in materiales:
 
-                        nombre_es, material, peso, reciclable = materiales[obj]
+        nombre_es, material, peso, reciclable = materiales[obj]
 
-                        if reciclable:
+        if reciclable:
 
-    residuos += cantidad_obj
+            residuos += cantidad_obj
 
-    st.success(
-        f"♻️ {nombre_es}: {cantidad_obj} unidad(es)"
-           )
+            st.success(
+                f"♻️ {nombre_es}: {cantidad_obj} unidad(es)"
+            )
 
-                st.write(
-                   f"Material: {material}"
-                )
- 
-                  peso_total += peso * cantidad_obj
+            st.write(
+                f"Material: {material}"
+            )
 
-                 else:
+            peso_total += peso * cantidad_obj
 
-               st.warning(
-        f"⚠️ {nombre_es} no corresponde a un residuo."
-    )j
+        else:
 
-                        else:
-
-                            st.warning(
-                                f"⚠️ {nombre_es} no corresponde a un residuo."
-                            )
-
+            st.warning(
+                f"⚠️ {nombre_es} no corresponde a un residuo."
+            )
                 cantidad = len(objetos)
                 residuos = 0
 
