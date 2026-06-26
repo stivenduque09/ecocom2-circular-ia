@@ -3,6 +3,9 @@ from ultralytics import YOLO
 from PIL import Image
 import tempfile
 from collections import Counter
+import folium                     # <--- NUEVA: Para crear el mapa
+from streamlit_folium import st_folium  # <--- NUEVA: Para mostrar el mapa en Streamlit
+import random
 
 # --------------------------------
 # CONFIGURACIÓN
