@@ -3,6 +3,9 @@ from ultralytics import YOLO
 from PIL import Image
 import tempfile
 from collections import Counter
+import folium                     
+from streamlit_folium import st_folium  
+import random
 
 # --------------------------------
 # CONFIGURACIÓN
@@ -25,7 +28,7 @@ def cargar_modelo():
 modelo = None
 try:
     modelo = cargar_modelo()
-except Exception:
+except Exception as e:
     try:
         modelo = YOLO("yolov8m.pt")
     except Exception:
@@ -84,7 +87,7 @@ materiales = {
 }
 
 # --------------------------------
-# MENÚ LATERAL
+# MENÚ CON LOGO
 # --------------------------------
 
 try:
@@ -102,6 +105,7 @@ menu = st.sidebar.radio(
     ]
 )
 
+# SOLUCIÓN DEL CUELLO DE BOTELLA: Eliminamos st.sidebar.info para que no choque con el validador de métricas
 st.sidebar.markdown("---")
 st.sidebar.markdown("""
     <div style="background-color: rgba(16, 185, 129, 0.1); padding: 15px; border-radius: 10px; border: 1px solid rgba(16, 185, 129, 0.2); font-family: sans-serif; font-size: 13px;">
@@ -111,13 +115,16 @@ st.sidebar.markdown("""
     </div>
 """, unsafe_allow_html=True)
 
+if modelo is None:
+    st.sidebar.error("⚠️ No se pudo inicializar la red YOLOv8. Revisa los archivos de tu modelo.")
+
 # --------------------------------
 # INICIO
 # --------------------------------
 
 if menu == "Inicio":
     st.title("♻️ EcoCom2 Circular IA")
-    st.write("Sistema inteligente de gestión de residuos mediante inteligencia artificial en la Comuna 2 Santa Cruz.")
+    st.write("Sistema inteligente de gestión de residuos mediante inteligencia artificial.")
 
 # --------------------------------
 # INFORMACIÓN
@@ -137,6 +144,9 @@ elif menu == "Información":
 # --------------------------------
 
 elif menu == "Reportar residuo":
+    from streamlit_js_eval import streamlit_js_eval
+    from geopy.geocoders import Nominatim
+
     st.header("♻️ Reporte de residuos")
 
     if "reporte_enviado" not in st.session_state:
@@ -144,19 +154,59 @@ elif menu == "Reportar residuo":
 
     if st.session_state.reporte_enviado:
         st.success("🎉 ¡Tu reporte ha sido enviado y registrado con éxito!")
-        if st.button("🔄 Hacer otro reporte", use_container_width=True, type="primary"):
-            st.session_state.reporte_enviado = False
-            st.rerun()
+        st.subheader("¿Qué deseas hacer ahora?")
+        
+        col_otro, col_salir = st.columns(2)
+        with col_otro:
+            if st.button("🔄 Hacer otro reporte", use_container_width=True, type="primary"):
+                st.session_state.reporte_enviado = False
+                st.rerun()
+        with col_salir:
+            if st.button("🚪 Salir al Inicio", use_container_width=True):
+                st.session_state.reporte_enviado = False
+                st.info("Para salir, selecciona 'Inicio' en el menú de la izquierda ♻️.")
+
     else:
+        st.subheader("📍 Ubicación del reporte")
+        obtener_gps = st.checkbox("Obtener mi ubicación exacta en tiempo real (GPS)")
+        
+        coordenadas = None
+        direccion_real = None
+
+        if obtener_gps:
+            loc = streamlit_js_eval(data_theme='dark', component='get_geolocation', key='data_geo')
+            if loc:
+                lat = loc['coords']['latitude']
+                lon = loc['coords']['longitude']
+                coordenadas = {"lat": [lat], "lon": [lon]}
+                
+                try:
+                    geolocator = Nominatim(user_agent="ecocom2_circular_ia")
+                    location = geolocator.reverse(f"{lat}, {lon}")
+                    if location:
+                        direccion_real = location.address
+                        st.success(f"🏠 **Dirección detectada:** {direccion_real}")
+                    else:
+                        st.warning("⚠️ Coordenadas obtenidas, pero sin dirección exacta.")
+                except Exception:
+                    direccion_real = f"Lat: {lat:.5f}, Lon: {lon:.5f}"
+                
+                st.map(coordenadas)
+            else:
+                st.info("🌐 Buscando señal de GPS... Asegúrate de dar permisos de ubicación en tu navegador si se queda cargando.")
+
         barrio = st.selectbox(
-            "Seleccione el barrio:",
+            "Seleccione el barrio (Si no usa GPS)",
             ["Andalucía", "Villa del Socorro", "Moscú"]
         )
 
-        referencia = st.text_input("Ingrese una referencia:")
+        referencia = st.text_input("Ingrese una referencia")
+
+        if referencia and len(referencia) < 8:
+            st.warning("Ingrese una referencia más específica.")
 
         imagen = st.file_uploader(
-            "Seleccione una fotografía:",
+            "Seleccione una fotografía",
             type=["jpg", "jpeg", "png"]
         )
 
@@ -206,7 +256,11 @@ elif menu == "Reportar residuo":
                         nivel = "⚪ Evidencia insuficiente"
 
                     st.markdown("### 📊 Resumen del Reporte")
-                    st.write(f"📍 **Barrio:** {barrio}")
+                    if direccion_real:
+                        st.write(f"📍 **Ubicación GPS:** {direccion_real}")
+                    else:
+                        st.write(f"📍 **Barrio:** {barrio}")
+                        
                     st.write(f"📌 **Referencia:** {referencia}")
                     st.write(f"🗑️ **Objetos detectados:** {len(objetos)}")
                     st.write(f"♻️ **Residuos reciclables:** {residuos}")
@@ -215,6 +269,8 @@ elif menu == "Reportar residuo":
 
                     if residuos == 0:
                         st.error("❌ No se identificaron residuos aprovechables.")
+                    elif residuos <= 2:
+                        st.info("📷 Se recomienda una fotografía más cercana.")
                     else:
                         st.success("✅ Reporte validado correctamente.")
 
