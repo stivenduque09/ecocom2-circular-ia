@@ -3,8 +3,8 @@ from ultralytics import YOLO
 from PIL import Image
 import tempfile
 from collections import Counter
-import folium
-from streamlit_folium import st_folium
+import folium                     # <--- NUEVA: Para crear el mapa
+from streamlit_folium import st_folium  # <--- NUEVA: Para mostrar el mapa en Streamlit
 import random
 
 # --------------------------------
@@ -23,16 +23,9 @@ st.set_page_config(
 
 @st.cache_resource
 def cargar_modelo():
-   return YOLO("best.pt")
+   return YOLO("yolov8m.pt")
 
-modelo = None
-try:
-    modelo = cargar_modelo()
-except Exception as e:
-    try:
-        modelo = YOLO("yolov8m.pt")
-    except Exception:
-        pass
+modelo = cargar_modelo()
 
 # --------------------------------
 # MATERIALES
@@ -85,13 +78,13 @@ materiales = {
     "motorcycle": ("Motocicleta", "No aplica", 0, False),
     "bicycle": ("Bicicleta", "No aplica", 0, False)
 }
-
 # --------------------------------
 # MENÚ CON LOGO
 # --------------------------------
 
 try:
-    st.sidebar.image("logo.png")
+    # Usamos directamente la ruta del archivo, así Streamlit lo abre solito sin chocar con la IA
+    st.sidebar.image("logo.png", use_container_width=True)
 except Exception:
     st.sidebar.title("♻️ EcoCom2")
 
@@ -104,16 +97,6 @@ menu = st.sidebar.radio(
         "Información"
     ]
 )
-
-# SE CAMBIÓ EL INFO POR MARKDOWN PARA EVITAR EL ERROR DE TIPOS
-st.sidebar.markdown("---")
-st.sidebar.markdown("""
-    <div style="background-color: rgba(16, 185, 129, 0.1); padding: 15px; border-radius: 10px; border: 1px solid rgba(16, 185, 129, 0.2); font-family: sans-serif; font-size: 13px;">
-        ⚙️ <b>Ecosistema EcoCom2 v1.5</b><br>
-        Territorio INN 2026 | ITM Medellín<br>
-        Desarrollado por: <b>Brandon Duque</b>
-    </div>
-""", unsafe_allow_html=True)
 
 # --------------------------------
 # INICIO
@@ -216,7 +199,7 @@ elif menu == "Reportar residuo":
                     img.save(tmp.name)
                     resultados = modelo(tmp.name, conf=0.10)
 
-                imagen_resultado = resultados[0].plot()
+                imagen_resultado = max_res = resultados[0].plot()
                 st.image(imagen_resultado, caption="Objetos detectados", use_container_width=True)
 
                 objetos = []
