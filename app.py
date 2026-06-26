@@ -29,60 +29,41 @@ modelo = cargar_modelo()
 # --------------------------------
 
 materiales = {
-    # PAPEL Y CARTÓN
     "book": ("Libro o cuaderno", "Papel", 0.30, True),
     "paper": ("Papel", "Papel", 0.05, True),
     "newspaper": ("Periódico", "Papel", 0.10, True),
     "box": ("Caja", "Cartón", 0.30, True),
     "notebook": ("Cuaderno", "Papel", 0.20, True),
-    
-    # PLÁSTICOS
+    "toy": ("Juguete", "Plástico", 0.50, True),
+    "bench": ("Banco", "Plástico", 2.50, True),
+    "bucket": ("Balde", "Plástico", 0.50, True),
+    "laptop": ("Portátil", "Electrónico", 2.50, True),
+    "remote": ("Control remoto", "Electrónico", 0.20, True),
     "bottle": ("Botella", "Plástico", 0.05, True),
     "cup": ("Vaso", "Plástico", 0.03, True),
     "chair": ("Silla", "Plástico", 2.00, True),
-    "bench": ("Banco", "Plástico", 2.50, True),
-    "toy": ("Juguete", "Plástico", 0.40, True),
-    "bucket": ("Balde", "Plástico", 0.50, True),
-
-    # VIDRIO
     "wine glass": ("Vidrio", "Vidrio", 0.20, True),
     "glass": ("Vidrio", "Vidrio", 0.20, True),
     "vase": ("Jarrón", "Vidrio", 0.80, True),
-
-    # METALES
     "can": ("Lata", "Aluminio", 0.02, True),
-
-    # ELECTRÓNICOS
     "cell phone": ("Celular", "Electrónico", 0.20, True),
     "keyboard": ("Teclado", "Electrónico", 0.60, True),
     "mouse": ("Ratón", "Electrónico", 0.10, True),
     "tv": ("Televisor", "Electrónico", 8.00, True),
-    "laptop": ("Portátil", "Electrónico", 2.50, True),
-    "remote": ("Control remoto", "Electrónico", 0.20, True),
-
-    # TEXTILES
     "backpack": ("Mochila", "Textil", 0.50, True),
     "handbag": ("Bolso", "Textil", 0.40, True),
     "suitcase": ("Maleta", "Textil", 2.50, True),
     "tie": ("Corbata", "Textil", 0.10, True),
-
-    # ORGÁNICOS
     "banana": ("Banano", "Orgánico", 0.10, True),
     "apple": ("Manzana", "Orgánico", 0.15, True),
     "orange": ("Naranja", "Orgánico", 0.20, True),
     "broccoli": ("Brócoli", "Orgánico", 0.25, True),
     "carrot": ("Zanahoria", "Orgánico", 0.10, True),
-
-    # MUEBLES
     "couch": ("Sofá", "Mixto", 15.00, True),
     "bed": ("Cama", "Mixto", 20.00, True),
     "dining table": ("Mesa", "Madera", 12.00, True),
-
-    # OBJETOS DEL HOGAR
     "clock": ("Reloj", "Electrónico", 0.30, True),
     "umbrella": ("Sombrilla", "Mixto", 0.50, True),
-
-    # NO SON RESIDUOS
     "person": ("Persona", "No aplica", 0, False),
     "dog": ("Perro", "No aplica", 0, False),
     "cat": ("Gato", "No aplica", 0, False),
@@ -96,19 +77,18 @@ materiales = {
 }
 
 # --------------------------------
-# MENÚ
+# MENÚ CON LOGO
 # --------------------------------
 
-st.sidebar.title("♻️ EcoCom2")
+try:
+    imagen_logo = Image.open("logo.png")
+    st.sidebar.image(imagen_logo, use_container_width=True)
+except FileNotFoundError:
+    st.sidebar.title("♻️ EcoCom2")
 
 menu = st.sidebar.radio(
     "Menú",
-    [
-        "Inicio",
-        "Reportar residuo",
-        "Punto crítico",
-        "Información"
-    ]
+    ["Inicio", "Reportar residuo", "Punto crítico", "Información"]
 )
 
 # --------------------------------
@@ -142,11 +122,9 @@ elif menu == "Reportar residuo":
 
     st.header("♻️ Reporte de residuos")
 
-    # Guardar el estado de la pantalla
     if "reporte_enviado" not in st.session_state:
         st.session_state.reporte_enviado = False
 
-    # PANTALLA DE ÉXITO
     if st.session_state.reporte_enviado:
         st.success("🎉 ¡Tu reporte ha sido enviado y registrado con éxito!")
         st.subheader("¿Qué deseas hacer ahora?")
@@ -161,7 +139,6 @@ elif menu == "Reportar residuo":
                 st.session_state.reporte_enviado = False
                 st.info("Para salir, selecciona 'Inicio' en el menú de la izquierda ♻️.")
 
-    # PANTALLA DEL FORMULARIO
     else:
         st.subheader("📍 Ubicación del reporte")
         obtener_gps = st.checkbox("Obtener mi ubicación exacta en tiempo real (GPS)")
@@ -215,7 +192,7 @@ elif menu == "Reportar residuo":
                     img.save(tmp.name)
                     resultados = modelo(tmp.name, conf=0.10)
 
-                imagen_resultado = resultados[0].plot()
+                imagen_resultado = max_res = resultados[0].plot()
                 st.image(imagen_resultado, caption="Objetos detectados", use_container_width=True)
 
                 objetos = []
