@@ -1,8 +1,4 @@
-Aquí tienes el código completo de tu archivo app.py, integrando el Plan B manual corregido con las coordenadas exactas de la Carrera 50 para que el mapa nunca más se te desfase a la Calle 104, junto con la eliminación definitiva de los puntos simulados.
 
-Copia y pega todo este bloque en tu archivo:
-
-Python
 import streamlit as st
 from ultralytics import YOLO
 from PIL import Image
