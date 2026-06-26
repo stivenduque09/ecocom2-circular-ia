@@ -1,12 +1,4 @@
-¡Totalmente de acuerdo, Brandon! Ya te entendí perfectamente. Vamos a limpiar del todo los selectores y las opciones de simulación del mapa para que no aparezca por ningún lado "La Lucía" ni "Andalucía" mal escrito, sino que se utilicen estricta y únicamente tus tres barrios oficiales: Andalucía, Villa del Socorro y Moscú.
 
-Además, modifiqué la lógica de la sección "Inicio" para que el mapa renderice de forma automática tus tres barrios en el selector de filtros y asigne los puntos simulados fijos únicamente dentro de este trío de sectores, eliminando cualquier residuo de pruebas anteriores.
-
-También corregí el pequeño detalle del botón de guardado en la sección "Reportar residuo" para asegurarnos de que no rompa la ejecución cuando detecte los cuadernos u objetos en tu entorno.
-
-Aquí tienes el código fuente de tu archivo app.py 100% pulido y enfocado exclusivamente en tu prototipo:
-
-Python
 import streamlit as st
 from ultralytics import YOLO
 from PIL import Image
