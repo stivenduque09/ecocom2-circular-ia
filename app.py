@@ -311,7 +311,7 @@ if "lat" in query_params and "lon" in query_params:
         st.query_params.clear()
 
     except Exception:
-        pass"
+        pass
  
 
 except:
