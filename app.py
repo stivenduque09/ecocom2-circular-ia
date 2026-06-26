@@ -8,7 +8,28 @@ from streamlit_folium import st_folium
 import pandas as pd               
 import streamlit.components.v1 as components
 from geopy.geocoders import Nominatim
+# --- INICIALIZACIÓN SEGURA ---
+if "fuera_de_rango" not in st.session_state:
+    st.session_state.fuera_de_rango = False
+if "gps_lat" not in st.session_state:
+    st.session_state.gps_lat = 6.2982
+if "gps_lon" not in st.session_state:
+    st.session_state.gps_lon = -75.5521
+    # --- LÓGICA DE VALIDACIÓN ANTES DEL BOTÓN ---
+# Si el barrio seleccionado está en la lista, permitimos el reporte (fuera_de_rango = False)
+if barrio in BARRIOS_HABILITADOS:
+    st.session_state.fuera_de_rango = False 
 
+# Validamos el estado final antes de mostrar el botón de envío
+if st.session_state.fuera_de_rango:
+    st.error(f"🛑 Acceso Denegado: Debes estar en {', '.join(BARRIOS_HABILITADOS)} para reportar.")
+else:
+    if st.button("🚀 ENVIAR REPORTE DEFINITIVO", type="primary", use_container_width=True):
+        st.session_state.registro_reportes.append(st.session_state.cache_nuevo_reporte)
+        del st.session_state.cache_nuevo_reporte  
+        st.session_state.reporte_enviado = True
+        st.rerun()
+# ------------------------------
 # 1. CONFIGURACIÓN INICIAL (PROTEGIDA)
 st.set_page_config(page_title="EcoCom2 Circular IA", layout="wide")
 
