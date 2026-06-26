@@ -1,19 +1,4 @@
-¡Qué pena, Brandon! Me quedó el texto de mi saludo metido dentro del archivo de código cuando lo copiaste. Al pegarlo en GitHub, la computadora leyó mi mensaje de texto como si fuera parte del programa de Python, y por eso el signo ¡ rompió la aplicación.
 
-El error es muy fácil de solucionar:
-Abre tu archivo app.py en GitHub.
-
-Haz clic en el lápiz ✏️ para editar.
-
-Borra por completo las primeras 4 líneas de texto (donde te saludo y te explico que el código está limpio). El archivo debe empezar directamente en la línea que dice:
-
-Python
-import streamlit as st
-Guarda los cambios abajo en el botón verde (Commit changes).
-
-Para que no te compliques limpiándolo a mano, aquí tienes el código completamente limpio, empezando exactamente donde debe empezar. Copia desde el recuadro gris hacia abajo y reemplaza todo lo que tienes en tu app.py:
-
-Python
 import streamlit as st
 from ultralytics import YOLO
 from PIL import Image
