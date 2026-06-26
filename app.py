@@ -1,10 +1,8 @@
-
 import streamlit as st
 from ultralytics import YOLO
 from PIL import Image
 import tempfile
 from collections import Counter
-
 
 # --------------------------------
 # CONFIGURACIÓN
@@ -31,23 +29,14 @@ modelo = cargar_modelo()
 # --------------------------------
 
 materiales = {
-
-    # ----------------------
     # PAPEL Y CARTÓN
-    # ----------------------
     "book": ("Libro o cuaderno", "Papel", 0.30, True),
     "paper": ("Papel", "Papel", 0.05, True),
     "newspaper": ("Periódico", "Papel", 0.10, True),
     "box": ("Caja", "Cartón", 0.30, True),
-     "notebook": ("Cuaderno", "Papel", 0.20, True),
-"toy": ("Juguete", "Plástico", 0.50, True),
-"bench": ("Banco", "Plástico", 2.50, True),
-"bucket": ("Balde", "Plástico", 0.50, True),
-"laptop": ("Portátil", "Electrónico", 2.50, True),
-"remote": ("Control remoto", "Electrónico", 0.20, True),
-    # ----------------------
+    "notebook": ("Cuaderno", "Papel", 0.20, True),
+    
     # PLÁSTICOS
-    # ----------------------
     "bottle": ("Botella", "Plástico", 0.05, True),
     "cup": ("Vaso", "Plástico", 0.03, True),
     "chair": ("Silla", "Plástico", 2.00, True),
@@ -55,21 +44,15 @@ materiales = {
     "toy": ("Juguete", "Plástico", 0.40, True),
     "bucket": ("Balde", "Plástico", 0.50, True),
 
-    # ----------------------
     # VIDRIO
-    # ----------------------
     "wine glass": ("Vidrio", "Vidrio", 0.20, True),
     "glass": ("Vidrio", "Vidrio", 0.20, True),
     "vase": ("Jarrón", "Vidrio", 0.80, True),
 
-    # ----------------------
     # METALES
-    # ----------------------
     "can": ("Lata", "Aluminio", 0.02, True),
 
-    # ----------------------
     # ELECTRÓNICOS
-    # ----------------------
     "cell phone": ("Celular", "Electrónico", 0.20, True),
     "keyboard": ("Teclado", "Electrónico", 0.60, True),
     "mouse": ("Ratón", "Electrónico", 0.10, True),
@@ -77,39 +60,29 @@ materiales = {
     "laptop": ("Portátil", "Electrónico", 2.50, True),
     "remote": ("Control remoto", "Electrónico", 0.20, True),
 
-    # ----------------------
     # TEXTILES
-    # ----------------------
     "backpack": ("Mochila", "Textil", 0.50, True),
     "handbag": ("Bolso", "Textil", 0.40, True),
     "suitcase": ("Maleta", "Textil", 2.50, True),
     "tie": ("Corbata", "Textil", 0.10, True),
 
-    # ----------------------
     # ORGÁNICOS
-    # ----------------------
     "banana": ("Banano", "Orgánico", 0.10, True),
     "apple": ("Manzana", "Orgánico", 0.15, True),
     "orange": ("Naranja", "Orgánico", 0.20, True),
     "broccoli": ("Brócoli", "Orgánico", 0.25, True),
     "carrot": ("Zanahoria", "Orgánico", 0.10, True),
 
-    # ----------------------
     # MUEBLES
-    # ----------------------
     "couch": ("Sofá", "Mixto", 15.00, True),
     "bed": ("Cama", "Mixto", 20.00, True),
     "dining table": ("Mesa", "Madera", 12.00, True),
 
-    # ----------------------
     # OBJETOS DEL HOGAR
-    # ----------------------
     "clock": ("Reloj", "Electrónico", 0.30, True),
     "umbrella": ("Sombrilla", "Mixto", 0.50, True),
 
-    # ----------------------
     # NO SON RESIDUOS
-    # ----------------------
     "person": ("Persona", "No aplica", 0, False),
     "dog": ("Perro", "No aplica", 0, False),
     "cat": ("Gato", "No aplica", 0, False),
@@ -121,7 +94,6 @@ materiales = {
     "motorcycle": ("Motocicleta", "No aplica", 0, False),
     "bicycle": ("Bicicleta", "No aplica", 0, False)
 }
-
 
 # --------------------------------
 # MENÚ
@@ -144,27 +116,17 @@ menu = st.sidebar.radio(
 # --------------------------------
 
 if menu == "Inicio":
-
     st.title("♻️ EcoCom2 Circular IA")
-
-    st.write(
-        "Sistema inteligente de gestión de residuos mediante inteligencia artificial."
-    )
+    st.write("Sistema inteligente de gestión de residuos mediante inteligencia artificial.")
 
 # --------------------------------
 # INFORMACIÓN
 # --------------------------------
 
 elif menu == "Información":
-
     st.header("¿Qué es EcoCom2 Circular IA?")
-
-    st.write(
-        "EcoCom2 Circular IA identifica residuos y puntos críticos mediante fotografías e inteligencia artificial."
-    )
-
+    st.write("EcoCom2 Circular IA identifica residuos y puntos críticos mediante fotografías e inteligencia artificial.")
     st.header("Objetivos")
-
     st.write("♻️ Promover el reciclaje.")
     st.write("🌎 Reducir la contaminación.")
     st.write("📍 Identificar puntos críticos.")
@@ -175,18 +137,16 @@ elif menu == "Información":
 # --------------------------------
 
 elif menu == "Reportar residuo":
-
-    # IMPORTANTE: Importamos las librerías necesarias aquí mismo
     from streamlit_js_eval import streamlit_js_eval
     from geopy.geocoders import Nominatim
 
     st.header("♻️ Reporte de residuos")
 
-    # Control de pantallas (Formulario o Éxito)
+    # Guardar el estado de la pantalla
     if "reporte_enviado" not in st.session_state:
         st.session_state.reporte_enviado = False
 
-    # === VISTA A: PANTALLA DE ÉXITO (Hacer otro o Salir) ===
+    # PANTALLA DE ÉXITO
     if st.session_state.reporte_enviado:
         st.success("🎉 ¡Tu reporte ha sido enviado y registrado con éxito!")
         st.subheader("¿Qué deseas hacer ahora?")
@@ -201,7 +161,7 @@ elif menu == "Reportar residuo":
                 st.session_state.reporte_enviado = False
                 st.info("Para salir, selecciona 'Inicio' en el menú de la izquierda ♻️.")
 
-    # === VISTA B: FORMULARIO DE REPORTE ===
+    # PANTALLA DEL FORMULARIO
     else:
         st.subheader("📍 Ubicación del reporte")
         obtener_gps = st.checkbox("Obtener mi ubicación exacta en tiempo real (GPS)")
@@ -210,15 +170,12 @@ elif menu == "Reportar residuo":
         direccion_real = None
 
         if obtener_gps:
-            # Captura las coordenadas del navegador de tu laptop
             loc = streamlit_js_eval(data_theme='dark', component='get_geolocation', key='data_geo')
-            
             if loc:
                 lat = loc['coords']['latitude']
                 lon = loc['coords']['longitude']
                 coordenadas = {"lat": [lat], "lon": [lon]}
                 
-                # Traduce las coordenadas a dirección de texto real
                 try:
                     geolocator = Nominatim(user_agent="ecocom2_circular_ia")
                     location = geolocator.reverse(f"{lat}, {lon}")
@@ -232,7 +189,7 @@ elif menu == "Reportar residuo":
                 
                 st.map(coordenadas)
             else:
-                st.info("Esperando que aceptes los permisos de ubicación en el navegador... 🌐")
+                st.info("🌐 Buscando señal de GPS... Asegúrate de dar permisos de ubicación en tu navegador si se queda cargando.")
 
         barrio = st.selectbox(
             "Seleccione el barrio (Si no usa GPS)",
@@ -294,7 +251,6 @@ elif menu == "Reportar residuo":
                     else:
                         nivel = "⚪ Evidencia insuficiente"
 
-                    # Resumen en pantalla
                     st.markdown("### 📊 Resumen del Reporte")
                     if direccion_real:
                         st.write(f"📍 **Ubicación GPS:** {direccion_real}")
@@ -314,35 +270,27 @@ elif menu == "Reportar residuo":
                     else:
                         st.success("✅ Reporte validado correctamente.")
 
-                    # Botón para activar el flujo final
                     st.write("---")
                     if st.button("🚀 ENVIAR REPORTE DEFINITIVO", type="primary", use_container_width=True):
                         st.session_state.reporte_enviado = True
                         st.rerun()
                 else:
                     st.error("❌ No se detectaron objetos.")
+
 # --------------------------------
 # PUNTO CRÍTICO
 # --------------------------------
 
 elif menu == "Punto crítico":
-
     st.header("🚨 Punto crítico")
 
     barrio = st.selectbox(
         "Seleccione el barrio",
-        [
-            "Andalucía",
-            "Villa del Socorro",
-            "Moscú"
-        ],
+        ["Andalucía", "Villa del Socorro", "Moscú"],
         key="barrio2"
     )
 
-    referencia = st.text_input(
-        "Referencia",
-        key="referencia2"
-    )
+    referencia = st.text_input("Referencia", key="referencia2")
 
     imagen = st.file_uploader(
         "Suba una fotografía",
@@ -351,47 +299,28 @@ elif menu == "Punto crítico":
     )
 
     if imagen is not None:
-
         img = Image.open(imagen)
-
-        st.image(
-            img,
-            use_container_width=True
-        )
+        st.image(img, use_container_width=True)
 
         if st.button("Evaluar punto crítico"):
-
-            with tempfile.NamedTemporaryFile(
-                delete=False,
-                suffix=".jpg"
-            ) as tmp:
-
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
                 img.save(tmp.name)
-
-                resultados = modelo(
-                    tmp.name,
-                    conf=0.10
-                )
+                resultados = modelo(tmp.name, conf=0.10)
 
             cantidad = 0
-
             for r in resultados:
                 cantidad += len(r.boxes)
 
             if cantidad >= 8:
                 nivel = "🔴 Punto crítico alto"
-
             elif cantidad >= 4:
                 nivel = "🟡 Punto crítico medio"
-
             elif cantidad >= 1:
                 nivel = "🟢 Punto crítico bajo"
-
             else:
                 nivel = "⚪ Sin evidencia"
 
             st.warning(nivel)
-
             st.write(f"📍 Barrio: {barrio}")
             st.write(f"📌 Referencia: {referencia}")
             st.write(f"🗑️ Objetos detectados: {cantidad}")
