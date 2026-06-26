@@ -358,7 +358,7 @@ if menu == "🏠 Inicio":
 # 10. SECCIÓN: PUNTO CRÍTICO
 # ====================================================================
 elif menu == "🚨 Punto Crítico":eporte_enviado = True
-                    st.rerun()
+        st.rerun()
 
 # ====================================================================
 # 10. SECCIÓN: PUNTO CRÍTICO
