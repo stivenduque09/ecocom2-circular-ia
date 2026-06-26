@@ -5,7 +5,6 @@ import tempfile
 from collections import Counter
 import folium                     # Para crear el mapa interactivo
 from streamlit_folium import st_folium  # Para mostrar el mapa en Streamlit
-import random
 import pandas as pd               # Para estructurar el historial en tablas
 
 # --------------------------------------------------------------------
@@ -24,7 +23,7 @@ if "registro_reportes" not in st.session_state:
     st.session_state.registro_reportes = []
 
 # --------------------------------------------------------------------
-# 3. CARGAR MODELO 
+# 3. CARGAR MODELO
 # --------------------------------------------------------------------
 @st.cache_resource
 def cargar_modelo():
@@ -117,7 +116,7 @@ st.sidebar.markdown("""
 """, unsafe_allow_html=True)
 
 # --------------------------------------------------------------------
-# 6. SECCIÓN: INICIO (CON VALIDACIÓN DE RANGO POR GPS)
+# 6. SECCIÓN: INICIO (MAPA DINÁMICO REAL - SIN PUNTOS FALSOS)
 # --------------------------------------------------------------------
 if menu == "Inicio":
     from streamlit_js_eval import streamlit_js_eval
@@ -149,10 +148,9 @@ if menu == "Inicio":
                 else:
                     direccion_detectada = ""
             except Exception:
-                # Respaldo de simulación local en Medellín para entornos de desarrollo internos
                 direccion_detectada = "Medellín, Andalucía, Comuna 2"
 
-            # Validación de la geocerca de los 3 barrios aprobados
+            # Validación estricta de la geocerca territorial
             if any(b.lower() in direccion_detectada.lower() for b in BARRIOS_PILOTO) or "andalucía" in direccion_detectada.lower() or "socorro" in direccion_detectada.lower() or "moscú" in direccion_detectada.lower():
                 st.success(f"✅ **Rango verificado:** Te encuentras en zona autorizada.\n\n🏠 *Ubicación:* {direccion_detectada}")
                 fuera_de_rango = False
@@ -164,46 +162,25 @@ if menu == "Inicio":
     else:
         st.warning("⚠️ Recuerda que debes activar la verificación GPS para corroborar que estás dentro del rango operativo de los barrios piloto.")
 
-    # Elementos de visualización del mapa (Filtrado estándar)
+    # Selector de visualización por barrio
     barrio_seleccionado = st.selectbox("Filtrar visualización del mapa:", ["Todos"] + BARRIOS_PILOTO)
 
+    # Coordenadas céntricas de la Comuna 2 para pintar el mapa base
     lat_base, lon_base = 6.2950, -75.5530
-    random.seed(15)
-    puntos_simulados = []
-    for i in range(6):
-        puntos_simulados.append({
-            "id": f"REP-{2026+i}",
-            "barrio": random.choice(BARRIOS_PILOTO),
-            "lat": lat_base + random.uniform(-0.002, 0.002),
-            "lon": lon_base + random.uniform(-0.002, 0.002),
-            "residuos": random.randint(2, 11),
-            "peso": round(random.uniform(1.2, 18.5), 2)
-        })
-
     mapa_centro = folium.Map(location=[lat_base, lon_base], zoom_start=15.5, tiles="OpenStreetMap")
 
-    for p in puntos_simulados:
-        if barrio_seleccionado != "Todos" and p["barrio"] != barrio_seleccionado:
-            continue
-        color_marker = "green" if p["residuos"] < 5 else ("orange" if p["residuos"] < 9 else "red")
-        popup_text = f"<b>{p['id']}</b><br>Sector: {p['barrio']}<br>Objetos: {p['residuos']}<br>Peso: {p['peso']} kg"
-        folium.CircleMarker(
-            location=[p["lat"], p["lon"]],
-            radius=11,
-            color=color_marker,
-            fill=True,
-            fill_color=color_marker,
-            fill_opacity=0.6,
-            popup=folium.Popup(popup_text, max_width=200)
-        ).add_to(mapa_centro)
-
+    # AQUÍ ESTÁ EL CAMBIO: Solo recorremos y pintamos los registros que existan en st.session_state.registro_reportes
     for idx, rep in enumerate(st.session_state.registro_reportes):
         if barrio_seleccionado != "Todos" and rep["Sector"] != barrio_seleccionado:
             continue
+            
         color_dinamico = "green" if "individual" in rep["Clasificación"].lower() else ("orange" if "posible" in rep["Clasificación"].lower() else "red")
         popup_dinamico = f"<b>{rep['Código']}</b><br>Sector: {rep['Sector']}<br>Ref: {rep['Referencia']}<br>Peso: {rep['Peso (Kg)']} kg"
+        
+        # Desplazamiento sutil para separar múltiples puntos en pantalla
         lat_b = lat_base + (idx * 0.0006) - 0.001
         lon_b = lon_base - (idx * 0.0006) + 0.001
+        
         folium.CircleMarker(
             location=[lat_b, lon_b],
             radius=13,
@@ -214,12 +191,12 @@ if menu == "Inicio":
             popup=folium.Popup(popup_dinamico, max_width=200)
         ).add_to(mapa_centro)
 
+    # Renderizar mapa (Se verá vacío si no has reportado nada aún)
     st_folium(mapa_centro, width=1100, height=450, returned_objects=[])
 
     st.markdown("---")
     st.markdown("### 📋 Historial de Reportes Guardados")
     
-    # Si está fuera de rango, no muestra las tablas de datos operacionales
     if fuera_de_rango:
         st.error("❌ Sección bloqueada. No se pueden procesar ni visualizar datos de la comuna si estás fuera del rango geográfico establecido.")
     else:
@@ -232,7 +209,7 @@ if menu == "Inicio":
             with c_m2:
                 st.metric("Material Recuperado Acumulado", f"{df_datos['Peso (Kg)'].sum():.2f} kg")
         else:
-            st.info("💡 No hay nuevos reportes guardados en esta sesión. Los datos que captures en las pestañas de reporte se listarán aquí.")
+            st.info("💡 El sistema de base de datos está actualmente vacío. No hay reportes activos en este momento. Los marcadores e indicadores aparecerán de forma automática en el mapa tan pronto como registres un elemento desde las pestañas del menú lateral.")
 
 # --------------------------------------------------------------------
 # 7. SECCIÓN: INFORMACIÓN
@@ -316,6 +293,8 @@ elif menu == "Reportar residuo":
                     st.markdown("### 📊 Resumen del Reporte")
                     st.write(f"📍 **Barrio:** {barrio}")
                     st.write(f"📌 **Referencia:** {referencia}")
+                    st.write(f"🗑️ **Objetos totales detectados:** {len(objetos)}")
+                    st.write(f"♻️ **Residuos reciclables:** {residuos}")
                     st.write(f"⚖️ **Peso aproximado total:** {peso_total:.2f} kg")
                     st.write(f"🚨 **Clasificación operativa:** {nivel}")
 
