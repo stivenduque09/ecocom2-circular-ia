@@ -427,4 +427,4 @@ elif menu == "Punto crítico":
                 "Predominante": "Mixto Satélite",
                 "Clasificación": nivel
             })
-            st.success("¡Alerta registrada con éxito en el mapa de control de Inicio!
+            st.success("¡Alerta registrada con éxito en el mapa de control de Inicio!)
