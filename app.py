@@ -210,7 +210,7 @@ elif menu == "Reportar residuo":
             use_container_width=True
         )
 
-          if st.button("Analizar imagen"):
+        if st.button("Analizar imagen"):
 
             with tempfile.NamedTemporaryFile(
                 delete=False,
@@ -236,12 +236,11 @@ elif menu == "Reportar residuo":
 
             for r in resultados:
                 for box in r.boxes:
-
                     clase = int(box.cls[0])
                     nombre = modelo.names[clase]
-
                     objetos.append(nombre)
 
+            # Toda la lógica de análisis se ejecuta si se presionó el botón y se generó la lista
             if len(objetos) > 0:
 
                 st.success("✅ Análisis completado")
@@ -258,34 +257,19 @@ elif menu == "Reportar residuo":
                         nombre_es, material, peso, reciclable = materiales[obj]
 
                         if reciclable:
-
                             residuos += cantidad_obj
-
-                            st.success(
-                                f"♻️ {nombre_es}: {cantidad_obj} unidad(es)"
-                            )
-
-                            st.write(
-                                f"Material: {material}"
-                            )
-
+                            st.success(f"♻️ {nombre_es}: {cantidad_obj} unidad(es)")
+                            st.write(f"Material: {material}")
                             peso_total += peso * cantidad_obj
-
                         else:
-
-                            st.warning(
-                                f"⚠️ {nombre_es} no corresponde a un residuo."
-                            )
+                            st.warning(f"⚠️ {nombre_es} no corresponde a un residuo.")
 
                 if residuos >= 10:
                     nivel = "🔴 Punto crítico confirmado"
-
                 elif residuos >= 5:
                     nivel = "🟡 Posible punto crítico"
-
                 elif residuos >= 1:
                     nivel = "🟢 Residuo individual"
-
                 else:
                     nivel = "⚪ Evidencia insuficiente"
 
@@ -297,28 +281,14 @@ elif menu == "Reportar residuo":
                 st.write(f"🚨 Clasificación: {nivel}")
 
                 if residuos == 0:
-
-                    st.error(
-                        "❌ No se identificaron residuos aprovechables."
-                    )
-
+                    st.error("❌ No se identificaron residuos aprovechables.")
                 elif residuos <= 2:
-
-                    st.info(
-                        "📷 Se recomienda una fotografía más cercana."
-                    )
-
+                    st.info("📷 Se recomienda una fotografía más cercana.")
                 else:
-
-                    st.success(
-                        "✅ Reporte validado correctamente."
-                    )
+                    st.success("✅ Reporte validado correctamente.")
 
             else:
-
-                st.error(
-                    "❌ No se detectaron objetos."
-                )
+                st.error("❌ No se detectaron objetos.")
 # --------------------------------
 # PUNTO CRÍTICO
 # --------------------------------
