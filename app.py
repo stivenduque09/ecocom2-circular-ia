@@ -4,7 +4,7 @@ from ultralytics import YOLO
 from PIL import Image
 import tempfile
 from collections import Counter
-pip install streamlit-js-eval
+
 
 # --------------------------------
 # CONFIGURACIÓN
