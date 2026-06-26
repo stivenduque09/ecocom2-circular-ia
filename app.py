@@ -176,57 +176,64 @@ elif menu == "Información":
 
 elif menu == "Reportar residuo":
 
-    # 1. IMPORTANTE: Importamos el componente de ubicación real
+    # IMPORTANTE: Importamos las librerías necesarias aquí mismo
     from streamlit_js_eval import streamlit_js_eval
+    from geopy.geocoders import Nominatim
 
     st.header("♻️ Reporte de residuos")
 
-    # 2. Inicializamos la variable de estado si no existe
+    # Control de pantallas (Formulario o Éxito)
     if "reporte_enviado" not in st.session_state:
         st.session_state.reporte_enviado = False
 
-    # ==========================================
-    # VISTA A: PANTALLA DE CONFIRMACIÓN FINAL
-    # ==========================================
+    # === VISTA A: PANTALLA DE ÉXITO (Hacer otro o Salir) ===
     if st.session_state.reporte_enviado:
         st.success("🎉 ¡Tu reporte ha sido enviado y registrado con éxito!")
         st.subheader("¿Qué deseas hacer ahora?")
         
         col_otro, col_salir = st.columns(2)
-        
         with col_otro:
             if st.button("🔄 Hacer otro reporte", use_container_width=True, type="primary"):
-                # Resetear el estado para volver a mostrar el formulario
                 st.session_state.reporte_enviado = False
                 st.rerun()
-                
         with col_salir:
             if st.button("🚪 Salir al Inicio", use_container_width=True):
                 st.session_state.reporte_enviado = False
                 st.info("Para salir, selecciona 'Inicio' en el menú de la izquierda ♻️.")
 
-    # ==========================================
-    # VISTA B: FORMULARIO DE REPORTE (TU DISEÑO)
-    # ==========================================
+    # === VISTA B: FORMULARIO DE REPORTE ===
     else:
-        # --- NUEVA SECCIÓN DE UBICACIÓN REAL ---
         st.subheader("📍 Ubicación del reporte")
         obtener_gps = st.checkbox("Obtener mi ubicación exacta en tiempo real (GPS)")
+        
         coordenadas = None
+        direccion_real = None
 
         if obtener_gps:
-            # Solicita la geolocalización al navegador web de tu ASUS
+            # Captura las coordenadas del navegador de tu laptop
             loc = streamlit_js_eval(data_theme='dark', component='get_geolocation', key='data_geo')
+            
             if loc:
                 lat = loc['coords']['latitude']
                 lon = loc['coords']['longitude']
                 coordenadas = {"lat": [lat], "lon": [lon]}
-                st.success(f"🗺️ Coordenadas capturadas: Lat {lat:.5f}, Lon {lon:.5f}")
-                st.map(coordenadas) # Dibuja el mapa en pantalla
+                
+                # Traduce las coordenadas a dirección de texto real
+                try:
+                    geolocator = Nominatim(user_agent="ecocom2_circular_ia")
+                    location = geolocator.reverse(f"{lat}, {lon}")
+                    if location:
+                        direccion_real = location.address
+                        st.success(f"🏠 **Dirección detectada:** {direccion_real}")
+                    else:
+                        st.warning("⚠️ Coordenadas obtenidas, pero sin dirección exacta.")
+                except Exception:
+                    direccion_real = f"Lat: {lat:.5f}, Lon: {lon:.5f}"
+                
+                st.map(coordenadas)
             else:
-                st.info("Esperando permisos de ubicación del navegador... Por favor acéptalos en la barra de direcciones.")
+                st.info("Esperando que aceptes los permisos de ubicación en el navegador... 🌐")
 
-        # Selector de barrio clásico (por si el GPS está apagado)
         barrio = st.selectbox(
             "Seleccione el barrio (Si no usa GPS)",
             ["Andalucía", "Villa del Socorro", "Moscú"]
@@ -287,18 +294,18 @@ elif menu == "Reportar residuo":
                     else:
                         nivel = "⚪ Evidencia insuficiente"
 
-                    # --- IMPRESIÓN DE RESULTADOS ---
+                    # Resumen en pantalla
                     st.markdown("### 📊 Resumen del Reporte")
-                    if coordenadas:
-                        st.write("📍 Ubicación: Capturada mediante GPS Real.")
+                    if direccion_real:
+                        st.write(f"📍 **Ubicación GPS:** {direccion_real}")
                     else:
-                        st.write(f"📍 Barrio: {barrio}")
+                        st.write(f"📍 **Barrio:** {barrio}")
                         
-                    st.write(f"📌 Referencia: {referencia}")
-                    st.write(f"🗑️ Objetos detectados: {len(objetos)}")
-                    st.write(f"♻️ Residuos reciclables: {residuos}")
-                    st.write(f"⚖️ Peso aproximado: {peso_total:.2f} kg")
-                    st.write(f"🚨 Clasificación: {nivel}")
+                    st.write(f"📌 **Referencia:** {referencia}")
+                    st.write(f"🗑️ **Objetos detectados:** {len(objetos)}")
+                    st.write(f"♻️ **Residuos reciclables:** {residuos}")
+                    st.write(f"⚖️ **Peso aproximado:** {peso_total:.2f} kg")
+                    st.write(f"🚨 **Clasificación:** {nivel}")
 
                     if residuos == 0:
                         st.error("❌ No se identificaron residuos aprovechables.")
@@ -307,9 +314,8 @@ elif menu == "Reportar residuo":
                     else:
                         st.success("✅ Reporte validado correctamente.")
 
-                    # --- EL BOTÓN CLAVE QUE SOLICITASTE ---
+                    # Botón para activar el flujo final
                     st.write("---")
-                    # Este botón activa el cambio a la Vista A
                     if st.button("🚀 ENVIAR REPORTE DEFINITIVO", type="primary", use_container_width=True):
                         st.session_state.reporte_enviado = True
                         st.rerun()
