@@ -3,76 +3,97 @@ from ultralytics import YOLO
 from PIL import Image
 import tempfile
 from collections import Counter
-import folium                     # Para el mapa interactivo
+import folium                     # Para crear el mapa interactivo
 from streamlit_folium import st_folium  # Para mostrar el mapa en Streamlit
-import random                     # Para simular coordenadas fijas en la Comuna 2
-import pandas as pd               # Para la visualización de la base de datos guardada
+import random
+import pandas as pd               # Para estructurar el historial en tablas
 
 # --------------------------------------------------------------------
-# 1. CONFIGURACIÓN DE LA PÁGINA Y ESTILOS
+# 1. CONFIGURACIÓN DE LA PÁGINA
 # --------------------------------------------------------------------
 st.set_page_config(
-    page_title="Circular IA EcoCom2",
+    page_title="EcoCom2 Circular IA",
     page_icon="♻️",
     layout="wide"
 )
 
-# Estilo personalizado para las tarjetas y títulos
-st.markdown("""
-    <style>
-    .main-title {
-        font-size: 34px;
-        font-weight: bold;
-        color: #10B981;
-        margin-bottom: 5px;
-    }
-    .subtitle {
-        font-size: 18px;
-        color: #4B5563;
-        margin-bottom: 25px;
-    }
-    .card-reciclable {
-        background-color: #E6F4EA;
-        padding: 20px;
-        border-radius: 15px;
-        border-left: 6px solid #137333;
-        margin-bottom: 15px;
-    }
-    .card-no-reciclable {
-        background-color: #FCE8E6;
-        padding: 20px;
-        border-radius: 15px;
-        border-left: 6px solid #C5221F;
-        margin-bottom: 15px;
-    }
-    </style>
-""", unsafe_allow_html=True)
-
 # --------------------------------------------------------------------
-# 2. BASE DE DATOS EN MEMORIA (REGISTRO ACUMULATIVO REAL)
+# 2. BASE DE DATOS EN MEMORIA (PERSISTENCIA DE REPORTES REALES)
 # --------------------------------------------------------------------
 if "registro_reportes" not in st.session_state:
     st.session_state.registro_reportes = []
 
 # --------------------------------------------------------------------
-# 3. CARGA DEL MODELO IA (CON RESPALDO AUTOMÁTICO SI NO EXISTE BEST.PT)
+# 3. CARGAR MODELO (CON RESPALDO SEGURO ANTE EL ERROR DE DISCO)
 # --------------------------------------------------------------------
 @st.cache_resource
 def cargar_modelo():
     try:
-        # Intenta cargar tu modelo personalizado
-        return YOLO('best.pt')
+        return YOLO("best.pt")
     except Exception:
-        # Si no lo encuentra en GitHub, descarga el oficial de internet para que la app no muera
-        return YOLO('yolov8n.pt')
+        return YOLO("yolov8m.pt")
 
-model = cargar_modelo()
+modelo = cargar_modelo()
 
 # --------------------------------------------------------------------
-# 4. BARRA LATERAL (CORREGIDO EL CUELLO DE BOTELLA HTML)
+# 4. DICCIONARIO DE MATERIALES Y PESOS OPERATIVOS
+# --------------------------------------------------------------------
+materiales = {
+    "book": ("Libro o cuaderno", "Papel", 0.30, True),
+    "paper": ("Papel", "Papel", 0.05, True),
+    "newspaper": ("Periódico", "Papel", 0.10, True),
+    "box": ("Caja", "Cartón", 0.30, True),
+    "notebook": ("Cuaderno", "Papel", 0.20, True),
+    "toy": ("Juguete", "Plástico", 0.50, True),
+    "bench": ("Banco", "Plástico", 2.50, True),
+    "bucket": ("Balde", "Plástico", 0.50, True),
+    "laptop": ("Portátil", "Electrónico", 2.50, True),
+    "remote": ("Control remoto", "Electrónico", 0.20, True),
+    "bottle": ("Botella", "Plástico", 0.05, True),
+    "cup": ("Vaso", "Plástico", 0.03, True),
+    "chair": ("Silla", "Plástico", 2.00, True),
+    "wine glass": ("Vidrio", "Vidrio", 0.20, True),
+    "glass": ("Vidrio", "Vidrio", 0.20, True),
+    "vase": ("Jarrón", "Vidrio", 0.80, True),
+    "can": ("Lata", "Aluminio", 0.02, True),
+    "cell phone": ("Celular", "Electrónico", 0.20, True),
+    "keyboard": ("Teclado", "Electrónico", 0.60, True),
+    "mouse": ("Ratón", "Electrónico", 0.10, True),
+    "tv": ("Televisor", "Electrónico", 8.00, True),
+    "backpack": ("Mochila", "Textil", 0.50, True),
+    "handbag": ("Bolso", "Textil", 0.40, True),
+    "suitcase": ("Maleta", "Textil", 2.50, True),
+    "tie": ("Corbata", "Textil", 0.10, True),
+    "banana": ("Banano", "Orgánico", 0.10, True),
+    "apple": ("Manzana", "Orgánico", 0.15, True),
+    "orange": ("Naranja", "Orgánico", 0.20, True),
+    "broccoli": ("Brócoli", "Orgánico", 0.25, True),
+    "carrot": ("Zanahoria", "Orgánico", 0.10, True),
+    "couch": ("Sofá", "Mixto", 15.00, True),
+    "bed": ("Cama", "Mixto", 20.00, True),
+    "dining table": ("Mesa", "Madera", 12.00, True),
+    "clock": ("Reloj", "Electrónico", 0.30, True),
+    "umbrella": ("Sombrilla", "Mixto", 0.50, True),
+    "person": ("Persona", "No aplica", 0, False),
+    "dog": ("Perro", "No aplica", 0, False),
+    "cat": ("Gato", "No aplica", 0, False),
+    "bird": ("Ave", "No aplica", 0, False),
+    "horse": ("Caballo", "No aplica", 0, False),
+    "car": ("Vehículo", "No aplica", 0, False),
+    "bus": ("Bus", "No aplica", 0, False),
+    "truck": ("Camión", "No aplica", 0, False),
+    "motorcycle": ("Motocicleta", "No aplica", 0, False),
+    "bicycle": ("Bicicleta", "No aplica", 0, False)
+}
+
+# SECTORES DEL PROTOTIPO EXPERIMENTAL
+BARRIOS_PILOTO = ["Andalucía", "Moscú", "Villa del Socorro"]
+
+# --------------------------------------------------------------------
+# 5. MENÚ LATERAL CON LOGO Y MARCA DE AUTOR
 # --------------------------------------------------------------------
 try:
-    st.sidebar.image("./logo.png", use_container_width=True)
+    st.sidebar.image("logo.png", use_container_width=True)
 except Exception:
     st.sidebar.title("♻️ EcoCom2")
 
@@ -87,317 +108,315 @@ menu = st.sidebar.radio(
 )
 
 st.sidebar.markdown("---")
-
-# SOLUCIÓN DE LA LÍNEA 89: Se usa markdown con contenedor seguro para evitar el error en Python 3.14
+# Contenedor Markdown compatible para evitar errores de tipo en la renderización
 st.sidebar.markdown("""
-    <div style="background-color: rgba(2, 132, 199, 0.1); padding: 15px; border-radius: 10px; border: 1px solid rgba(2, 132, 199, 0.2); font-family: sans-serif; font-size: 13px; color: #1F2937;">
+    <div style="background-color: rgba(16, 185, 129, 0.1); padding: 12px; border-radius: 8px; border: 1px solid rgba(16, 185, 129, 0.2); font-family: sans-serif; font-size: 12px; color: #374151;">
         ⚙️ <b>Ecosistema EcoCom2 v1.5</b><br>
         Territorio INN 2026 | ITM Medellín<br>
         Desarrollado por: <b>Brandon Duque</b>
     </div>
 """, unsafe_allow_html=True)
 
-BARRIOS_PILOTO = ["Andalucía", "Moscú No. 1", "Villa del Socorro"]
-
 # --------------------------------------------------------------------
-# 5. SECCIÓN: INICIO (CENTRO DE MANDO CON MAPA DE COLOR + TABLA REGISTRO)
+# 6. SECCIÓN: INICIO (MAPA DE CALOR SEMAFORIZADO + CONSOLIDADO)
 # --------------------------------------------------------------------
 if menu == "Inicio":
-    st.markdown('<div class="main-title">ECOCOM2 CIRCULAR IA</div>', unsafe_allow_html=True)
-    st.markdown('<div class="subtitle">Panel de Monitoreo Territorial en Tiempo Real - Comuna 2 Santa Cruz</div>', unsafe_allow_html=True)
-    st.write("Bienvenido al centro de mando inteligente. Aquí mapeamos y semaforizamos los reportes ciudadanos procesados por IA para trazar rutas logísticas óptimas.")
+    st.title("♻️ EcoCom2 Circular IA")
+    st.write("Sistema inteligente de gestión de residuos mediante inteligencia artificial.")
+    st.markdown("### 📍 Mapa de Monitoreo Territorial (Sectores Piloto)")
 
+    # Configuración de coordenadas base de la Comuna 2
     lat_base, lon_base = 6.2950, -75.5530
-    barrios_comuna = ["Andalucía", "Villa del Socorro", "Moscú No. 1", "Santa Cruz", "La Rosa"]
-    materiales_ia = ["Cartón/Papel", "Plástico PET", "Vidrio", "Metales"]
     
-    random.seed(42)
-    puntos_criticos = []
-    for i in range(12):
-        lat_rand = lat_base + random.uniform(-0.004, 0.004)
-        lon_rand = lon_base + random.uniform(-0.004, 0.004)
-        estado_alerta = random.choice(["🟢 Zona Verde (Aprovechable)", "🟡 Zona Amarilla (Seguimiento)", "🔴 Zona Crítica (Roja)"])
-        
-        puntos_criticos.append({
-            "id": f"REP-{2026+i}",
-            "barrio": random.choice(barrios_comuna),
-            "lat": lat_rand,
-            "lon": lon_rand,
-            "material": random.choice(materiales_ia),
-            "estado": estado_alerta,
-            "peso": random.randint(5, 75)
+    # Generación de puntos piloto fijos de muestra inicial
+    random.seed(10)
+    puntos_simulados = []
+    for i in range(6):
+        puntos_simulados.append({
+            "id": f"SIM-{100+i}",
+            "barrio": random.choice(BARRIOS_PILOTO),
+            "lat": lat_base + random.uniform(-0.003, 0.003),
+            "lon": lon_base + random.uniform(-0.003, 0.003),
+            "residuos": random.randint(2, 12),
+            "peso": round(random.uniform(1.5, 25.0), 2)
         })
 
-    c_f1, c_f2 = st.columns(2)
-    with c_f1:
-        barrio_filtro = st.selectbox("Filtrar Mapa por Barrio:", ["Todos"] + barrios_comuna)
-    with c_f2:
-        estado_filtro = st.multiselect(
-            "Filtrar por Nivel de Criticidad:",
-            ["🟢 Zona Verde (Aprovechable)", "🟡 Zona Amarilla (Seguimiento)", "🔴 Zona Crítica (Roja)"],
-            default=["🟢 Zona Verde (Aprovechable)", "🟡 Zona Amarilla (Seguimiento)", "🔴 Zona Crítica (Roja)"]
-        )
+    # Crear el objeto Mapa de Folium
+    mapa_centro = folium.Map(location=[lat_base, -75.5530], zoom_start=15, tiles="OpenStreetMap")
 
-    def obtener_color_por_estado(estado):
-        if "Roja" in estado:
-            return "#EF4444"
-        elif "Amarilla" in estado:
-            return "#FBBF24"
-        else:
-            return "#10B981"
+    # Dibujar puntos simulados fijos en el mapa
+    for p in puntos_simulados:
+        color_marker = "green" if p["residuos"] < 5 else ("orange" if p["residuos"] < 10 else "red")
+        popup_text = f"<b>Punto {p['id']}</b><br>Sector: {p['barrio']}<br>Objetos: {p['residuos']}<br>Peso: {p['peso']} kg"
+        folium.CircleMarker(
+            location=[p["lat"], p["lon"]],
+            radius=10,
+            color=color_marker,
+            fill=True,
+            fill_color=color_marker,
+            fill_opacity=0.6,
+            popup=folium.Popup(popup_text, max_width=200)
+        ).add_to(mapa_centro)
 
-    mapa = folium.Map(location=[6.2950, -75.5530], zoom_start=15, tiles="OpenStreetMap")
-
-    puntos_visibles = 0
-    for pt in puntos_criticos:
-        if barrio_filtro != "Todos" and pt["barrio"] != barrio_filtro:
-            continue
-        if pt["estado"] not in estado_filtro:
-            continue
-            
-        color_pt = obtener_color_por_estado(pt["estado"])
-        puntos_visibles += 1
+    # Dibujar los nuevos reportes agregados en tiempo real por el usuario usando Session State
+    for idx, rep in enumerate(st.session_state.registro_reportes):
+        color_dinamico = "green" if "individual" in rep["Clasificación"].lower() else ("orange" if "posible" in rep["Clasificación"].lower() else "red")
+        popup_dinamico = f"<b>{rep['Código']}</b><br>Sector: {rep['Sector']}<br>Ref: {rep['Referencia']}<br>Peso: {rep['Peso (Kg)']} kg"
         
-        popup_html = f"""
-        <div style='font-family: Arial, sans-serif; font-size: 13px; min-width: 170px;'>
-            <h4 style='margin:0 0 6px 0; color:#1E3A8A;'>Reporte {pt['id']}</h4>
-            <b>Sector:</b> {pt['barrio']}<br>
-            <b>Clasificación IA:</b> {pt['material']}<br>
-            <b>Peso aprox:</b> {pt['peso']} Kg<br>
-            <b>Estado:</b> <span style='color:{color_pt}; font-weight:bold;'>{pt['estado']}</span>
-        </div>
-        """
+        # Coordenadas por defecto según el barrio seleccionado si no cuenta con GPS exacto
+        lat_b = lat_base + (idx * 0.0008)
+        lon_b = lon_base - (idx * 0.0008)
         
         folium.CircleMarker(
-            location=[pt["lat"], pt["lon"]],
+            location=[lat_b, lon_b],
             radius=12,
-            popup=folium.Popup(popup_html, max_width=250),
-            color=color_pt,
+            color=color_dinamico,
             fill=True,
-            fill_color=color_pt,
-            fill_opacity=0.6,
-            weight=2
-        ).add_to(mapa)
+            fill_color=color_dinamico,
+            fill_opacity=0.7,
+            popup=folium.Popup(popup_dinamico, max_width=200)
+        ).add_to(mapa_centro)
 
-    st_folium(mapa, width=1100, height=450, returned_objects=[])
-    st.caption(f"Visualizando {puntos_visibles} reportes georreferenciados activos en la Comuna 2.")
+    # Renderizar mapa en la interfaz
+    st_folium(mapa_centro, width=1100, height=400, returned_objects=[])
 
-    # TABLA DE REGISTROS LOGÍSTICOS INDICADOS EN EL INICIO
     st.markdown("---")
-    st.markdown("### 📋 Historial de Registros Guardados (Manuales / IA)")
+    st.markdown("### 📋 Historial de Reportes Consolidados")
+    
     if len(st.session_state.registro_reportes) > 0:
-        df_registro = pd.DataFrame(st.session_state.registro_reportes)
-        st.dataframe(df_registro, use_container_width=True)
+        df_datos = pd.DataFrame(st.session_state.registro_reportes)
+        st.dataframe(df_datos, use_container_width=True)
         
         c_m1, c_m2 = st.columns(2)
         with c_m1:
-            st.metric("Total Reportes Reales", len(df_registro))
+            st.metric("Reportes Activos Procesados", len(df_datos))
         with c_m2:
-            st.metric("Material Recuperado (Kg)", f"{df_registro['Peso Estimado (Kg)'].sum():.2f}")
+            st.metric("Total Material Calculado (Kg)", f"{df_datos['Peso (Kg)'].sum():.2f} kg")
     else:
-        st.info("💡 No hay nuevos reportes manuales guardados todavía en esta sesión. Los datos que proceses en 'Reportar residuo' se verán reflejados aquí.")
+        st.info("💡 El historial está limpio. Los reportes capturados mediante fotografía aparecerán listados aquí en tiempo real.")
 
 # --------------------------------------------------------------------
-# 6. SECCIÓN: REPORTAR RESIDUO (IA + CONDICIONAL DE GEOCERCA PILOTO)
+# 7. SECCIÓN: INFORMACIÓN
+# --------------------------------------------------------------------
+elif menu == "Información":
+    st.header("¿Qué es EcoCom2 Circular IA?")
+    st.write("EcoCom2 Circular IA identifica residuos y puntos críticos mediante fotografías e inteligencia artificial.")
+    st.header("Objetivos del Prototipo")
+    st.write("♻️ Promover el reciclaje en las zonas de prueba.")
+    st.write("🌎 Reducir la contaminación urbana.")
+    st.write("📍 Identificar puntos críticos en los sectores piloto.")
+    st.write("🤝 Apoyar a la comunidad de recicladores.")
+
+# --------------------------------------------------------------------
+# 8. SECCIÓN: REPORTAR RESIDUO (ANÁLISIS DE IA + GUARDADO ASOCIADO)
 # --------------------------------------------------------------------
 elif menu == "Reportar residuo":
-    st.markdown('<div class="main-title">📸 Reportar Residuo con Visión Artificial</div>', unsafe_allow_html=True)
-    st.write("Sube una foto del residuo. Nuestra IA clasificará el material y estimará su peso operativo.")
+    from streamlit_js_eval import streamlit_js_eval
+    from geopy.geocoders import Nominatim
 
-    st.write("### 📍 Validación GPS Obligatoria")
-    col_gps1, col_gps2 = st.columns(2)
-    
-    with col_gps1:
-        barrio_gps = st.selectbox(
-            "Ubicación reportada por el dispositivo móvil:",
-            ["Andalucía", "Moscú No. 1", "Villa del Socorro", "Santa Cruz (Central)", "La Rosa", "Aranjuez (Fuera de cobertura)"]
-        )
-    
-    with col_gps2:
-        if barrio_gps in BARRIOS_PILOTO:
-            st.success(f"📍 GPS Validado: Te encuentras en **{barrio_gps}** (Zona de piloto activa).")
-            acceso_ia = True
-        else:
-            st.error(f"🛑 **Reporte Bloqueado:** La ubicación ({barrio_gps}) está fuera del territorio piloto de EcoCom2. Solo se permite procesar fotos dentro de Andalucía, Moscú y Villa del Socorro.")
-            acceso_ia = False
-
-    st.markdown("---")
+    st.header("♻️ Reporte de residuos")
 
     if "reporte_enviado" not in st.session_state:
         st.session_state.reporte_enviado = False
 
     if st.session_state.reporte_enviado:
-        st.success("🎉 ¡Tu reporte con Visión Artificial ha sido guardado con éxito en el Registro de Inicio!")
-        if st.button("🔄 Hacer otro reporte fotográfico", use_container_width=True, type="primary"):
-            st.session_state.reporte_enviado = False
-            st.rerun()
-    else:
-        archivo_imagen = st.file_uploader("Sube una foto de los residuos acumulados:", type=["jpg", "jpeg", "png"])
+        st.success("🎉 ¡Tu reporte ha sido enviado y registrado con éxito!")
+        st.subheader("¿Qué deseas hacer ahora?")
+        
+        col_otro, col_salir = st.columns(2)
+        with col_otro:
+            if st.button("🔄 Hacer otro reporte", use_container_width=True, type="primary"):
+                st.session_state.reporte_enviado = False
+                st.rerun()
+        with col_salir:
+            if st.button("🚪 Ir al Panel de Inicio", use_container_width=True):
+                st.session_state.reporte_enviado = False
+                st.rerun()
 
-        if archivo_imagen is not None:
-            if not acceso_ia:
-                st.warning("⚠️ No se puede procesar el análisis de IA. Ubicación no permitida para la Fase 1 del proyecto.")
-            else:
-                img_abierta = Image.open(archivo_imagen)
-                col_v1, col_v2 = st.columns(2)
+    else:
+        st.subheader("📍 Ubicación del reporte")
+        obtener_gps = st.checkbox("Obtener mi ubicación exacta en tiempo real (GPS)")
+        
+        coordenadas = None
+        direccion_real = None
+
+        if obtener_gps:
+            loc = streamlit_js_eval(data_theme='dark', component='get_geolocation', key='data_geo')
+            if loc:
+                lat = loc['coords']['latitude']
+                lon = loc['coords']['longitude']
+                coordenadas = {"lat": [lat], "lon": [lon]}
                 
-                with col_v1:
-                    st.image(img_abierta, caption="Imagen Reportada", use_container_width=True)
-                    
-                with col_v2:
-                    with st.spinner("La red YOLOv8 está procesando la segmentación del material..."):
-                        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp_img:
-                            img_abierta.save(tmp_img.name)
-                            ruta_tmp_img = tmp_img.name
-                            
-                        detecciones = model(ruta_tmp_img)
-                        
-                        for d in detecciones:
-                            arr_img = d.plot()
-                            img_yolo = Image.fromarray(arr_img[..., ::-1])
-                            st.image(img_yolo, caption="Predicción IA", use_container_width=True)
-                            
-                        lista_clases = []
-                        for box in detecciones[0].boxes:
-                            id_c = int(box.cls[0])
-                            clase_nom = model.names[id_c]
-                            lista_clases.append(clase_nom)
-                            
-                        conteos_ia = Counter(lista_clases)
-                        
-                if conteos_ia:
-                    st.success("🤖 ¡Detección de Inteligencia Artificial exitosa!")
-                    st.write("### Clasificación de Materiales Encontrados:")
-                    columnas_m = st.columns(len(conteos_ia))
-                    
-                    peso_calculado = 0.0
-                    total_unidades = 0
-                    
-                    for idx, (tipo, cantidad) in enumerate(conteos_ia.items()):
-                        total_unidades += cantidad
-                        peso_calculado += cantidad * 0.25 
-                        with columnas_m[idx]:
-                            st.metric(label=f"Material: {tipo}", value=f"{cantidad} uds")
-                    
-                    st.session_state.datos_nuevos = {
+                try:
+                    geolocator = Nominatim(user_agent="ecocom2_circular_ia")
+                    location = geolocator.reverse(f"{lat}, {lon}")
+                    if location:
+                        direccion_real = location.address
+                        st.success(f"🏠 **Dirección detectada:** {direccion_real}")
+                    else:
+                        st.warning("⚠️ Coordenadas obtenidas, pero sin dirección exacta.")
+                except Exception:
+                    direccion_real = f"Lat: {lat:.5f}, Lon: {lon:.5f}"
+                
+                st.map(coordenadas)
+            else:
+                st.info("🌐 Buscando señal de GPS... Asegúrate de dar permisos de ubicación en tu navegador.")
+
+        barrio = st.selectbox(
+            "Seleccione el barrio del prototipo:",
+            BARRIOS_PILOTO
+        )
+
+        referencia = st.text_input("Ingrese una referencia")
+
+        if referencia and len(referencia) < 8:
+            st.warning("Ingrese una referencia más específica.")
+
+        imagen = st.file_uploader(
+            "Seleccione una fotografía",
+            type=["jpg", "jpeg", "png"]
+        )
+
+        if imagen is not None:
+            img = Image.open(imagen)
+            st.image(img, caption="Imagen cargada", use_container_width=True)
+
+            if st.button("Analizar imagen", use_container_width=True):
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
+                    img.save(tmp.name)
+                    resultados = modelo(tmp.name, conf=0.10)
+
+                imagen_resultado = resultados[0].plot()
+                st.image(imagen_resultado, caption="Objetos detectados por la IA", use_container_width=True)
+
+                objetos = []
+                for r in resultados:
+                    for box in r.boxes:
+                        clase = int(box.cls[0])
+                        nombre = modelo.names[clase]
+                        objetos.append(nombre)
+
+                if len(objetos) > 0:
+                    st.success("✅ Análisis completado")
+                    peso_total = 0
+                    residuos = 0
+                    conteo = Counter(objetos)
+                    tipo_predominante = "Varios"
+
+                    for obj, cantidad_obj in conteo.items():
+                        if obj in materiales:
+                            nombre_es, material, peso, reciclable = materiales[obj]
+                            if reciclable:
+                                residuos += cantidad_obj
+                                st.success(f"♻️ {nombre_es}: {cantidad_obj} unidad(es)")
+                                st.write(f"Material base: {material}")
+                                peso_total += peso * cantidad_obj
+                                tipo_predominante = material
+                            else:
+                                st.warning(f"⚠️ {nombre_es} no corresponde a un residuo aprovechable.")
+
+                    if residuos >= 10:
+                        nivel = "🔴 Punto crítico confirmado"
+                    elif residuos >= 5:
+                        nivel = "🟡 Posible punto crítico"
+                    elif residuos >= 1:
+                        nivel = "🟢 Residuo individual"
+                    else:
+                        nivel = "⚪ Evidencia insuficiente"
+
+                    st.markdown("### 📊 Resumen del Reporte")
+                    st.write(f"📍 **Barrio/Ubicación:** {barrio if not direccion_real else 'Detección GPS'}")
+                    st.write(f"📌 **Referencia:** {referencia}")
+                    st.write(f"🗑️ **Objetos totales detectados:** {len(objetos)}")
+                    st.write(f"♻️ **Residuos reciclables:** {residuos}")
+                    st.write(f"⚖️ **Peso aproximado total:** {peso_total:.2f} kg")
+                    st.write(f"🚨 **Clasificación operativa:** {nivel}")
+
+                    # Almacenamiento temporal de los datos calculados en el estado
+                    st.session_state.cache_nuevo_reporte = {
                         "Código": f"REP-{len(st.session_state.registro_reportes) + 200}",
-                        "Barrio": barrio_gps,
-                        "Objetos": total_unidades,
-                        "Peso Estimado (Kg)": round(peso_calculado, 2),
-                        "Tipo Predominante": list(conteos_ia.keys())[0],
-                        "Estado": "🟢 Procesado por IA"
+                        "Sector": barrio,
+                        "Referencia": referencia if referencia else "Sin referencia",
+                        "Objetos": residuos,
+                        "Peso (Kg)": round(peso_total, 2),
+                        "Predominante": tipo_predominante,
+                        "Clasificación": nivel
                     }
-                    
-                    st.write("---")
-                    if st.button("🚀 ENVIAR REPORTE DEFINITIVO AL HISTORIAL", type="primary", use_container_width=True):
-                        st.session_state.registro_reportes.append(st.session_state.datos_nuevos)
-                        st.session_state.reporte_enviado = True
-                        st.rerun()
+
+                    if residuos == 0:
+                        st.error("❌ No se identificaron residuos aprovechables.")
+                    elif residuos <= 2:
+                        st.info("📷 Se recomienda una fotografía más cercana para mejorar la confianza.")
+                    else:
+                        st.success("✅ Reporte validado correctamente.")
+
+            # Botón de guardado definitivo conectado al session_state global
+            if "cache_nuevo_reporte" in st.session_state:
+                st.write("---")
+                if st.button("🚀 ENVIAR REPORTE DEFINITIVO", type="primary", use_container_width=True):
+                    st.session_state.registro_reportes.append(st.session_state.cache_nuevo_reporte)
+                    del st.session_state.cache_nuevo_reporte  # Limpiar la caché del reporte enviado
+                    st.session_state.reporte_enviado = True
+                    st.rerun()
                 else:
-                    st.warning("La IA no detectó materiales reciclables en esta toma.")
+                    st.error("❌ No se detectaron objetos que procesar.")
 
 # --------------------------------------------------------------------
-# 7. SECCIÓN: PUNTO CRÍTICO (TOTALMENTE ORIGINAL)
+# 9. SECCIÓN: PUNTO CRÍTICO
 # --------------------------------------------------------------------
 elif menu == "Punto crítico":
-    st.markdown('<div class="main-title">🚨 Reportar Punto Crítico de Acumulación</div>', unsafe_allow_html=True)
-    st.write("Ayúdanos a identificar botaderos satélite espontáneos en la Comuna 2 que requieran intervención comunitaria urgente.")
+    st.header("🚨 Punto crítico")
 
-    with st.form("formulario_punto_critico"):
-        nombre_reporte = st.text_input("Nombre de quien reporta (Opcional):", "Anónimo")
-        barrio_seleccionado = st.selectbox("Barrio de la Comuna 2:", ["Andalucía", "Moscú No. 1", "Villa del Socorro", "Santa Cruz", "La Rosa", "El Pomar"])
-        referencia_direccion = st.text_input("Punto de referencia (Ej: Al lado de la cancha, junto al poste de luz):")
-        gravedad_emergencia = st.select_slider("Nivel de obstrucción de vía pública:", options=["Bajo", "Moderado", "Crítico (Cierre de vía)"])
-        comentarios_adicionales = st.text_area("Cuéntanos más detalles:")
-        
-        boton_enviar = st.form_submit_button("Guardar reporte de punto crítico")
-        
-        if boton_enviar:
-            if not referencia_direccion:
-                st.error("Por favor, describe una referencia física para poder enviar el reporte.")
+    barrio = st.selectbox(
+        "Seleccione el barrio del prototipo:",
+        BARRIOS_PILOTO,
+        key="barrio2"
+    )
+
+    referencia = st.text_input("Referencia", key="referencia2")
+
+    imagen = st.file_uploader(
+        "Suba una fotografía",
+        type=["jpg", "jpeg", "png"],
+        key="imagen2"
+    )
+
+    if imagen is not None:
+        img = Image.open(imagen)
+        st.image(img, use_container_width=True)
+
+        if st.button("Evaluar punto crítico"):
+            with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
+                img.save(tmp.name)
+                resultados = modelo(tmp.name, conf=0.10)
+
+            cantidad = 0
+            for r in resultados:
+                cantidad += len(r.boxes)
+
+            if cantidad >= 8:
+                nivel = "🔴 Punto crítico alto"
+            elif cantidad >= 4:
+                nivel = "🟡 Punto crítico medio"
+            elif cantidad >= 1:
+                nivel = "🟢 Punto crítico bajo"
             else:
+                nivel = "⚪ Sin evidencia"
+
+            st.warning(nivel)
+            st.write(f"📍 Barrio: {barrio}")
+            st.write(f"📌 Referencia: {referencia}")
+            st.write(f"🗑️ Objetos detectados: {cantidad}")
+            
+            # Guardado manual simplificado desde la pestaña de puntos críticos
+            if st.button("💾 Guardar Alerta Crítica en Historial"):
                 st.session_state.registro_reportes.append({
                     "Código": f"CRIT-{len(st.session_state.registro_reportes) + 500}",
-                    "Barrio": barrio_seleccionado,
-                    "Objetos": 0,
-                    "Peso Estimado (Kg)": 15.0 if gravedad_emergencia == "Moderado" else (50.0 if gravedad_emergencia == "Crítico (Cierre de vía)" else 5.0),
-                    "Tipo Predominante": "Punto Satélite Manual",
-                    "Estado": f"🔴 {gravedad_emergencia}"
+                    "Sector": barrio,
+                    "Referencia": referencia,
+                    "Objetos": cantidad,
+                    "Peso (Kg)": round(cantidad * 0.4, 2),
+                    "Predominante": "Mixto Satélite",
+                    "Clasificación": nivel
                 })
-                st.success(f"¡Gracias {nombre_reporte}! El reporte ha sido registrado de forma exitosa en el mapa central.")
-                st.balloons()
-
-# --------------------------------------------------------------------
-# 8. SECCIÓN: INFORMACIÓN (LA GRAN GALERÍA DE MATERIALES COMPLETA ORIGINAL)
-# --------------------------------------------------------------------
-elif menu == "Información":
-    st.markdown('<div class="main-title">📖 Guía Educativa de Reciclaje</div>', unsafe_allow_html=True)
-    st.write("Aprende a clasificar los residuos sólidos para apoyar la economía circular de la Comuna 2 Santa Cruz.")
-
-    pestaña_reciclable, pestaña_no_reciclable = st.tabs(["🟢 Materiales Aprovechables", "🔴 Residuos No Aprovechables"])
-
-    with pestaña_reciclable:
-        st.write("### ¿Qué SÍ se puede reciclar y procesar en EcoCom2?")
-        st.write("Asegúrate de que estos materiales estén **limpios, secos y sin grasa** antes de entregarlos.")
-
-        col_ap1, col_ap2 = st.columns(2)
-        with col_ap1:
-            st.markdown("""
-                <div class="card-reciclable">
-                    <h3>🥤 Plásticos (Botellas PET y Envases)</h3>
-                    <p><b>Ejemplos:</b> Botellas de gaseosa, agua, envases de yogurt, champú y detergentes.</p>
-                    <p><i>Consejo EcoCom2:</i> Escurre bien los líquidos y aplasta las botellas para que ocupen menos espacio en el centro de acopio.</p>
-                </div>
-                <div class="card-reciclable">
-                    <h3>📦 Cartón y Papel</h3>
-                    <p><b>Ejemplos:</b> Cajas de cartón corrugado, carpetas, papel de oficina, hojas de cuaderno, periódicos y revistas.</p>
-                    <p><i>Consejo EcoCom2:</i> Desarma las cajas grandes para facilitar su transporte por parte de los recicladores de oficio.</p>
-                </div>
-            """, unsafe_allow_html=True)
-
-        with col_ap2:
-            st.markdown("""
-                <div class="card-reciclable">
-                    <h3>🥫 Metales (Latas y Chatarra)</h3>
-                    <p><b>Ejemplos:</b> Latas de gaseosa, cerveza, latas de atún, tapas metálicas de botellas de vidrio y chatarra menor.</p>
-                    <p><i>Consejo EcoCom2:</i> Enjuaga los restos de comida de las latas de alimentos para evitar malos olores e insectos.</p>
-                </div>
-                <div class="card-reciclable">
-                    <h3>🍾 Vidrio (Botellas y Frascos)</h3>
-                    <p><b>Ejemplos:</b> Botellas de jugos, frascos de mermelada, recipientes de conservas y envases de perfumes limpios.</p>
-                    <p><i>Consejo EcoCom2:</i> Retira las tapas metálicas (estas se reciclan con los metales). No mezcle con bombillos ni espejos rotos.</p>
-                </div>
-            """, unsafe_allow_html=True)
-
-    with pestaña_no_reciclable:
-        st.write("### ¿Qué NO se puede reciclar en nuestro sistema (Ordinarios)?")
-        st.write("Estos elementos van directamente a la basura ordinaria para ser recogidos por Emvarias, ya que no son reutilizables.")
-
-        col_no1, col_no2 = st.columns(2)
-        with col_no1:
-            st.markdown("""
-                <div class="card-no-reciclable">
-                    <h3>🧻 Papeles Sanitarios e Higiénicos</h3>
-                    <p><b>Ejemplos:</b> Papel higiénico usado, servilletas de cocina grasosas, pañales desechables y toallas húmedas.</p>
-                    <p><i>Razón:</i> Representan un riesgo de contaminación biológica y médica, por lo que nunca deben mezclarse con el reciclaje.</p>
-                </div>
-                <div class="card-no-reciclable">
-                    <h3>🍕 Cartones con Grasa y Humedad</h3>
-                    <p><b>Ejemplos:</b> Cajas de pizza manchadas de aceite, vasos de cartón de café encerados y servilletas de papel con comida.</p>
-                    <p><i>Razón:</i> La grasa daña las fibras de celulosa del papel limpio durante el proceso químico de reciclaje industrial.</p>
-                </div>
-            """, unsafe_allow_html=True)
-
-        with col_no2:
-            st.markdown("""
-                <div class="card-no-reciclable">
-                    <h3>🍫 Plásticos de un Solo Uso Metalizados</h3>
-                    <p><b>Ejemplos:</b> Bolsas de papas fritas, envolturas de golosinas, paquetes de galletas y empaques de dulces.</p>
-                    <p><i>Razón:</i> Contienen finas capas de aluminio fusionadas con plástico, lo que hace muy difícil su separación.</p>
-                </div>
-                <div class="card-no-reciclable">
-                    <h3>🍧 Icopor y Desechables de Comida</h3>
-                    <p><b>Ejemplos:</b> Envases de icopor (poliestireno expandido) para almuerzos, vasos plásticos desechables sucios.</p>
-                    <p><i>Razón:</i> El icopor sucio de comida no se puede reciclar económicamente debido a los altos costos de lavado y transporte.</p>
-                </div>
-            """, unsafe_allow_html=True)
+                st.success("¡Alerta registrada en el panel principal!")
