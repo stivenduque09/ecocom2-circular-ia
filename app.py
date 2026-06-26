@@ -1,4 +1,3 @@
-
 import streamlit as st
 from ultralytics import YOLO
 from PIL import Image
@@ -417,7 +416,7 @@ elif menu == "Punto crítico":
             st.write(f"📌 Referencia: {referencia}")
             st.write(f"🗑️ Objetos detectados: {cantidad}")
             
-            # Guardado inmediato en el historial central
+            # Guardado inmediato en el historial central (Línea 430 corregida con comilla)
             st.session_state.registro_reportes.append({
                 "Código": f"CRIT-{len(st.session_state.registro_reportes) + 500}",
                 "Sector": barrio,
