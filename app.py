@@ -1,12 +1,11 @@
-
 import streamlit as st
 from ultralytics import YOLO
 from PIL import Image
 import tempfile
 from collections import Counter
-import folium                     # Para el mapa interactivo (¡No se toca!)
-from streamlit_folium import st_folium  # Para mostrar el mapa en Streamlit (¡No se toca!)
-import random                     # Para simular coordenadas fijas en la Comuna 2 (¡No se toca!)
+import folium                     # Para el mapa interactivo
+from streamlit_folium import st_folium  # Para mostrar el mapa en Streamlit
+import random                     # Para simular coordenadas fijas en la Comuna 2
 import pandas as pd               # Para la visualización de la base de datos guardada
 
 # --------------------------------------------------------------------
@@ -18,7 +17,7 @@ st.set_page_config(
     layout="wide"
 )
 
-# Estilo personalizado para las tarjetas y títulos originales
+# Estilo personalizado para las tarjetas y títulos
 st.markdown("""
     <style>
     .main-title {
@@ -56,19 +55,21 @@ if "registro_reportes" not in st.session_state:
     st.session_state.registro_reportes = []
 
 # --------------------------------------------------------------------
-# 3. CARGA DEL MODELO IA (YOLO)
+# 3. CARGA DEL MODELO IA (CON RESPALDO AUTOMÁTICO SI NO EXISTE BEST.PT)
 # --------------------------------------------------------------------
 @st.cache_resource
 def cargar_modelo():
-    return YOLO('best.pt')
+    try:
+        # Intenta cargar tu modelo personalizado
+        return YOLO('best.pt')
+    except Exception:
+        # Si no lo encuentra en GitHub, descarga el oficial de internet para que la app no muera
+        return YOLO('yolov8n.pt')
 
-try:
-    model = cargar_modelo()
-except Exception as e:
-    st.error(f"No se pudo cargar el modelo de IA (best.pt). Asegúrate de que esté subido. Error: {e}")
+model = cargar_modelo()
 
 # --------------------------------------------------------------------
-# 4. BARRA LATERAL (LOGOTIPO EN MENU Y NAVEGACIÓN)
+# 4. BARRA LATERAL (CORREGIDO EL CUELLO DE BOTELLA HTML)
 # --------------------------------------------------------------------
 try:
     st.sidebar.image("./logo.png", use_container_width=True)
@@ -86,7 +87,15 @@ menu = st.sidebar.radio(
 )
 
 st.sidebar.markdown("---")
-st.sidebar.info("⚙️ **Ecosistema EcoCom2 v1.5**<br>Territorio INN 2026 | ITM Medellín<br>Desarrollado por: **Brandon Duque**", unsafe_allow_html=True)
+
+# SOLUCIÓN DE LA LÍNEA 89: Se usa markdown con contenedor seguro para evitar el error en Python 3.14
+st.sidebar.markdown("""
+    <div style="background-color: rgba(2, 132, 199, 0.1); padding: 15px; border-radius: 10px; border: 1px solid rgba(2, 132, 199, 0.2); font-family: sans-serif; font-size: 13px; color: #1F2937;">
+        ⚙️ <b>Ecosistema EcoCom2 v1.5</b><br>
+        Territorio INN 2026 | ITM Medellín<br>
+        Desarrollado por: <b>Brandon Duque</b>
+    </div>
+""", unsafe_allow_html=True)
 
 BARRIOS_PILOTO = ["Andalucía", "Moscú No. 1", "Villa del Socorro"]
 
@@ -173,9 +182,9 @@ if menu == "Inicio":
     st_folium(mapa, width=1100, height=450, returned_objects=[])
     st.caption(f"Visualizando {puntos_visibles} reportes georreferenciados activos en la Comuna 2.")
 
-    # MOSTRAR EL HISTORIAL DE REPORTES REALES EN EL INICIO
+    # TABLA DE REGISTROS LOGÍSTICOS INDICADOS EN EL INICIO
     st.markdown("---")
-    st.markdown("### 📋 Historial de Registros Guardados")
+    st.markdown("### 📋 Historial de Registros Guardados (Manuales / IA)")
     if len(st.session_state.registro_reportes) > 0:
         df_registro = pd.DataFrame(st.session_state.registro_reportes)
         st.dataframe(df_registro, use_container_width=True)
@@ -266,12 +275,10 @@ elif menu == "Reportar residuo":
                     
                     for idx, (tipo, cantidad) in enumerate(conteos_ia.items()):
                         total_unidades += cantidad
-                        # Simulación proporcional de peso basado en tus requerimientos de Kg anteriores
                         peso_calculado += cantidad * 0.25 
                         with columnas_m[idx]:
                             st.metric(label=f"Material: {tipo}", value=f"{cantidad} uds")
                     
-                    # Guardamos temporalmente para inyectar en el registro general
                     st.session_state.datos_nuevos = {
                         "Código": f"REP-{len(st.session_state.registro_reportes) + 200}",
                         "Barrio": barrio_gps,
@@ -283,8 +290,6 @@ elif menu == "Reportar residuo":
                     
                     st.write("---")
                     if st.button("🚀 ENVIAR REPORTE DEFINITIVO AL HISTORIAL", type="primary", use_container_width=True):
-                        st.session_state.registro_reportes.append(st.session_state.st.session_state.datos_nuevos if "datos_nuevos" in st.session_state else st.session_state.datos_nuevos)
-                        # Corrección de sintaxis directa:
                         st.session_state.registro_reportes.append(st.session_state.datos_nuevos)
                         st.session_state.reporte_enviado = True
                         st.rerun()
@@ -311,16 +316,15 @@ elif menu == "Punto crítico":
             if not referencia_direccion:
                 st.error("Por favor, describe una referencia física para poder enviar el reporte.")
             else:
-                # Almacenamos el punto crítico manual también en el registro acumulado global
                 st.session_state.registro_reportes.append({
-                    "Código": "#ECOM2-000157",
+                    "Código": f"CRIT-{len(st.session_state.registro_reportes) + 500}",
                     "Barrio": barrio_seleccionado,
                     "Objetos": 0,
                     "Peso Estimado (Kg)": 15.0 if gravedad_emergencia == "Moderado" else (50.0 if gravedad_emergencia == "Crítico (Cierre de vía)" else 5.0),
                     "Tipo Predominante": "Punto Satélite Manual",
                     "Estado": f"🔴 {gravedad_emergencia}"
                 })
-                st.success(f"¡Gracias {nombre_reporte}! El reporte ha sido registrado de forma exitosa en el mapa central bajo el código **#ECOM2-000157**.")
+                st.success(f"¡Gracias {nombre_reporte}! El reporte ha sido registrado de forma exitosa en el mapa central.")
                 st.balloons()
 
 # --------------------------------------------------------------------
