@@ -75,20 +75,24 @@ materiales = {
     "motorcycle": ("Motocicleta", "No aplica", 0, False),
     "bicycle": ("Bicicleta", "No aplica", 0, False)
 }
-
 # --------------------------------
 # MENÚ CON LOGO
 # --------------------------------
 
 try:
-    imagen_logo = Image.open("logo.png")
-    st.sidebar.image(imagen_logo, use_container_width=True)
-except FileNotFoundError:
+    # Usamos directamente la ruta del archivo, así Streamlit lo abre solito sin chocar con la IA
+    st.sidebar.image("logo.png", use_container_width=True)
+except Exception:
     st.sidebar.title("♻️ EcoCom2")
 
 menu = st.sidebar.radio(
     "Menú",
-    ["Inicio", "Reportar residuo", "Punto crítico", "Información"]
+    [
+        "Inicio",
+        "Reportar residuo",
+        "Punto crítico",
+        "Información"
+    ]
 )
 
 # --------------------------------
