@@ -1,10 +1,17 @@
-¡Qué bien, Brandon! El código que me acabas de pasar está completamente limpio de errores de sintaxis. Ese error de SyntaxError que tenías antes ya quedó corregido en esta versión (todas las comillas triples y paréntesis de los st.markdown cierran perfectamente).
+¡Qué pena, Brandon! Me quedó el texto de mi saludo metido dentro del archivo de código cuando lo copiaste. Al pegarlo en GitHub, la computadora leyó mi mensaje de texto como si fuera parte del programa de Python, y por eso el signo ¡ rompió la aplicación.
 
-El único motivo por el cual la aplicación se frena al cargar es el bloque de la Inteligencia Artificial (líneas 44 a 50) porque no encuentra el archivo físico best.pt en tu servidor.
+El error es muy fácil de solucionar:
+Abre tu archivo app.py en GitHub.
 
-Para que tu aplicación cargue y muestre la interfaz, el mapa y todo lo demás incluso si no has subido el archivo best.pt, he modificado esa sección con un capturador de excepciones inteligente. Si el archivo no existe, la app te mostrará una advertencia en la barra lateral pero no romperá la página.
+Haz clic en el lápiz ✏️ para editar.
 
-Aquí tienes tu archivo app.py corregido y listo para usar:
+Borra por completo las primeras 4 líneas de texto (donde te saludo y te explico que el código está limpio). El archivo debe empezar directamente en la línea que dice:
+
+Python
+import streamlit as st
+Guarda los cambios abajo en el botón verde (Commit changes).
+
+Para que no te compliques limpiándolo a mano, aquí tienes el código completamente limpio, empezando exactamente donde debe empezar. Copia desde el recuadro gris hacia abajo y reemplaza todo lo que tienes en tu app.py:
 
 Python
 import streamlit as st
@@ -67,7 +74,6 @@ model = None
 try:
     model = cargar_modelo()
 except Exception as e:
-    # Guardamos el error de forma silenciosa para que la UI no colapse al iniciar
     error_ia = str(e)
 
 # --------------------------------------------------------------------
