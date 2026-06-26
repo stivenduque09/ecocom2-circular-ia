@@ -289,14 +289,14 @@ elif menu == "Reportar residuo":
                 else:
                     nivel = "⚪ Evidencia insuficiente"
 
-                 st.write(f"📍 Barrio: {barrio}")
+                st.write(f"📍 Barrio: {barrio}")
                 st.write(f"📌 Referencia: {referencia}")
                 st.write(f"🗑️ Objetos detectados: {len(objetos)}")
                 st.write(f"♻️ Residuos reciclables: {residuos}")
                 st.write(f"⚖️ Peso aproximado: {peso_total:.2f} kg")
                 st.write(f"🚨 Clasificación: {nivel}")
 
-              if residuos == 0:
+                if residuos == 0:
 
                     st.error(
                         "❌ No se identificaron residuos aprovechables."
@@ -319,7 +319,6 @@ elif menu == "Reportar residuo":
                 st.error(
                     "❌ No se detectaron objetos."
                 )
-
 # --------------------------------
 # PUNTO CRÍTICO
 # --------------------------------
