@@ -61,7 +61,6 @@ st.markdown("""
 
 # --------------------------------------------------------------------
 # 2. POLÍGONO REAL COMUNA 2 - SANTA CRUZ, MEDELLÍN
-#    (Coordenadas aproximadas del límite oficial)
 # --------------------------------------------------------------------
 POLIGONO_COMUNA2 = Polygon([
     (-75.5650, 6.2850),
@@ -148,15 +147,10 @@ materiales = {
     "bicycle": ("Bicicleta", "No aplica", 0, False),
 }
 
-COLOR_NIVEL = {
-    "🔴": "red",
-    "🟡": "orange",
-    "🟢": "green",
-}
-
 # --------------------------------------------------------------------
-# 6. LEER PARAMS GPS (desde JS → query params)
+# 6. LEER PARAMS GPS
 # --------------------------------------------------------------------
+query_params = st.query_params
 if "lat" in query_params and "lon" in query_params:
     try:
         lat = float(query_params["lat"])
@@ -166,34 +160,21 @@ if "lat" in query_params and "lon" in query_params:
         st.session_state.gps_lon = lon
 
         try:
-            geolocator = Nominatim(
-                user_agent="ecocom2"
-            )
-
-            location = geolocator.reverse(
-                f"{lat}, {lon}"
-            )
-
-            st.session_state.direccion = (
-                location.address
-                if location
-                else "No disponible"
-            )
-
+            geolocator = Nominatim(user_agent="ecocom2")
+            location = geolocator.reverse(f"{lat}, {lon}")
+            st.session_state.direccion = location.address if location else "No disponible"
         except:
             st.session_state.direccion = "No disponible"
 
         punto = Point(lon, lat)
-
         st.session_state.gps_validado = True
-        st.session_state.fuera_de_rango = (
-            not POLIGONO_COMUNA2.contains(punto)
-        )
-
+        st.session_state.fuera_de_rango = not POLIGONO_COMUNA2.contains(punto)
+        
         st.query_params.clear()
 
     except Exception:
         pass
+
 # --------------------------------------------------------------------
 # 7. BARRA LATERAL
 # --------------------------------------------------------------------
@@ -204,7 +185,6 @@ except Exception:
 
 menu = st.sidebar.radio("Menú", ["🏠 Inicio", "📸 Reportar Residuo", "🚨 Punto Crítico", "ℹ️ Información"])
 
-# Badge GPS en sidebar
 if st.session_state.gps_validado:
     if not st.session_state.fuera_de_rango:
         st.sidebar.markdown('<div class="gps-ok">✅ GPS: Dentro de Comuna 2</div>', unsafe_allow_html=True)
@@ -229,9 +209,6 @@ if menu == "🏠 Inicio":
     st.title("♻️ EcoCom2 Circular IA")
     st.write("Sistema inteligente de gestión de residuos — **Solo residentes de la Comuna 2 pueden reportar.**")
 
-    # ------------------------------------------------------------------
-    # BOTÓN GPS CON JS → redirige con lat/lon en query params
-    # ------------------------------------------------------------------
     st.markdown("### 📡 Verificar mi ubicación")
 
     gps_html = """
@@ -273,53 +250,13 @@ if menu == "🏠 Inicio":
     components.html(gps_html, height=90)
 
     # ------------------------------------------------------------------
-    # ESTADO GPS
+    # ESTADO GPS (Limpio y sin duplicados)
     # ------------------------------------------------------------------
-if "lat" in query_params and "lon" in query_params:
-    try:
-        lat = float(query_params["lat"])
-        lon = float(query_params["lon"])
-
-        st.session_state.gps_lat = lat
-        st.session_state.gps_lon = lon
-
-        try:
-            geolocator = Nominatim(
-                user_agent="ecocom2"
-            )
-
-            location = geolocator.reverse(
-                f"{lat}, {lon}"
-            )
-
-            st.session_state.direccion = (
-                location.address
-                if location
-                else "No disponible"
-            )
-
-        except:
-            st.session_state.direccion = "No disponible"
-
-        punto = Point(lon, lat)
-
-        st.session_state.gps_validado = True
-        st.session_state.fuera_de_rango = (
-            not POLIGONO_COMUNA2.contains(punto)
-        )
-
-        st.query_params.clear()
-
-    except Exception:
-        pass
- 
-
-except:
-    st.session_state.direccion = "No disponible"
+    if st.session_state.gps_validado:
         if not st.session_state.fuera_de_rango:
-            st.markdown(f'<div class="gps-ok">✅ Ubicación validada: {lat_u:.5f}, {lon_u:.5f} — Dentro de la Comuna 2. Puedes reportar residuos.</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="gps-ok">✅ Ubicación validada: {st.session_state.gps_lat:.5f}, {st.session_state.gps_lon:.5f} — Dentro de la Comuna 2. Puedes reportar residuos.</div>', unsafe_allow_html=True)
         else:
-            st.markdown(f'<div class="gps-error">🛑 Ubicación detectada: {lat_u:.5f}, {lon_u:.5f} — Fuera de la Comuna 2. Solo puedes visualizar el mapa.</div>', unsafe_allow_html=True)
+            st.markdown(f'<div class="gps-error">🛑 Ubicación detectada: {st.session_state.gps_lat:.5f}, {st.session_state.gps_lon:.5f} — Fuera de la Comuna 2. Solo puedes visualizar el mapa.</div>', unsafe_allow_html=True)
     else:
         st.info("👆 Presiona el botón para validar tu ubicación y habilitar los reportes.")
 
@@ -337,7 +274,6 @@ except:
 
     mapa = folium.Map(location=[lat_centro, lon_centro], zoom_start=16, tiles="CartoDB dark_matter")
 
-    # Dibujar límite de la Comuna 2
     coords_poligono = [(lat, lon) for lon, lat in POLIGONO_COMUNA2.exterior.coords]
     folium.Polygon(
         locations=coords_poligono,
@@ -350,7 +286,6 @@ except:
         tooltip="📍 Área piloto EcoCom2"
     ).add_to(mapa)
 
-    # Pin del usuario (posición real GPS)
     if st.session_state.gps_validado:
         color_usuario = "blue" if not st.session_state.fuera_de_rango else "gray"
         folium.Marker(
@@ -360,7 +295,6 @@ except:
             icon=folium.Icon(color=color_usuario, icon="user", prefix="fa")
         ).add_to(mapa)
 
-    # Reportes registrados en sus coordenadas REALES
     for rep in st.session_state.registro_reportes:
         if barrio_filtro != "Todos" and rep.get("Sector") != barrio_filtro:
             continue
@@ -401,7 +335,6 @@ except:
 
     if st.session_state.registro_reportes:
         df = pd.DataFrame(st.session_state.registro_reportes)
-        # Mostrar columnas relevantes sin lat/lon crudas
         cols_mostrar = [c for c in ["Código", "Sector", "Referencia", "Objetos", "Peso (Kg)", "Predominante", "Clasificación", "Lat", "Lon"] if c in df.columns]
         st.dataframe(df[cols_mostrar], use_container_width=True)
 
@@ -419,13 +352,9 @@ except:
 # ====================================================================
 # 9. SECCIÓN: REPORTAR RESIDUO
 # ====================================================================
-# ====================================================================
-# 9. SECCIÓN: REPORTAR RESIDUO
-# ====================================================================
 elif menu == "📸 Reportar Residuo":
     st.header("📸 Reporte de Residuos con IA")
 
-    # ── 1. Banner de estado ──────────────────────────────────────────
     es_residente = st.session_state.gps_validado and not st.session_state.fuera_de_rango
 
     if not st.session_state.gps_validado:
@@ -435,15 +364,14 @@ elif menu == "📸 Reportar Residuo":
     else:
         st.markdown(f'<div class="gps-ok">✅ Residente verificado: ({st.session_state.gps_lat:.5f}, {st.session_state.gps_lon:.5f}).</div>', unsafe_allow_html=True)
 
-    # ── 2. Lógica de flujo (Envío o Formulario) ──────────────────────
     if st.session_state.reporte_enviado:
         st.success("🎉 ¡Reporte enviado y registrado en el mapa!")
         if st.button("🔄 Hacer otro reporte", type="primary"):
             st.session_state.reporte_enviado = False
-            if "cache_nuevo_reporte" in st.session_state: del st.session_state.cache_nuevo_reporte
+            if "cache_nuevo_reporte" in st.session_state: 
+                del st.session_state.cache_nuevo_reporte
             st.rerun()
     else:
-        # Formulario
         col_f1, col_f2 = st.columns(2)
         with col_f1:
             barrio = st.selectbox("Barrio del reporte:", BARRIOS_PILOTO)
@@ -461,63 +389,7 @@ elif menu == "📸 Reportar Residuo":
                         img.save(tmp.name)
                         resultados = modelo(tmp.name, conf=0.10)
                 
-                # Proceso de IA
-                objetos = []
-                for r in resultados:
-                    for box in r.boxes:
-                        clase = int(box.cls[0])
-                        objetos.append(modelo.names[clase])
-                
-                if objetos:
-                    conteo = Counter(objetos)
-                    residuos = 0
-                    peso_total = 0
-                    
-                    for obj, cantidad in conteo.items():
-                        if obj in materiales:
-                            _, _, peso, recicla = materiales[obj]
-                            if recicla:
-                                residuos += cantidad
-                                peso_total += (peso * cantidad)
-                    
-                    nivel = "🔴 Punto crítico" if residuos >= 10 else "🟡 Posible punto crítico" if residuos >= 5 else "🟢 Residuo individual"
-                    
-                    # GUARDAR EN CACHÉ
-                    st.session_state.cache_nuevo_reporte = {
-                        "Código": f"REP-{len(st.session_state.registro_reportes) + 200}",
-                        "Sector": barrio,
-                        "Referencia": referencia if referencia else "Sin referencia",
-                        "Objetos": residuos,
-                        "Peso (Kg)": round(peso_total, 2),
-                        "Predominante": "Mixto",
-                        "Clasificación": nivel,
-                        "Lat": st.session_state.gps_lat,
-                        "Lon": st.session_state.gps_lon,
-                        "Dirección": st.session_state.direccion
-                    }
-                    st.rerun() # Recargamos para mostrar los resultados y el botón de enviar
-                else:
-                    st.error("No se detectaron residuos reconocibles.")
-
-    # ── 3. Mostrar Confirmación (Si hay reporte en caché) ─────────────
-    if "cache_nuevo_reporte" in st.session_state:
-        rep_prev = st.session_state.cache_nuevo_reporte
-        st.markdown("---")
-        st.markdown("### ✅ Confirmar reporte")
-        
-        # Mostrar resumen en tabla
-        st.table(pd.DataFrame([rep_prev]))
-        
-        if es_residente:
-            if st.button("🚀 ENVIAR REPORTE DEFINITIVO", type="primary", use_container_width=True):
-                st.session_state.registro_reportes.append(rep_prev)
-                del st.session_state.cache_nuevo_reporte
-                st.session_state.reporte_enviado = True
-                st.rerun()
-        else:
-            st.warning("⚠️ Análisis completo, pero no puedes enviar reportes al mapa (Fuera de rango).")
-
-                # ── Análisis de objetos ───────────────────────────────
+                # Análisis de objetos
                 objetos = []
                 for r in resultados:
                     for box in r.boxes:
@@ -580,7 +452,6 @@ elif menu == "📸 Reportar Residuo":
                     with c3:
                         st.markdown(f'<div class="metric-card"><h3>{nivel}</h3><p>Clasificación</p></div>', unsafe_allow_html=True)
 
-                    # Solo guardamos el reporte si es residente
                     if es_residente:
                         st.session_state.cache_nuevo_reporte = {
                             "Código": f"REP-{len(st.session_state.registro_reportes) + 200}",
@@ -592,45 +463,44 @@ elif menu == "📸 Reportar Residuo":
                             "Clasificación": nivel,
                             "Lat": st.session_state.gps_lat,
                             "Lon": st.session_state.gps_lon,
+                            "Dirección": st.session_state.direccion
                         }
-    if "cache_nuevo_reporte" in st.session_state:
-    rep_prev = st.session_state.cache_nuevo_reporte
+                else:
+                    st.error("No se detectaron residuos reconocibles.")
 
-    st.markdown("---")
-    st.markdown("### ✅ Confirmar y enviar reporte al mapa comunitario")
+        # Mostrar confirmación si el reporte está en caché
+        if "cache_nuevo_reporte" in st.session_state:
+            rep_prev = st.session_state.cache_nuevo_reporte
+            st.markdown("---")
+            st.markdown("### ✅ Confirmar y enviar reporte al mapa comunitario")
 
-    st.markdown(f"""
-    | Campo | Valor |
-    |-------|-------|
-    | Sector | {rep_prev['Sector']} |
-    | Referencia | {rep_prev['Referencia']} |
-    | Residuos detectados | {rep_prev['Objetos']} |
-    | Peso estimado | {rep_prev['Peso (Kg)']} kg |
-    | Clasificación | {rep_prev['Clasificación']} |
-    | 📍 Coordenadas GPS | {rep_prev['Lat']:.5f}, {rep_prev['Lon']:.5f} |
-    | 🏠 Dirección | {rep_prev['Dirección']} |
-    """)
+            st.markdown(f"""
+            | Campo | Valor |
+            |-------|-------|
+            | Sector | {rep_prev['Sector']} |
+            | Referencia | {rep_prev['Referencia']} |
+            | Residuos detectados | {rep_prev['Objetos']} |
+            | Peso estimado | {rep_prev['Peso (Kg)']} kg |
+            | Clasificación | {rep_prev['Clasificación']} |
+            | 📍 Coordenadas GPS | {rep_prev['Lat']:.5f}, {rep_prev['Lon']:.5f} |
+            | 🏠 Dirección | {rep_prev.get('Dirección', 'No disponible')} |
+            """)
 
-    if st.button(
-        "🚀 ENVIAR REPORTE DEFINITIVO",
-        type="primary",
-        use_container_width=True
-    ):
-        st.session_state.registro_reportes.append(rep_prev)
-        del st.session_state.cache_nuevo_reporte
-        st.session_state.reporte_enviado = True
-        st.rerun()
+            if st.button("🚀 ENVIAR REPORTE DEFINITIVO", type="primary", use_container_width=True):
+                st.session_state.registro_reportes.append(rep_prev)
+                del st.session_state.cache_nuevo_reporte
+                st.session_state.reporte_enviado = True
+                st.rerun()
 
-            elif not es_residente and imagen is not None:
-                # Análisis hecho pero no es residente → mostrar aviso al pie
-                st.markdown("---")
-                st.markdown(
-                    '<div class="gps-error" style="text-align:center;">'
-                    '🛑 <b>Análisis completado.</b> Para enviar este reporte al mapa comunitario '
-                    'debes estar físicamente dentro de la <b>Comuna 2</b> con GPS verificado.'
-                    '</div>',
-                    unsafe_allow_html=True
-                )
+        elif not es_residente and imagen is not None:
+            st.markdown("---")
+            st.markdown(
+                '<div class="gps-error" style="text-align:center;">'
+                '🛑 <b>Análisis completado.</b> Para enviar este reporte al mapa comunitario '
+                'debes estar físicamente dentro de la <b>Comuna 2</b> con GPS verificado.'
+                '</div>',
+                unsafe_allow_html=True
+            )
 
 # ====================================================================
 # 10. SECCIÓN: PUNTO CRÍTICO
@@ -666,7 +536,6 @@ elif menu == "🚨 Punto Crítico":
                     img.save(tmp.name)
                     resultados = modelo(tmp.name, conf=0.10)
 
-            # Comparación
             st.markdown("### 🔬 Original vs Detecciones")
             c1, c2 = st.columns(2)
             with c1:
