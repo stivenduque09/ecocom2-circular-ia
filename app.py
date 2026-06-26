@@ -10,6 +10,7 @@ from streamlit_folium import st_folium
 import pandas as pd
 import streamlit.components.v1 as components
 from shapely.geometry import Point, Polygon
+from geopy.geocoders import Nominatim
 
 # --------------------------------------------------------------------
 # 1. CONFIGURACIÓN DE LA PÁGINA
@@ -162,6 +163,23 @@ if "lat" in query_params and "lon" in query_params:
         lon = float(query_params["lon"])
         st.session_state.gps_lat = lat
         st.session_state.gps_lon = lon
+        try:
+    geolocator = Nominatim(
+        user_agent="ecocom2"
+    )
+
+    location = geolocator.reverse(
+        f"{lat}, {lon}"
+    )
+
+    st.session_state.direccion = (
+        location.address
+        if location
+        else "No disponible"
+    )
+
+except:
+    st.session_state.direccion = "No disponible"
         # Validar si está dentro del polígono
         punto = Point(lon, lat)
         st.session_state.gps_validado = True
@@ -254,6 +272,23 @@ if menu == "🏠 Inicio":
     if st.session_state.gps_validado:
         lat_u = st.session_state.gps_lat
         lon_u = st.session_state.gps_lon
+        try:
+    geolocator = Nominatim(
+        user_agent="ecocom2"
+    )
+
+    location = geolocator.reverse(
+        f"{lat}, {lon}"
+    )
+
+    st.session_state.direccion = (
+        location.address
+        if location
+        else "No disponible"
+    )
+
+except:
+    st.session_state.direccion = "No disponible"
         if not st.session_state.fuera_de_rango:
             st.markdown(f'<div class="gps-ok">✅ Ubicación validada: {lat_u:.5f}, {lon_u:.5f} — Dentro de la Comuna 2. Puedes reportar residuos.</div>', unsafe_allow_html=True)
         else:
@@ -490,29 +525,33 @@ elif menu == "📸 Reportar Residuo":
                             "Lat": st.session_state.gps_lat,
                             "Lon": st.session_state.gps_lon,
                         }
-                else:
-                    st.error("❌ No se detectaron objetos reconocibles en la imagen.")
+    if "cache_nuevo_reporte" in st.session_state:
+    rep_prev = st.session_state.cache_nuevo_reporte
 
-            # ── Botón enviar: SOLO para residentes verificados ────────
-            if "cache_nuevo_reporte" in st.session_state:
-                rep_prev = st.session_state.cache_nuevo_reporte
-                st.markdown("---")
-                st.markdown("### ✅ Confirmar y enviar reporte al mapa comunitario")
-                st.markdown(f"""
-                | Campo | Valor |
-                |-------|-------|
-                | Sector | {rep_prev['Sector']} |
-                | Referencia | {rep_prev['Referencia']} |
-                | Residuos detectados | {rep_prev['Objetos']} |
-                | Peso estimado | {rep_prev['Peso (Kg)']} kg |
-                | Clasificación | {rep_prev['Clasificación']} |
-                | 📍 Coordenadas GPS | {rep_prev['Lat']:.5f}, {rep_prev['Lon']:.5f} |
-                """)
-                if st.button("🚀 ENVIAR REPORTE DEFINITIVO", type="primary", use_container_width=True):
-                    st.session_state.registro_reportes.append(rep_prev)
-                    del st.session_state.cache_nuevo_reporte
-                    st.session_state.reporte_enviado = True
-                    st.rerun()
+    st.markdown("---")
+    st.markdown("### ✅ Confirmar y enviar reporte al mapa comunitario")
+
+    st.markdown(f"""
+    | Campo | Valor |
+    |-------|-------|
+    | Sector | {rep_prev['Sector']} |
+    | Referencia | {rep_prev['Referencia']} |
+    | Residuos detectados | {rep_prev['Objetos']} |
+    | Peso estimado | {rep_prev['Peso (Kg)']} kg |
+    | Clasificación | {rep_prev['Clasificación']} |
+    | 📍 Coordenadas GPS | {rep_prev['Lat']:.5f}, {rep_prev['Lon']:.5f} |
+    | 🏠 Dirección | {rep_prev['Dirección']} |
+    """)
+
+    if st.button(
+        "🚀 ENVIAR REPORTE DEFINITIVO",
+        type="primary",
+        use_container_width=True
+    ):
+        st.session_state.registro_reportes.append(rep_prev)
+        del st.session_state.cache_nuevo_reporte
+        st.session_state.reporte_enviado = True
+        st.rerun()
 
             elif not es_residente and imagen is not None:
                 # Análisis hecho pero no es residente → mostrar aviso al pie
