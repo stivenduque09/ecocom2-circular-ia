@@ -8,89 +8,43 @@ from streamlit_folium import st_folium
 import pandas as pd               
 import streamlit.components.v1 as components
 from geopy.geocoders import Nominatim
-# --- INICIALIZACIÓN SEGURA ---
-if "fuera_de_rango" not in st.session_state:
-    st.session_state.fuera_de_rango = False
-if "gps_lat" not in st.session_state:
-    st.session_state.gps_lat = 6.2982
-if "gps_lon" not in st.session_state:
-    st.session_state.gps_lon = -75.5521
-    # --- LÓGICA DE VALIDACIÓN ANTES DEL BOTÓN ---
-# Si el barrio seleccionado está en la lista, permitimos el reporte (fuera_de_rango = False)
-if barrio in BARRIOS_HABILITADOS:
-    st.session_state.fuera_de_rango = False 
 
-# Validamos el estado final antes de mostrar el botón de envío
-if st.session_state.fuera_de_rango:
-    st.error(f"🛑 Acceso Denegado: Debes estar en {', '.join(BARRIOS_HABILITADOS)} para reportar.")
-else:
-    if st.button("🚀 ENVIAR REPORTE DEFINITIVO", type="primary", use_container_width=True):
-        st.session_state.registro_reportes.append(st.session_state.cache_nuevo_reporte)
-        del st.session_state.cache_nuevo_reporte  
-        st.session_state.reporte_enviado = True
-        st.rerun()
-# ------------------------------
-# 1. CONFIGURACIÓN INICIAL (PROTEGIDA)
+# 1. CONFIGURACIÓN Y ESTADO (SIEMPRE AL PRINCIPIO)
 st.set_page_config(page_title="EcoCom2 Circular IA", layout="wide")
 
-# Inicialización segura de todas las variables
 if "registro_reportes" not in st.session_state: st.session_state.registro_reportes = []
-if "gps_lat" not in st.session_state: st.session_state.gps_lat = None
-if "gps_lon" not in st.session_state: st.session_state.gps_lon = None
+if "gps_lat" not in st.session_state: st.session_state.gps_lat = 6.2982
+if "gps_lon" not in st.session_state: st.session_state.gps_lon = -75.5521
 if "fuera_de_rango" not in st.session_state: st.session_state.fuera_de_rango = False
 
 BARRIOS_HABILITADOS = ["Andalucía", "Villa del Socorro", "Moscú", "La Francia", "Villa Niza"]
 
-# Carga de modelo
-@st.cache_resource
-def cargar_modelo():
-    return YOLO("yolov8m.pt")
-modelo = cargar_modelo()
-
-# 2. PROCESAMIENTO DE GPS
-query_params = st.query_params
-if "lat" in query_params and "lon" in query_params:
-    st.session_state.gps_lat = float(query_params["lat"])
-    st.session_state.gps_lon = float(query_params["lon"])
-    st.query_params.clear()
-
-# 3. INTERFAZ
+# 2. INTERFAZ
 menu = st.sidebar.radio("Menú", ["Inicio", "Reportar residuo", "Punto crítico", "Información"])
 
 if menu == "Inicio":
     st.title("♻️ EcoCom2 Circular IA")
-    
-    # Verificación de ubicación
-    lat = st.session_state.gps_lat
-    lon = st.session_state.gps_lon
-    
-    if lat and lon:
-        st.success(f"📍 GPS Activo: {lat}, {lon}")
-        # Aquí va tu lógica de validación de barrio original
-        st.session_state.fuera_de_rango = False # Ajusta esto según tu lógica de validación
-    else:
-        st.warning("Presiona el botón de GPS para validar tu sector.")
-        # Aquí iría tu botón de JavaScript para capturar GPS
-
-    # MAPA COMPLETO (Aquí recuperamos el mapa)
+    # Lógica de Mapa
     mapa = folium.Map(location=[6.2982, -75.5521], zoom_start=17)
-    # [Insertar aquí el resto de tu lógica original para añadir marcadores al mapa]
     st_folium(mapa, width=1100, height=450)
-
-    # HISTORIAL
-    st.write("### Historial de Reportes")
-    if st.session_state.registro_reportes:
-        st.dataframe(pd.DataFrame(st.session_state.registro_reportes))
 
 elif menu == "Reportar residuo":
     st.header("♻️ Reporte de residuos")
-    # [Aquí pegas toda tu lógica original de carga de archivo, IA y formulario]
-    # Recuerda mantener la condición: if st.session_state.fuera_de_rango: st.error("...") else: st.button("ENVIAR")
+    
+    # Aquí debe ir tu formulario de subida de imagen y análisis IA
+    barrio = st.selectbox("Seleccione el sector del reporte:", BARRIOS_HABILITADOS)
+    
+    # --- LÓGICA DE VALIDACIÓN (Aquí sí funciona porque 'barrio' ya fue definido arriba) ---
+    if barrio in BARRIOS_HABILITADOS:
+        st.session_state.fuera_de_rango = False 
+    
+    # Solo mostramos el botón si la lógica permite el reporte
+    if st.session_state.fuera_de_rango:
+        st.error(f"🛑 Acceso Denegado: Debes estar en {', '.join(BARRIOS_HABILITADOS)}.")
+    else:
+        # Aquí iría tu botón: st.button("🚀 ENVIAR REPORTE DEFINITIVO", ...)
+        st.write("Botón habilitado para barrios autorizados.")
 
-# 4. PUNTO CRÍTICO E INFORMACIÓN
-elif menu == "Punto crítico":
-    st.header("🚨 Punto crítico")
-    # [Aquí pegas tu lógica original]
 elif menu == "Información":
     st.header("Acerca de EcoCom2")
     st.write(f"Barrios habilitados: {', '.join(BARRIOS_HABILITADOS)}")
