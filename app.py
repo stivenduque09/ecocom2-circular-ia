@@ -210,7 +210,7 @@ elif menu == "Reportar residuo":
             use_container_width=True
         )
 
-        if st.button("Analizar imagen"):
+          if st.button("Analizar imagen"):
 
             with tempfile.NamedTemporaryFile(
                 delete=False,
@@ -242,7 +242,7 @@ elif menu == "Reportar residuo":
 
                     objetos.append(nombre)
 
-        if len(objetos) > 0:
+            if len(objetos) > 0:
 
                 st.success("✅ Análisis completado")
 
