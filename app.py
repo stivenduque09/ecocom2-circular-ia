@@ -3,9 +3,10 @@ from ultralytics import YOLO
 from PIL import Image
 import tempfile
 from collections import Counter
-import folium                     # Para crear el mapa interactivo
-from streamlit_folium import st_folium  # Para mostrar el mapa en Streamlit
-import pandas as pd               # Para estructurar el historial en tablas
+import folium                     
+from streamlit_folium import st_folium  
+import pandas as pd               
+import streamlit.components.v1 as components  # Para inyección directa de JS Nativo
 
 # --------------------------------------------------------------------
 # 1. CONFIGURACIÓN DE LA PÁGINA
@@ -21,6 +22,14 @@ st.set_page_config(
 # --------------------------------------------------------------------
 if "registro_reportes" not in st.session_state:
     st.session_state.registro_reportes = []
+
+# Variables de control para el GPS nativo
+if "gps_lat" not in st.session_state:
+    st.session_state.gps_lat = None
+if "gps_lon" not in st.session_state:
+    st.session_state.gps_lon = None
+if "gps_error" not in st.session_state:
+    st.session_state.gps_error = None
 
 # --------------------------------------------------------------------
 # 3. CARGAR MODELO
@@ -85,7 +94,6 @@ materiales = {
     "bicycle": ("Bicicleta", "No aplica", 0, False)
 }
 
-# LAS ÚNICAS TRES ZONAS OFICIALES APROBADAS PARA EL PROTOTIPO
 BARRIOS_PILOTO = ["Andalucía", "Villa del Socorro", "Moscú"]
 
 # --------------------------------------------------------------------
@@ -98,78 +106,113 @@ except Exception:
 
 menu = st.sidebar.radio(
     "Menú",
-    [
-        "Inicio",
-        "Reportar residuo",
-        "Punto crítico",
-        "Información"
-    ]
+    ["Inicio", "Reportar residuo", "Punto crítico", "Información"]
 )
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("""
     <div style="background-color: rgba(16, 185, 129, 0.1); padding: 12px; border-radius: 8px; border: 1px solid rgba(16, 185, 129, 0.2); font-family: sans-serif; font-size: 12px; color: #374151;">
-        ⚙️ <b>Ecosistema EcoCom2 v1.5</b><br>
+        ⚙️ <b>Ecosistema EcoCom2 v1.6</b><br>
         Territorio INN 2026 | ITM Medellín<br>
         Desarrollado por: <b>Brandon Duque</b>
     </div>
 """, unsafe_allow_html=True)
 
+# Capturar parámetros enviados por la URL desde el script inyectado de JS de manera limpia
+query_params = st.query_params
+if "lat" in query_params and "lon" in query_params:
+    st.session_state.gps_lat = float(query_params["lat"])
+    st.session_state.gps_lon = float(query_params["lon"])
+    st.session_state.gps_error = None
+    st.query_params.clear()  # Limpiar la URL de residuos visuales de parámetros
+
 # --------------------------------------------------------------------
-# 6. SECCIÓN: INICIO (MAPA DINÁMICO REAL - SIN PUNTOS FALSOS)
+# 6. SECCIÓN: INICIO (CON CORRECCIÓN DE GPS ASÍNCRONO NATIVO)
 # --------------------------------------------------------------------
 if menu == "Inicio":
-    from streamlit_js_eval import streamlit_js_eval
     from geopy.geocoders import Nominatim
 
     st.title("♻️ EcoCom2 Circular IA")
     st.write("Sistema inteligente de gestión de residuos mediante inteligencia artificial.")
     
     st.markdown("### 📍 Panel Territorial Semicontrolado (Sectores del Prototipo)")
-
-    # Bloque de validación GPS en el Inicio
     st.markdown("#### 🌐 Verificación de Cobertura GPS Obligatoria")
-    verificar_rango = st.checkbox("Activar GPS para verificar rango de servicio")
-    
+
+    # Botón HTML/JS nativo insertado de forma transparente para forzar la petición de coordenadas al navegador web móvil
+    js_gps_button = """
+    <div style="font-family: sans-serif; margin-bottom: 10px;">
+        <button onclick="getRealtimeGPS()" style="background-color: #10B981; color: white; border: none; padding: 12px 24px; font-size: 15px; border-radius: 6px; cursor: pointer; font-weight: bold; width: 100%;">
+            📡 SINCRONIZAR Y VERIFICAR GPS REAL
+        </button>
+    </div>
+
+    <script>
+    function getRealtimeGPS() {
+        if (navigator.geolocation) {
+            navigator.geolocation.getCurrentPosition(
+                (position) => {
+                    const lat = position.coords.latitude;
+                    const lon = position.coords.longitude;
+                    // Enviar variables de vuelta a Streamlit recargando sutilmente con parámetros limpios
+                    window.parent.location.search = `?lat=${lat}&lon=${lon}`;
+                },
+                (error) => {
+                    alert("Error al obtener acceso al satélite GPS. Verifica los permisos de tu navegador móvil.");
+                },
+                { enableHighAccuracy: true, timeout: 10000 }
+            );
+        } else {
+            alert("Tu dispositivo móvil no soporta geolocalización HTML5.");
+        }
+    }
+    </script>
+    """
+    components.html(js_gps_button, height=60)
+
     fuera_de_rango = False
     direccion_detectada = ""
+    
+    # Coordenadas por defecto (Centro de Comuna 2 Medellín)
+    lat_base, lon_base = 6.2950, -75.5530
 
-    if verificar_rango:
-        loc = streamlit_js_eval(data_theme='dark', component='get_geolocation', key='geo_inicio')
-        if loc:
-            lat = loc['coords']['latitude']
-            lon = loc['coords']['longitude']
-            
-            try:
-                geolocator = Nominatim(user_agent="ecocom2_circular_ia")
-                location = geolocator.reverse(f"{lat}, {lon}")
-                if location:
-                    direccion_detectada = location.address
-                else:
-                    direccion_detectada = ""
-            except Exception:
-                direccion_detectada = "Medellín, Andalucía, Comuna 2"
-
-            # Validación estricta de la geocerca territorial
-            if any(b.lower() in direccion_detectada.lower() for b in BARRIOS_PILOTO) or "andalucía" in direccion_detectada.lower() or "socorro" in direccion_detectada.lower() or "moscú" in direccion_detectada.lower():
-                st.success(f"✅ **Rango verificado:** Te encuentras en zona autorizada.\n\n🏠 *Ubicación:* {direccion_detectada}")
-                fuera_de_rango = False
+    if st.session_state.gps_lat and st.session_state.gps_lon:
+        lat_base = st.session_state.gps_lat
+        lon_base = st.session_state.gps_lon
+        
+        try:
+            geolocator = Nominatim(user_agent="ecocom2_circular_ia")
+            location = geolocator.reverse(f"{lat_base}, {lon_base}")
+            if location:
+                direccion_detectada = location.address
             else:
-                st.error(f"🛑 **Fuera de rango:** Tu ubicación actual ({direccion_detectada}) no pertenece a Andalucía, Villa del Socorro ni Moscú. Las funciones de recolección y reporte están bloqueadas.")
-                fuera_de_rango = True
-        else:
-            st.info("⌛ Esperando coordenadas de satélite... Concede permisos de ubicación.")
-    else:
-        st.warning("⚠️ Recuerda que debes activar la verificación GPS para corroborar que estás dentro del rango operativo de los barrios piloto.")
+                direccion_detectada = ""
+        except Exception:
+            # Respaldo seguro en caso de fallas de timeout del servidor de reversión Nominatim
+            direccion_detectada = "Medellín, Andalucía, Comuna 2"
 
-    # Selector de visualización por barrio
+        if any(b.lower() in direccion_detectada.lower() for b in BARRIOS_PILOTO) or "andalucía" in direccion_detectada.lower() or "socorro" in direccion_detectada.lower() or "moscú" in direccion_detectada.lower():
+            st.success(f"✅ **Rango verificado con éxito:** Te encuentras dentro de la Comuna 2.\n\n🏠 *Ubicación detectada:* {direccion_detectada}")
+            fuera_de_rango = False
+        else:
+            st.error(f"🛑 **Fuera de rango:** Tu ubicación actual ({direccion_detectada}) no pertenece a Andalucía, Villa del Socorro ni Moscú. Las funciones de recolección están bloqueadas.")
+            fuera_de_rango = True
+    else:
+        st.warning("⚠️ Debes presionar el botón superior 'SINCRONIZAR Y VERIFICAR GPS REAL' para corroborar tu geocerca territorial.")
+
     barrio_seleccionado = st.selectbox("Filtrar visualización del mapa:", ["Todos"] + BARRIOS_PILOTO)
 
-    # Coordenadas céntricas de la Comuna 2 para pintar el mapa base
-    lat_base, lon_base = 6.2950, -75.5530
-    mapa_centro = folium.Map(location=[lat_base, lon_base], zoom_start=15.5, tiles="OpenStreetMap")
+    # Generación y pintado del mapa reactivo
+    mapa_centro = folium.Map(location=[lat_base, lon_base], zoom_start=16, tiles="OpenStreetMap")
 
-    # AQUÍ ESTÁ EL CAMBIO: Solo recorremos y pintamos los registros que existan en st.session_state.registro_reportes
+    # Colocar marcador azul de la posición del usuario si el GPS está activo
+    if st.session_state.gps_lat and st.session_state.gps_lon:
+        folium.Marker(
+            location=[st.session_state.gps_lat, st.session_state.gps_lon],
+            popup="Mi Ubicación Real",
+            icon=folium.Icon(color="blue", icon="info-sign")
+        ).add_to(mapa_centro)
+
+    # Solo recorremos los registros que existan en el historial real generado por el usuario
     for idx, rep in enumerate(st.session_state.registro_reportes):
         if barrio_seleccionado != "Todos" and rep["Sector"] != barrio_seleccionado:
             continue
@@ -177,9 +220,8 @@ if menu == "Inicio":
         color_dinamico = "green" if "individual" in rep["Clasificación"].lower() else ("orange" if "posible" in rep["Clasificación"].lower() else "red")
         popup_dinamico = f"<b>{rep['Código']}</b><br>Sector: {rep['Sector']}<br>Ref: {rep['Referencia']}<br>Peso: {rep['Peso (Kg)']} kg"
         
-        # Desplazamiento sutil para separar múltiples puntos en pantalla
-        lat_b = lat_base + (idx * 0.0006) - 0.001
-        lon_b = lon_base - (idx * 0.0006) + 0.001
+        lat_b = lat_base + (idx * 0.0003) 
+        lon_b = lon_base - (idx * 0.0003)
         
         folium.CircleMarker(
             location=[lat_b, lon_b],
@@ -191,14 +233,13 @@ if menu == "Inicio":
             popup=folium.Popup(popup_dinamico, max_width=200)
         ).add_to(mapa_centro)
 
-    # Renderizar mapa (Se verá vacío si no has reportado nada aún)
     st_folium(mapa_centro, width=1100, height=450, returned_objects=[])
 
     st.markdown("---")
     st.markdown("### 📋 Historial de Reportes Guardados")
     
     if fuera_de_rango:
-        st.error("❌ Sección bloqueada. No se pueden procesar ni visualizar datos de la comuna si estás fuera del rango geográfico establecido.")
+        st.error("❌ Sección bloqueada. No se pueden procesar ni visualizar datos si estás fuera del rango geográfico establecido.")
     else:
         if len(st.session_state.registro_reportes) > 0:
             df_datos = pd.DataFrame(st.session_state.registro_reportes)
@@ -209,7 +250,7 @@ if menu == "Inicio":
             with c_m2:
                 st.metric("Material Recuperado Acumulado", f"{df_datos['Peso (Kg)'].sum():.2f} kg")
         else:
-            st.info("💡 El sistema de base de datos está actualmente vacío. No hay reportes activos en este momento. Los marcadores e indicadores aparecerán de forma automática en el mapa tan pronto como registres un elemento desde las pestañas del menú lateral.")
+            st.info("💡 El sistema de base de datos está actualmente vacío. Los marcadores aparecerán de forma automática en el mapa tan pronto como registres un elemento en el formulario.")
 
 # --------------------------------------------------------------------
 # 7. SECCIÓN: INFORMACIÓN
