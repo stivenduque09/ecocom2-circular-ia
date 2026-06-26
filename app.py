@@ -156,38 +156,43 @@ COLOR_NIVEL = {
 # --------------------------------------------------------------------
 # 6. LEER PARAMS GPS (desde JS → query params)
 # --------------------------------------------------------------------
-query_params = st.query_params
 if "lat" in query_params and "lon" in query_params:
     try:
         lat = float(query_params["lat"])
         lon = float(query_params["lon"])
+
         st.session_state.gps_lat = lat
         st.session_state.gps_lon = lon
-  try:
-    geolocator = Nominatim(
-        user_agent="ecocom2"
-    )
 
-    location = geolocator.reverse(
-        f"{lat}, {lon}"
-    )
+        try:
+            geolocator = Nominatim(
+                user_agent="ecocom2"
+            )
 
-    st.session_state.direccion = (
-        location.address
-        if location
-        else "No disponible"
-    )
+            location = geolocator.reverse(
+                f"{lat}, {lon}"
+            )
 
-except:
-    st.session_state.direccion = "No disponible"
-        # Validar si está dentro del polígono
+            st.session_state.direccion = (
+                location.address
+                if location
+                else "No disponible"
+            )
+
+        except:
+            st.session_state.direccion = "No disponible"
+
         punto = Point(lon, lat)
+
         st.session_state.gps_validado = True
-        st.session_state.fuera_de_rango = not POLIGONO_COMUNA2.contains(punto)
+        st.session_state.fuera_de_rango = (
+            not POLIGONO_COMUNA2.contains(punto)
+        )
+
         st.query_params.clear()
+
     except Exception:
         pass
-
 # --------------------------------------------------------------------
 # 7. BARRA LATERAL
 # --------------------------------------------------------------------
