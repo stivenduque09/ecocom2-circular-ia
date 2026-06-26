@@ -251,46 +251,100 @@ border:1px solid rgba(74,222,128,0.2);font-size:12px;color:#9ca3af;">
 # ====================================================================
 
 def boton_gps():
-    """Botón JS que obtiene GPS del navegador y recarga con ?lat=&lon="""
+    """
+    Botón GPS con múltiples estrategias de redirección.
+    Funciona en Streamlit Cloud donde window.parent está bloqueado por CORS.
+    Incluye fallback: campo de texto para pegar coordenadas manualmente.
+    """
     components.html("""
     <div style="font-family:sans-serif;">
-      <button onclick="pedirGPS()" style="
+      <button onclick="pedirGPS()" id="btnGPS" style="
           background:linear-gradient(135deg,#10b981,#059669);
           color:white;border:none;padding:14px 0;font-size:15px;
           font-weight:bold;border-radius:8px;cursor:pointer;
-          width:100%;letter-spacing:0.4px;">
+          width:100%;letter-spacing:0.4px;margin-bottom:8px;">
           📡 VALIDAR MI UBICACIÓN GPS
       </button>
-      <div id="msg" style="color:#9ca3af;font-size:13px;margin-top:6px;min-height:18px;"></div>
+      <div id="msg" style="color:#9ca3af;font-size:13px;min-height:18px;"></div>
+      <div id="manual" style="display:none;margin-top:10px;
+           background:rgba(16,185,129,0.1);border:1px solid #4ade80;
+           border-radius:6px;padding:10px;font-size:13px;color:#e8f5e9;">
+        <b style="color:#4ade80">📋 Copia este enlace y pégalo en la barra de direcciones del navegador:</b><br><br>
+        <span id="urlManual" style="word-break:break-all;color:#a7f3d0;background:rgba(0,0,0,0.3);
+              padding:6px;border-radius:4px;display:block;margin-top:4px;"></span>
+      </div>
     </div>
     <script>
     function pedirGPS() {
-        var msg = document.getElementById('msg');
+        var msg    = document.getElementById('msg');
+        var manual = document.getElementById('manual');
+        var btn    = document.getElementById('btnGPS');
+
         if (!navigator.geolocation) {
             msg.innerHTML = '❌ Tu navegador no soporta GPS.'; return;
         }
-        msg.innerHTML = '⏳ Solicitando ubicación GPS... espera unos segundos.';
+        btn.disabled = true;
+        btn.style.opacity = '0.7';
+        msg.innerHTML = '⏳ Obteniendo ubicación GPS... espera unos segundos.';
+
         navigator.geolocation.getCurrentPosition(
             function(pos) {
                 var lat = pos.coords.latitude.toFixed(7);
                 var lon = pos.coords.longitude.toFixed(7);
-                msg.innerHTML = '✅ GPS obtenido: ' + lat + ', ' + lon + ' — redirigiendo...';
-                setTimeout(function() {
-                    var base = window.parent.location.pathname;
-                    window.parent.location.href = base + '?lat=' + lat + '&lon=' + lon;
-                }, 700);
+                msg.innerHTML = '✅ GPS: <b>' + lat + ', ' + lon + '</b> — redirigiendo...';
+
+                var redirigido = false;
+
+                // Intento 1: window.top (menos restrictivo que parent en algunos navegadores)
+                try {
+                    var url1 = window.top.location.href.split('?')[0] + '?lat=' + lat + '&lon=' + lon;
+                    window.top.location.href = url1;
+                    redirigido = true;
+                } catch(e1) {}
+
+                if (!redirigido) {
+                    // Intento 2: window.parent
+                    try {
+                        var url2 = window.parent.location.href.split('?')[0] + '?lat=' + lat + '&lon=' + lon;
+                        window.parent.location.href = url2;
+                        redirigido = true;
+                    } catch(e2) {}
+                }
+
+                if (!redirigido) {
+                    // Fallback: construir URL y mostrársela al usuario
+                    // La URL de Streamlit Cloud tiene el formato: https://xxx.streamlit.app/
+                    // El iframe está en /_stcore/... así que subimos al origen
+                    var appUrl = window.location.ancestorOrigins
+                        ? window.location.ancestorOrigins[0]
+                        : document.referrer.split('?')[0];
+
+                    if (!appUrl) appUrl = window.location.origin;
+                    var urlFinal = appUrl.replace(/[/]$/, '') + '?lat=' + lat + '&lon=' + lon;
+
+                    document.getElementById('urlManual').textContent = urlFinal;
+                    manual.style.display = 'block';
+                    msg.innerHTML = '⚠️ Redirección automática bloqueada por el navegador. Copia el enlace de abajo y ábrelo en esta misma pestaña.';
+                }
+
+                btn.disabled = false;
+                btn.style.opacity = '1';
             },
             function(err) {
-                var e = {1:'Permiso GPS denegado — actívalo en el navegador.',
-                         2:'Señal GPS no disponible — intenta en exteriores.',
-                         3:'Tiempo agotado — intenta de nuevo.'};
-                msg.innerHTML = '❌ ' + (e[err.code] || err.message);
+                btn.disabled = false;
+                btn.style.opacity = '1';
+                var errores = {
+                    1: '❌ Permiso de ubicación denegado. Haz clic en 🔒 en la barra de URL → Configuración del sitio → Ubicación → Permitir. Luego recarga.',
+                    2: '❌ Señal GPS no disponible. Activa el WiFi o intenta en exteriores.',
+                    3: '❌ Tiempo agotado. Vuelve a intentarlo.'
+                };
+                msg.innerHTML = errores[err.code] || ('❌ Error GPS: ' + err.message);
             },
-            {enableHighAccuracy:true, timeout:15000, maximumAge:0}
+            {enableHighAccuracy: true, timeout: 15000, maximumAge: 0}
         );
     }
     </script>
-    """, height=76)
+    """, height=120)
 
 
 def analizar_imagen(img, confianza=0.08):
@@ -409,8 +463,39 @@ if menu == "🏠 Inicio":
     st.write("Sistema inteligente de gestión de residuos — **solo residentes de la Comuna 2 pueden publicar reportes.**")
 
     st.markdown("### 📡 Verificar mi ubicación")
+
+    # ── Botón GPS automático ──────────────────────────────────────────
     boton_gps()
 
+    # ── Entrada manual como respaldo ──────────────────────────────────
+    with st.expander("🔧 ¿No funciona el botón? Ingresa las coordenadas manualmente"):
+        st.markdown(
+            "Busca tu ubicación en [Google Maps](https://maps.google.com), "
+            "haz clic derecho sobre tu posición y copia las coordenadas."
+        )
+        col_lat, col_lon = st.columns(2)
+        with col_lat:
+            lat_manual = st.text_input("Latitud (ej: 6.2985592)", key="lat_manual_input")
+        with col_lon:
+            lon_manual = st.text_input("Longitud (ej: -75.5552519)", key="lon_manual_input")
+
+        if st.button("✅ Validar coordenadas ingresadas", key="btn_manual_gps"):
+            try:
+                lm = float(lat_manual)
+                lom = float(lon_manual)
+                if -90 <= lm <= 90 and -180 <= lom <= 180:
+                    st.session_state.gps_lat = lm
+                    st.session_state.gps_lon = lom
+                    st.session_state.gps_validado = True
+                    from shapely.geometry import Point
+                    st.session_state.fuera_de_rango = not POLIGONO_COMUNA2.contains(Point(lom, lm))
+                    st.rerun()
+                else:
+                    st.error("❌ Coordenadas fuera de rango válido.")
+            except ValueError:
+                st.error("❌ Ingresa números válidos. Ejemplo: 6.2985592 y -75.5552519")
+
+    # ── Estado GPS ────────────────────────────────────────────────────
     if st.session_state.gps_validado:
         lat_u = st.session_state.gps_lat
         lon_u = st.session_state.gps_lon
@@ -431,7 +516,7 @@ if menu == "🏠 Inicio":
     else:
         st.markdown(
             '<div class="gps-warn">⚠️ GPS no verificado — '
-            'Presiona el botón para validar tu ubicación.</div>',
+            'Presiona el botón o ingresa tus coordenadas manualmente.</div>',
             unsafe_allow_html=True
         )
 
