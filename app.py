@@ -284,7 +284,7 @@ elif menu == "Información":
                     <p><b>Ejemplos:</b> Cajas de cartón corrugado, carpetas, papel de oficina, hojas de cuaderno, periódicos y revistas.</p>
                     <p><i>Consejo EcoCom2:</i> Desarma las cajas grandes para facilitar su transporte por parte de los recicladores de oficio.</p>
                 </div>
-            """, unsafe_allow_html=True)
+            """, unsafe_allow_html=True)  # <-- REVISA QUE ESTE PARÉNTESIS ESTÉ ASÍ
 
         with col_ap2:
             st.markdown("""
@@ -296,7 +296,7 @@ elif menu == "Información":
                 <div class="card-reciclable">
                     <h3>🍾 Vidrio (Botellas y Frascos)</h3>
                     <p><b>Ejemplos:</b> Botellas de jugos, frascos de mermelada, recipientes de conservas y envases de perfumes limpios.</p>
-                    <p><i>Consejo EcoCom2:</i> Retira las tapas metálicas (estas se reciclan con los metales). No mezcules con bombillos ni espejos rotos.</p>
+                    <p><i>Consejo EcoCom2:</i> Retira las tapas metálicas (estas se reciclan con los metales). No mezcle con bombillos ni espejos rotos.</p>
                 </div>
             """, unsafe_allow_html=True)
 
@@ -331,4 +331,4 @@ elif menu == "Información":
                     <p><b>Ejemplos:</b> Envases de icopor (poliestireno expandido) para almuerzos, vasos plásticos desechables sucios.</p>
                     <p><i>Razón:</i> El icopor sucio de comida no se puede reciclar económicamente debido a los altos costos de lavado y transporte.</p>
                 </div>
-            """, unsafe_allow_html=T
+            """, unsafe_allow_html=True)
