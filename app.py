@@ -89,6 +89,7 @@ defaults = {
     "gps_validado": False,
     "fuera_de_rango": True,
     "reporte_enviado": False,
+    "direccion": "No disponible",
 }
 for k, v in defaults.items():
     if k not in st.session_state:
@@ -274,23 +275,44 @@ if menu == "🏠 Inicio":
     # ------------------------------------------------------------------
     # ESTADO GPS
     # ------------------------------------------------------------------
-    if st.session_state.gps_validado:
-        lat_u = st.session_state.gps_lat
-        lon_u = st.session_state.gps_lon
+if "lat" in query_params and "lon" in query_params:
+    try:
+        lat = float(query_params["lat"])
+        lon = float(query_params["lon"])
+
+        st.session_state.gps_lat = lat
+        st.session_state.gps_lon = lon
+
         try:
-    geolocator = Nominatim(
-        user_agent="ecocom2"
-    )
+            geolocator = Nominatim(
+                user_agent="ecocom2"
+            )
 
-    location = geolocator.reverse(
-        f"{lat}, {lon}"
-    )
+            location = geolocator.reverse(
+                f"{lat}, {lon}"
+            )
 
-    st.session_state.direccion = (
-        location.address
-        if location
-        else "No disponible"
-    )
+            st.session_state.direccion = (
+                location.address
+                if location
+                else "No disponible"
+            )
+
+        except:
+            st.session_state.direccion = "No disponible"
+
+        punto = Point(lon, lat)
+
+        st.session_state.gps_validado = True
+        st.session_state.fuera_de_rango = (
+            not POLIGONO_COMUNA2.contains(punto)
+        )
+
+        st.query_params.clear()
+
+    except Exception:
+        pass"
+ 
 
 except:
     st.session_state.direccion = "No disponible"
@@ -397,62 +419,103 @@ except:
 # ====================================================================
 # 9. SECCIÓN: REPORTAR RESIDUO
 # ====================================================================
+# ====================================================================
+# 9. SECCIÓN: REPORTAR RESIDUO
+# ====================================================================
 elif menu == "📸 Reportar Residuo":
     st.header("📸 Reporte de Residuos con IA")
 
-    # ── Banner de estado según ubicación ──────────────────────────────
+    # ── 1. Banner de estado ──────────────────────────────────────────
     es_residente = st.session_state.gps_validado and not st.session_state.fuera_de_rango
 
     if not st.session_state.gps_validado:
-        st.info("ℹ️ **GPS no verificado** — Puedes analizar materiales con la IA, pero necesitas validar tu ubicación desde **🏠 Inicio** para enviar el reporte al mapa comunitario.")
-    elif st.session_state.fuera_de_rango:
-        st.markdown(
-            f'<div class="gps-error">🛑 Estás fuera de la Comuna 2 ({st.session_state.gps_lat:.5f}, {st.session_state.gps_lon:.5f}) — '
-            f'Puedes usar el analizador de materiales, pero <b>el envío al mapa está bloqueado</b> para observadores externos.</div>',
-            unsafe_allow_html=True
-        )
+        st.info("ℹ️ **GPS no verificado** — Puedes analizar materiales, pero necesitas validar tu ubicación en **🏠 Inicio** para enviar reportes al mapa.")
+    elif not es_residente:
+        st.markdown(f'<div class="gps-error">🛑 <b>Estás fuera de la Comuna 2.</b> Puedes usar el analizador, pero el envío al mapa está bloqueado.</div>', unsafe_allow_html=True)
     else:
-        st.markdown(
-            f'<div class="gps-ok">✅ Residente verificado — {st.session_state.gps_lat:.5f}, {st.session_state.gps_lon:.5f} — Puedes analizar y enviar reportes.</div>',
-            unsafe_allow_html=True
-        )
+        st.markdown(f'<div class="gps-ok">✅ Residente verificado: ({st.session_state.gps_lat:.5f}, {st.session_state.gps_lon:.5f}).</div>', unsafe_allow_html=True)
 
-    st.markdown("")
-
+    # ── 2. Lógica de flujo (Envío o Formulario) ──────────────────────
     if st.session_state.reporte_enviado:
-        st.success("🎉 ¡Reporte enviado y registrado en el mapa con tus coordenadas GPS!")
-        if st.button("🔄 Hacer otro reporte", type="primary", use_container_width=True):
+        st.success("🎉 ¡Reporte enviado y registrado en el mapa!")
+        if st.button("🔄 Hacer otro reporte", type="primary"):
             st.session_state.reporte_enviado = False
+            if "cache_nuevo_reporte" in st.session_state: del st.session_state.cache_nuevo_reporte
             st.rerun()
     else:
-        # Campos de barrio y referencia: solo relevantes para residentes,
-        # pero los mostramos siempre para que el formulario sea completo.
+        # Formulario
         col_f1, col_f2 = st.columns(2)
         with col_f1:
             barrio = st.selectbox("Barrio del reporte:", BARRIOS_PILOTO)
         with col_f2:
-            referencia = st.text_input("Referencia del lugar (ej: Cra 45 #102-18, frente al parque)")
+            referencia = st.text_input("Referencia del lugar (ej: Cra 45 #102-18)")
 
-        imagen = st.file_uploader("📷 Sube una fotografía con residuos:", type=["jpg", "jpeg", "png"])
+        imagen = st.file_uploader("📷 Sube una fotografía:", type=["jpg", "jpeg", "png"])
 
         if imagen is not None:
             img = Image.open(imagen)
-
-            if st.button("🔍 Analizar imagen con IA", use_container_width=True, type="primary"):
+            
+            if st.button("🔍 Analizar imagen con IA", type="primary", use_container_width=True):
                 with st.spinner("Procesando con YOLOv8..."):
                     with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
                         img.save(tmp.name)
                         resultados = modelo(tmp.name, conf=0.10)
+                
+                # Proceso de IA
+                objetos = []
+                for r in resultados:
+                    for box in r.boxes:
+                        clase = int(box.cls[0])
+                        objetos.append(modelo.names[clase])
+                
+                if objetos:
+                    conteo = Counter(objetos)
+                    residuos = 0
+                    peso_total = 0
+                    
+                    for obj, cantidad in conteo.items():
+                        if obj in materiales:
+                            _, _, peso, recicla = materiales[obj]
+                            if recicla:
+                                residuos += cantidad
+                                peso_total += (peso * cantidad)
+                    
+                    nivel = "🔴 Punto crítico" if residuos >= 10 else "🟡 Posible punto crítico" if residuos >= 5 else "🟢 Residuo individual"
+                    
+                    # GUARDAR EN CACHÉ
+                    st.session_state.cache_nuevo_reporte = {
+                        "Código": f"REP-{len(st.session_state.registro_reportes) + 200}",
+                        "Sector": barrio,
+                        "Referencia": referencia if referencia else "Sin referencia",
+                        "Objetos": residuos,
+                        "Peso (Kg)": round(peso_total, 2),
+                        "Predominante": "Mixto",
+                        "Clasificación": nivel,
+                        "Lat": st.session_state.gps_lat,
+                        "Lon": st.session_state.gps_lon,
+                        "Dirección": st.session_state.direccion
+                    }
+                    st.rerun() # Recargamos para mostrar los resultados y el botón de enviar
+                else:
+                    st.error("No se detectaron residuos reconocibles.")
 
-                # ── Comparación: original vs detecciones ──────────────
-                st.markdown("### 🔬 Comparación: Original vs Detecciones IA")
-                col_orig, col_det = st.columns(2)
-                with col_orig:
-                    st.markdown("**📷 Imagen original**")
-                    st.image(img, use_container_width=True)
-                with col_det:
-                    st.markdown("**🤖 Detecciones de la IA**")
-                    st.image(resultados[0].plot(), caption="Objetos identificados", use_container_width=True)
+    # ── 3. Mostrar Confirmación (Si hay reporte en caché) ─────────────
+    if "cache_nuevo_reporte" in st.session_state:
+        rep_prev = st.session_state.cache_nuevo_reporte
+        st.markdown("---")
+        st.markdown("### ✅ Confirmar reporte")
+        
+        # Mostrar resumen en tabla
+        st.table(pd.DataFrame([rep_prev]))
+        
+        if es_residente:
+            if st.button("🚀 ENVIAR REPORTE DEFINITIVO", type="primary", use_container_width=True):
+                st.session_state.registro_reportes.append(rep_prev)
+                del st.session_state.cache_nuevo_reporte
+                st.session_state.reporte_enviado = True
+                st.rerun()
+        else:
+            st.warning("⚠️ Análisis completo, pero no puedes enviar reportes al mapa (Fuera de rango).")
 
                 # ── Análisis de objetos ───────────────────────────────
                 objetos = []
