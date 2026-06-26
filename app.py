@@ -325,17 +325,20 @@ elif menu == "Reportar residuo":
                 st.write(f"⚖️ Peso aproximado: {peso_total:.2f} kg")
                 st.write(f"🚨 Clasificación: {nivel}")
 
-                if cantidad == 0:
+                  if residuos == 0:
+
                     st.error(
-                        "❌ Evidencia insuficiente."
+                        "❌ No se identificaron residuos aprovechables."
                     )
 
-                elif cantidad <= 2:
+                elif residuos <= 2:
+
                     st.info(
                         "📷 Se recomienda una fotografía más cercana."
                     )
 
                 else:
+
                     st.success(
                         "✅ Reporte validado correctamente."
                     )
