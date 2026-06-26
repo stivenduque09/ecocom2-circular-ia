@@ -201,4 +201,4 @@ if menu == "Inicio":
     else:
         # PLAN B: Entrada manual fija en la Carrera 50
         st.markdown("#### ✍️ Registro por Dirección de Cuadrante")
-        direccion_manual = st.text_input("Escribe tu dirección exacta en Comuna 2:", value="Carrera 50a # 107-62",
+        direccion_manual = st.text_input("Escribe tu dirección exacta en Comuna 2:", value="Carrera 50a # 107-62",)
