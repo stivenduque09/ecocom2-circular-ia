@@ -10,3 +10,4 @@ streamlit-js-eval
 geopy
 folium
 streamlit-folium
+shapely
