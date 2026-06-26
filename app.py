@@ -64,10 +64,14 @@ except Exception as e:
 # --------------------------------------------------------------------
 # 3. BARRA LATERAL (LOGOTIPO EN MENU Y NAVEGACIÓN)
 # --------------------------------------------------------------------
+# Intentamos cargar el título primero para asegurar la estructura en la barra lateral
+st.sidebar.title("♻️ EcoCom2")
+
 try:
-    st.sidebar.image("./logo.png", use_container_width=True)
+    # Quitamos el parámetro que molesta a la versión nueva si no encuentra el archivo
+    st.sidebar.image("logo.png") 
 except Exception:
-    st.sidebar.title("♻️ EcoCom2")
+    pass
 
 menu = st.sidebar.radio(
     "Menú",
