@@ -81,4 +81,335 @@ materiales = {
     "orange": ("Naranja", "Orgánico", 0.20, True),
     "broccoli": ("Brócoli", "Orgánico", 0.25, True),
     "carrot": ("Zanahoria", "Orgánico", 0.10, True),
-    "couch": ("Sofá", "Mixto",
+    "couch": ("Sofá", "Mixto", 15.00, True),
+    "bed": ("Cama", "Mixto", 20.00, True),
+    "dining table": ("Mesa", "Madera", 12.00, True),
+    "clock": ("Reloj", "Electrónico", 0.30, True),
+    "umbrella": ("Sombrilla", "Mixto", 0.50, True),
+    "person": ("Persona", "No aplica", 0, False),
+    "dog": ("Perro", "No aplica", 0, False),
+    "cat": ("Gato", "No aplica", 0, False),
+    "bird": ("Ave", "No aplica", 0, False),
+    "horse": ("Caballo", "No aplica", 0, False),
+    "car": ("Vehículo", "No aplica", 0, False),
+    "bus": ("Bus", "No aplica", 0, False),
+    "truck": ("Camión", "No aplica", 0, False),
+    "motorcycle": ("Motocicleta", "No aplica", 0, False),
+    "bicycle": ("Bicicleta", "No aplica", 0, False)
+}
+
+BARRIOS_PILOTO = ["Andalucía", "Villa del Socorro", "Moscú"]
+
+# --------------------------------------------------------------------
+# 5. MENÚ LATERAL
+# --------------------------------------------------------------------
+try:
+    st.sidebar.image("logo.png", use_container_width=True)
+except Exception:
+    st.sidebar.title("♻️ EcoCom2")
+
+menu = st.sidebar.radio(
+    "Menú",
+    ["Inicio", "Reportar residuo", "Punto crítico", "Información"]
+)
+
+st.sidebar.markdown("---")
+st.sidebar.markdown("""
+    <div style="background-color: rgba(16, 185, 129, 0.1); padding: 12px; border-radius: 8px; border: 1px solid rgba(16, 185, 129, 0.2); font-family: sans-serif; font-size: 12px; color: #374151;">
+        ⚙️ <b>Ecosistema EcoCom2 v2.0</b><br>
+        Territorio INN 2026 | ITM Medellín<br>
+        Desarrollado por: <b>Brandon Duque</b>
+    </div>
+""", unsafe_allow_html=True)
+
+query_params = st.query_params
+if "lat" in query_params and "lon" in query_params:
+    st.session_state.gps_lat = float(query_params["lat"])
+    st.session_state.gps_lon = float(query_params["lon"])
+    st.query_params.clear()
+
+# Coordenadas maestras fijas por defecto (Carrera 50)
+LAT_CRA50 = 6.2982
+LON_CRA50 = -75.5521
+
+# --------------------------------------------------------------------
+# 6. SECCIÓN: INICIO (MAPA SIEMPRE PÚBLICO)
+# --------------------------------------------------------------------
+if menu == "Inicio":
+    from geopy.geocoders import Nominatim
+
+    st.title("♻️ EcoCom2 Circular IA")
+    st.write("Sistema inteligente de gestión de residuos mediante inteligencia artificial.")
+    
+    st.markdown("### 📍 Panel Territorial Semicontrolado (Mapa Comunitario Global)")
+    st.markdown("#### 🌐 Validación Perimetral para Reportes Activos")
+
+    st.session_state.metodo_ubicacion = st.radio(
+        "Selecciona el método de verificación para validar tu procedencia en Comuna 2:",
+        ["Automático (GPS Satelital)", "Manual (Ingresar Dirección Exacta)"],
+        horizontal=True
+    )
+
+    direccion_detectada = ""
+    lat_base = LAT_CRA50
+    lon_base = LON_CRA50
+
+    if st.session_state.metodo_ubicacion == "Automático (GPS Satelital)":
+        js_gps_button = """
+        <div style="font-family: sans-serif; margin-bottom: 10px;">
+            <button onclick="getRealtimeGPS()" style="background-color: #10B981; color: white; border: none; padding: 12px 24px; font-size: 15px; border-radius: 6px; cursor: pointer; font-weight: bold; width: 100%;">
+                📡 SINCRONIZAR Y VALIDAR MI GPS
+            </button>
+        </div>
+        <script>
+        function getRealtimeGPS() {
+            if (navigator.geolocation) {
+                navigator.geolocation.getCurrentPosition(
+                    (position) => {
+                        const lat = position.coords.latitude;
+                        const lon = position.coords.longitude;
+                        window.parent.location.search = `?lat=${lat}&lon=${lon}`;
+                    },
+                    (error) => { alert("Error al acceder al GPS. Verifica los permisos."); },
+                    { enableHighAccuracy: true, timeout: 10000 }
+                );
+            } else { alert("Tu dispositivo no soporta geolocalización."); }
+        }
+        </script>
+        """
+        components.html(js_gps_button, height=60)
+
+        if st.session_state.gps_lat and st.session_state.gps_lon:
+            lat_base = st.session_state.gps_lat
+            lon_base = st.session_state.gps_lon
+            try:
+                geolocator = Nominatim(user_agent="ecocom2_circular_ia")
+                location = geolocator.reverse(f"{lat_base}, {lon_base}")
+                direccion_detectada = location.address if location else "Medellín, Comuna 2"
+            except Exception:
+                direccion_detectada = "Medellín, Andalucía, Comuna 2"
+            
+            if any(b.lower() in direccion_detectada.lower() for b in BARRIOS_PILOTO) or "andalucía" in direccion_detectada.lower() or "socorro" in direccion_detectada.lower() or "moscú" in direccion_detectada.lower():
+                st.success(f"✅ **Rango verificado por GPS:** Acceso concedido para reportar.\n\n🏠 *Tu Ubicación:* {direccion_detectada}")
+                st.session_state.fuera_de_rango = False
+            else:
+                st.error(f"🛑 **Fuera de rango por GPS:** {direccion_detectada}. Solo puedes visualizar el mapa, las funciones de envío de reportes han sido bloqueadas.")
+                st.session_state.fuera_de_rango = True
+                lat_base = LAT_CRA50
+                lon_base = LON_CRA50
+        else:
+            st.warning("⚠️ GPS no sincronizado. Puedes examinar el mapa de congestión, pero debes validar tu ubicación para enviar reportes.")
+            st.session_state.fuera_de_rango = True
+
+    else:
+        st.markdown("#### ✍️ Registro por Dirección de Cuadrante")
+        direccion_manual = st.text_input("Escribe tu dirección exacta en Comuna 2:", value="Carrera 50 # 107-62, Medellín")
+        barrio_manual = st.selectbox("¿A qué barrio corresponde esta dirección?", ["Invitado Externo (Solo Lectura)"] + BARRIOS_PILOTO)
+        
+        if barrio_manual == "Invitado Externo (Solo Lectura)":
+            st.warning("ℹ️ **Modo Observador Activo:** Puedes ver los puntos congestionados del mapa, pero el botón de reporte estará deshabilitado.")
+            st.session_state.fuera_de_rango = True
+        else:
+            st.success(f"✅ **Rango verificado de forma estricta:** Residente de Comuna 2 habilitado en **{barrio_manual}**.")
+            direccion_detectada = f"{direccion_manual}, Barrio {barrio_manual}, Medellín"
+            st.session_state.fuera_de_rango = False
+
+    barrio_seleccionado = st.selectbox("Filtrar visualización de congestión:", ["Todos"] + BARRIOS_PILOTO)
+
+    # MAPA COMUNITARIO GLOBAL (Siempre visible para ver la congestión)
+    mapa_centro = folium.Map(location=[LAT_CRA50, LON_CRA50], zoom_start=17, tiles="OpenStreetMap")
+
+    # Si está verificado, poner su Pin de casa
+    if not st.session_state.fuera_de_rango and direccion_detectada:
+        folium.Marker(
+            location=[lat_base, lon_base],
+            popup=f"Tu ubicación: {direccion_detectada}",
+            icon=folium.Icon(color="blue", icon="home")
+        ).add_to(mapa_centro)
+
+    # Cargar los reportes históricos y acumulados en el mapa para evidenciar la congestión
+    for idx, rep in enumerate(st.session_state.registro_reportes):
+        if barrio_seleccionado != "Todos" and rep["Sector"] != barrio_seleccionado:
+            continue
+            
+        color_dinamico = "green" if "individual" in rep["Clasificación"].lower() else ("orange" if "posible" in rep["Clasificación"].lower() else "red")
+        popup_dinamico = f"<b>{rep['Código']}</b><br>Sector: {rep['Sector']}<br>Ref: {rep['Referencia']}<br>Peso: {rep['Peso (Kg)']} kg"
+        
+        lat_b = LAT_CRA50 + (idx * 0.00015) + 0.0001
+        lon_b = LON_CRA50 - (idx * 0.00015) - 0.0001
+        
+        folium.CircleMarker(
+            location=[lat_b, lon_b],
+            radius=13,
+            color=color_dinamico,
+            fill=True,
+            fill_color=color_dinamico,
+            fill_opacity=0.7,
+            popup=folium.Popup(popup_dinamico, max_width=200)
+        ).add_to(mapa_centro)
+
+    st_folium(mapa_centro, width=1100, height=450, returned_objects=[])
+
+    st.markdown("---")
+    st.markdown("### 📋 Historial Comunitario de Desechos Detectados")
+    if len(st.session_state.registro_reportes) > 0:
+        df_datos = pd.DataFrame(st.session_state.registro_reportes)
+        st.dataframe(df_datos, use_container_width=True)
+        c_m1, c_m2 = st.columns(2)
+        with c_m1:
+            st.metric("Puntos de Basura Registrados", len(df_datos))
+        with c_m2:
+            st.metric("Carga Contaminante Acumulada", f"{df_datos['Peso (Kg)'].sum():.2f} kg")
+    else:
+        st.info("💡 El mapa está limpio de manera preliminar. Agrega datos simulados o reales desde el menú para observar la congestión.")
+
+# --------------------------------------------------------------------
+# 7. SECCIÓN: INFORMACIÓN
+# --------------------------------------------------------------------
+elif menu == "Información":
+    st.header("¿Qué es EcoCom2 Circular IA?")
+    st.write("Plataforma diseñada para visibilizar la congestión de residuos sólidos en tiempo real.")
+    st.header("Sectores del Prototipo")
+    for b in BARRIOS_PILOTO:
+        st.write(f"📍 Barrio **{b}** (Comuna 2 - Medellín)")
+
+# --------------------------------------------------------------------
+# 8. SECCIÓN: REPORTAR RESIDUO
+# --------------------------------------------------------------------
+elif menu == "Reportar residuo":
+    st.header("♻️ Reporte de residuos")
+
+    if "reporte_enviado" not in st.session_state:
+        st.session_state.reporte_enviado = False
+
+    if st.session_state.reporte_enviado:
+        st.success("🎉 ¡Tu reporte ha sido enviado y registrado con éxito!")
+        col_otro, col_salir = st.columns(2)
+        with col_otro:
+            if st.button("🔄 Hacer otro reporte", use_container_width=True, type="primary"):
+                st.session_state.reporte_enviado = False
+                st.rerun()
+        with col_salir:
+            if st.button("🚪 Ir al Panel de Inicio", use_container_width=True):
+                st.session_state.reporte_enviado = False
+                st.rerun()
+    else:
+        barrio = st.selectbox("Seleccione el sector del reporte:", BARRIOS_PILOTO)
+        referencia = st.text_input("Ingrese una referencia")
+
+        if referencia and len(referencia) < 8:
+            st.warning("Ingrese una referencia más específica.")
+
+        imagen = st.file_uploader("Seleccione una fotografía", type=["jpg", "jpeg", "png"])
+
+        if imagen is not None:
+            img = Image.open(imagen)
+            st.image(img, caption="Imagen cargada", use_container_width=True)
+
+            if st.button("Analizar imagen con IA", use_container_width=True):
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
+                    img.save(tmp.name)
+                    resultados = modelo(tmp.name, conf=0.10)
+
+                imagen_resultado = resultados[0].plot()
+                st.image(imagen_resultado, caption="Objetos detectados por la IA", use_container_width=True)
+
+                objetos = []
+                for r in resultados:
+                    for box in r.boxes:
+                        clase = int(box.cls[0])
+                        nombre = modelo.names[clase]
+                        objetos.append(nombre)
+
+                if len(objetos) > 0:
+                    st.success("✅ Análisis completado")
+                    peso_total = 0
+                    residuos = 0
+                    conteo = Counter(objetos)
+                    tipo_predominante = "Varios"
+
+                    for obj, cantidad_obj in conteo.items():
+                        if obj in materiales:
+                            nombre_es, material, peso, reciclable = materiales[obj]
+                            if reciclable:
+                                residuos += cantidad_obj
+                                st.success(f"♻️ {nombre_es}: {cantidad_obj} unidad(es)")
+                                peso_total += peso * cantidad_obj
+                                tipo_predominante = material
+                            else:
+                                st.warning(f"⚠️ {nombre_es} no corresponde a un residuo aprovechable.")
+
+                    nivel = "🔴 Punto crítico confirmado" if residuos >= 10 else ("🟡 Posible punto crítico" if residuos >= 5 else "🟢 Residuo individual")
+
+                    st.markdown("### 📊 Resumen del Reporte")
+                    st.write(f"📍 **Barrio:** {barrio}")
+                    st.write(f"📌 **Referencia:** {referencia}")
+                    st.write(f"🗑️ **Objetos totales detectados:** {len(objetos)}")
+                    st.write(f"♻️ **Residuos reciclables:** {residuos}")
+                    st.write(f"⚖️ **Peso aproximado total:** {peso_total:.2f} kg")
+                    st.write(f"🚨 **Clasificación operativa:** {nivel}")
+
+                    st.session_state.cache_nuevo_reporte = {
+                        "Código": f"REP-{len(st.session_state.registro_reportes) + 200}",
+                        "Sector": barrio,
+                        "Referencia": referencia if referencia else "Sin referencia",
+                        "Objetos": residuos,
+                        "Peso (Kg)": round(peso_total, 2),
+                        "Predominante": tipo_predominante,
+                        "Clasificación": nivel
+                    }
+                else:
+                    st.error("❌ No se detectaron objetos.")
+
+            if "cache_nuevo_reporte" in st.session_state:
+                st.write("---")
+                
+                # CONDICIÓN DE BLOQUEO EN EL BOTÓN FINAL DE ENVÍO
+                if st.session_state.fuera_de_rango:
+                    st.error("🛑 **Acción Bloqueada:** La inteligencia territorial detectó que estás fuera de la Comuna 2. Solo los habitantes validados de la zona pueden reportar basura real.")
+                else:
+                    if st.button("🚀 ENVIAR REPORTE DEFINITIVO", type="primary", use_container_width=True):
+                        st.session_state.registro_reportes.append(st.session_state.cache_nuevo_reporte)
+                        del st.session_state.cache_nuevo_reporte  
+                        st.session_state.reporte_enviado = True
+                        st.rerun()
+
+# --------------------------------------------------------------------
+# 9. SECCIÓN: PUNTO CRÍTICO
+# --------------------------------------------------------------------
+elif menu == "Punto crítico":
+    st.header("🚨 Punto crítico")
+    barrio = st.selectbox("Seleccione el barrio del prototipo:", BARRIOS_PILOTO, key="barrio2")
+    referencia = st.text_input("Referencia", key="referencia2")
+    imagen = st.file_uploader("Suba una fotografía", type=["jpg", "jpeg", "png"], key="imagen2")
+
+    if imagen is not None:
+        img = Image.open(imagen)
+        st.image(img, use_container_width=True)
+
+        # CONDICIÓN DE BLOQUEO EN EL BOTÓN DE EVALUACIÓN
+        if st.session_state.fuera_de_rango:
+            st.error("🛑 **Acceso Denegado:** No puedes subir alertas de puntos críticos porque estás registrado como observador externo fuera de la Comuna 2.")
+        else:
+            if st.button("Evaluar punto crítico"):
+                with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
+                    img.save(tmp.name)
+                    resultados = modelo(tmp.name, conf=0.10)
+
+                cantidad = 0
+                for r in resultados:
+                    cantidad += len(r.boxes)
+
+                nivel = "🔴 Punto crítico alto" if cantidad >= 8 else ("🟡 Punto crítico medio" if cantidad >= 4 else "🟢 Punto crítico bajo")
+                st.warning(nivel)
+                
+                st.session_state.registro_reportes.append({
+                    "Código": f"CRIT-{len(st.session_state.registro_reportes) + 500}",
+                    "Sector": barrio,
+                    "Referencia": referencia if referencia else "Punto crítico manual",
+                    "Objetos": cantidad,
+                    "Peso (Kg)": round(cantidad * 0.4, 2),
+                    "Predominante": "Mixto Satélite",
+                    "Clasificación": nivel
+                })
+                st.success("¡Alerta registrada con éxito en el mapa de control de Inicio!")
