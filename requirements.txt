@@ -11,3 +11,4 @@ geopy
 folium
 streamlit-folium
 shapely
+pandas
