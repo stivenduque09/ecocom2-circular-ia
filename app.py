@@ -62,13 +62,11 @@ except Exception as e:
 # --------------------------------------------------------------------
 # 3. BARRA LATERAL (LOGOTIPO EN MENU Y NAVEGACIÓN)
 # --------------------------------------------------------------------
-# Intentamos cargar tu logo local. Si no, colocamos un diseño alternativo de texto
 try:
     st.sidebar.image("./logo.png", use_container_width=True)
 except Exception:
     st.sidebar.title("♻️ EcoCom2")
 
-# Menú original respetado al 100%
 menu = st.sidebar.radio(
     "Menú",
     [
@@ -80,9 +78,8 @@ menu = st.sidebar.radio(
 )
 
 st.sidebar.markdown("---")
-st.sidebar.info("⚙️ **Ecosistema EcoCom2 v1.4**<br>Territorio INN 2026 | ITM Medellín<br>Desarrollado por: **Brandon Duque**", unsafe_allow_html=True)
+st.sidebar.info("⚙️ **Ecosistema EcoCom2 v1.5**<br>Territorio INN 2026 | ITM Medellín<br>Desarrollado por: **Brandon Duque**", unsafe_allow_html=True)
 
-# Lista de barrios autorizados para el piloto
 BARRIOS_PILOTO = ["Andalucía", "Moscú No. 1", "Villa del Socorro"]
 
 # --------------------------------------------------------------------
@@ -93,7 +90,6 @@ if menu == "Inicio":
     st.markdown('<div class="subtitle">Panel de Monitoreo Territorial en Tiempo Real - Comuna 2 Santa Cruz</div>', unsafe_allow_html=True)
     st.write("Bienvenido al centro de mando inteligente. Aquí mapeamos y semaforizamos los reportes ciudadanos procesados por IA para trazar rutas logísticas óptimas.")
 
-    # Generación de la Base de Datos simulada para Santa Cruz
     lat_base, lon_base = 6.2950, -75.5530
     barrios_comuna = ["Andalucía", "Villa del Socorro", "Moscú No. 1", "Santa Cruz", "La Rosa"]
     materiales_ia = ["Cartón/Papel", "Plástico PET", "Vidrio", "Metales"]
@@ -115,7 +111,6 @@ if menu == "Inicio":
             "peso": random.randint(5, 75)
         })
 
-    # Controles de filtrado
     c_f1, c_f2 = st.columns(2)
     with c_f1:
         barrio_filtro = st.selectbox("Filtrar Mapa por Barrio:", ["Todos"] + barrios_comuna)
@@ -126,7 +121,6 @@ if menu == "Inicio":
             default=["🟢 Zona Verde (Aprovechable)", "🟡 Zona Amarilla (Seguimiento)", "🔴 Zona Crítica (Roja)"]
         )
 
-    # Función para determinar colores en el mapa
     def obtener_color_por_estado(estado):
         if "Roja" in estado:
             return "#EF4444"
@@ -135,7 +129,6 @@ if menu == "Inicio":
         else:
             return "#10B981"
 
-    # Creación del mapa Folium
     mapa = folium.Map(location=[6.2950, -75.5530], zoom_start=15, tiles="OpenStreetMap")
 
     puntos_visibles = 0
@@ -169,7 +162,6 @@ if menu == "Inicio":
             weight=2
         ).add_to(mapa)
 
-    # Renderizado
     st_folium(mapa, width=1100, height=450, returned_objects=[])
     st.caption(f"Visualizando {puntos_visibles} reportes georreferenciados activos en la Comuna 2.")
 
@@ -184,14 +176,12 @@ elif menu == "Reportar residuo":
     col_gps1, col_gps2 = st.columns(2)
     
     with col_gps1:
-        # El usuario declara su barrio actual (simula telemetría del teléfono celular)
         barrio_gps = st.selectbox(
             "Ubicación reportada por el dispositivo móvil:",
             ["Andalucía", "Moscú No. 1", "Villa del Socorro", "Santa Cruz (Central)", "La Rosa", "Aranjuez (Fuera de cobertura)"]
         )
     
     with col_gps2:
-        # Validación lógica de geocercas
         if barrio_gps in BARRIOS_PILOTO:
             st.success(f"📍 GPS Validado: Te encuentras en **{barrio_gps}** (Zona de piloto activa).")
             acceso_ia = True
@@ -201,7 +191,6 @@ elif menu == "Reportar residuo":
 
     st.markdown("---")
 
-    # Entrada del cargador de imágenes (solo se ejecuta si está en zona permitida)
     archivo_imagen = st.file_uploader("Sube una foto de los residuos acumulados:", type=["jpg", "jpeg", "png"])
 
     if archivo_imagen is not None:
@@ -246,7 +235,7 @@ elif menu == "Reportar residuo":
                 st.warning("La IA no detectó materiales reciclables en esta toma.")
 
 # --------------------------------------------------------------------
-# 6. SECCIÓN: PUNTO CRÍTICO
+# 6. SECCIÓN: PUNTO CRÍTICO (CORREGIDO)
 # --------------------------------------------------------------------
 elif menu == "Punto crítico":
     st.markdown('<div class="main-title">🚨 Reportar Punto Crítico de Acumulación</div>', unsafe_allow_html=True)
@@ -259,7 +248,8 @@ elif menu == "Punto crítico":
         gravedad_emergencia = st.select_slider("Nivel de obstrucción de vía pública:", options=["Bajo", "Moderado", "Crítico (Cierre de vía)"])
         comentarios_adicionales = st.text_area("Cuéntanos más detalles:")
         
-        boton_enviar = st.form_submit_with_ui_button("Guardar reporte de punto crítico")
+        # CORRECCIÓN AQUÍ: Se cambió st.form_submit_with_ui_button por el comando nativo correcto
+        boton_enviar = st.form_submit_button("Guardar reporte de punto crítico")
         
         if boton_enviar:
             if not referencia_direccion:
@@ -277,13 +267,11 @@ elif menu == "Información":
 
     pestaña_reciclable, pestaña_no_reciclable = st.tabs(["🟢 Materiales Aprovechables", "🔴 Residuos No Aprovechables"])
 
-    # --- PESTAÑA 1: MATERIALES APROVECHABLES ---
     with pestaña_reciclable:
         st.write("### ¿Qué SÍ se puede reciclar y procesar en EcoCom2?")
         st.write("Asegúrate de que estos materiales estén **limpios, secos y sin grasa** antes de entregarlos.")
 
         col_ap1, col_ap2 = st.columns(2)
-
         with col_ap1:
             st.markdown("""
                 <div class="card-reciclable">
@@ -308,17 +296,15 @@ elif menu == "Información":
                 <div class="card-reciclable">
                     <h3>🍾 Vidrio (Botellas y Frascos)</h3>
                     <p><b>Ejemplos:</b> Botellas de jugos, frascos de mermelada, recipientes de conservas y envases de perfumes limpios.</p>
-                    <p><i>Consejo EcoCom2:</i> Retira las tapas metálicas (estas se reciclan con los metales). No mezcles con bombillos ni espejos rotos.</p>
+                    <p><i>Consejo EcoCom2:</i> Retira las tapas metálicas (estas se reciclan con los metales). No mezcules con bombillos ni espejos rotos.</p>
                 </div>
             """, unsafe_allow_html=True)
 
-    # --- PESTAÑA 2: MATERIALES NO APROVECHABLES ---
     with pestaña_no_reciclable:
         st.write("### ¿Qué NO se puede reciclar en nuestro sistema (Ordinarios)?")
         st.write("Estos elementos van directamente a la basura ordinaria para ser recogidos por Emvarias, ya que no son reutilizables.")
 
         col_no1, col_no2 = st.columns(2)
-
         with col_no1:
             st.markdown("""
                 <div class="card-no-reciclable">
@@ -345,4 +331,4 @@ elif menu == "Información":
                     <p><b>Ejemplos:</b> Envases de icopor (poliestireno expandido) para almuerzos, vasos plásticos desechables sucios.</p>
                     <p><i>Razón:</i> El icopor sucio de comida no se puede reciclar económicamente debido a los altos costos de lavado y transporte.</p>
                 </div>
-            """, unsafe_allow_html=True)
+            """, unsafe_allow_html=T
