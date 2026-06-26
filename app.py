@@ -3,8 +3,8 @@ from ultralytics import YOLO
 from PIL import Image
 import tempfile
 from collections import Counter
-import folium                     # <--- NUEVA: Para crear el mapa
-from streamlit_folium import st_folium  # <--- NUEVA: Para mostrar el mapa en Streamlit
+import folium
+from streamlit_folium import st_folium
 import random
 
 # --------------------------------
@@ -23,13 +23,12 @@ st.set_page_config(
 
 @st.cache_resource
 def cargar_modelo():
-   return YOLO("best.pt") # Cambiado a best.pt para tu modelo entrenado
+   return YOLO("best.pt")
 
 modelo = None
 try:
     modelo = cargar_modelo()
 except Exception as e:
-    # Si no encuentra 'best.pt', cargamos yolov8m.pt de respaldo para que la app no se caiga
     try:
         modelo = YOLO("yolov8m.pt")
     except Exception:
@@ -106,18 +105,15 @@ menu = st.sidebar.radio(
     ]
 )
 
-# CORRECCIÓN AQUÍ: Se cambió st.sidebar.info por un markdown limpio para evitar el TypeError de las métricas en Python 3.14
+# SE CAMBIÓ EL INFO POR MARKDOWN PARA EVITAR EL ERROR DE TIPOS
 st.sidebar.markdown("---")
 st.sidebar.markdown("""
-    <div style="background-color: rgba(28, 140, 240, 0.1); padding: 15px; border-radius: 10px; border: 1px solid rgba(28, 140, 240, 0.2); font-family: sans-serif; font-size: 14px;">
+    <div style="background-color: rgba(16, 185, 129, 0.1); padding: 15px; border-radius: 10px; border: 1px solid rgba(16, 185, 129, 0.2); font-family: sans-serif; font-size: 13px;">
         ⚙️ <b>Ecosistema EcoCom2 v1.5</b><br>
         Territorio INN 2026 | ITM Medellín<br>
         Desarrollado por: <b>Brandon Duque</b>
     </div>
 """, unsafe_allow_html=True)
-
-if modelo is None:
-    st.sidebar.error("⚠️ No se pudo inicializar la red YOLOv8. Revisa los archivos de tu modelo.")
 
 # --------------------------------
 # INICIO
@@ -220,7 +216,7 @@ elif menu == "Reportar residuo":
                     img.save(tmp.name)
                     resultados = modelo(tmp.name, conf=0.10)
 
-                imagen_resultado = max_res = resultados[0].plot()
+                imagen_resultado = resultados[0].plot()
                 st.image(imagen_resultado, caption="Objetos detectados", use_container_width=True)
 
                 objetos = []
@@ -245,7 +241,7 @@ elif menu == "Reportar residuo":
                                 st.write(f"Material: {material}")
                                 peso_total += peso * cantidad_obj
                             else:
-                                st.warning(f"⚠️ {nombre_es} no corresponds a un residuo.")
+                                st.warning(f"⚠️ {nombre_es} no corresponde a un residuo.")
 
                     if residuos >= 10:
                         nivel = "🔴 Punto crítico confirmado"
