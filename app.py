@@ -320,7 +320,7 @@ elif menu == "Información":
             """, unsafe_allow_html=True)
 
         with col_no2:
-            st.markdown("""
+            st.markdown(""")
                 <div class="card-no-reciclable">
                     <h3>🍫 Plásticos de un Solo Uso Metalizados</h3>
                     <p><b>Ejemplos:</b> Bolsas de papas fritas, envolturas de golosinas, paquetes de galletas y empaques de dulces.</p>
