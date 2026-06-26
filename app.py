@@ -242,7 +242,7 @@ elif menu == "Reportar residuo":
 
                     objetos.append(nombre)
 
-      if len(objetos) > 0:
+        if len(objetos) > 0:
 
                 st.success("✅ Análisis completado")
 
@@ -296,12 +296,29 @@ elif menu == "Reportar residuo":
                 st.write(f"⚖️ Peso aproximado: {peso_total:.2f} kg")
                 st.write(f"🚨 Clasificación: {nivel}")
 
+                if residuos == 0:
+
+                    st.error(
+                        "❌ No se identificaron residuos aprovechables."
+                    )
+
+                elif residuos <= 2:
+
+                    st.info(
+                        "📷 Se recomienda una fotografía más cercana."
+                    )
+
+                else:
+
+                    st.success(
+                        "✅ Reporte validado correctamente."
+                    )
+
             else:
 
                 st.error(
                     "❌ No se detectaron objetos."
                 )
-
                 st.write(
                 f"⚖️ Peso aproximado: {peso_total:.2f} kg"
                   )
@@ -378,7 +395,7 @@ elif menu == "Punto crítico":
 
                 resultados = modelo(
                     tmp.name,
-                    conf=0.20
+                    conf=0.10
                 )
 
             cantidad = 0
