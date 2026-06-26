@@ -331,4 +331,4 @@ elif menu == "Información":
                     <p><b>Ejemplos:</b> Envases de icopor (poliestireno expandido) para almuerzos, vasos plásticos desechables sucios.</p>
                     <p><i>Razón:</i> El icopor sucio de comida no se puede reciclar económicamente debido a los altos costos de lavado y transporte.</p>
                 </div>
-            """, unsafe_allow_html=T
+            """, unsafe_allow_html=T)
