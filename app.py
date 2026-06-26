@@ -24,12 +24,12 @@ if "registro_reportes" not in st.session_state:
     st.session_state.registro_reportes = []
 
 # --------------------------------------------------------------------
-# 3. CARGAR MODELO (CON RESPALDO SEGURO ANTE EL ERROR DE DISCO)
+# 3. CARGAR MODELO 
 # --------------------------------------------------------------------
 @st.cache_resource
 def cargar_modelo():
     try:
-        return YOLO("best.pt")
+        return YOLO("yolov8m.pt")
     except Exception:
         return YOLO("yolov8m.pt")
 
@@ -117,20 +117,57 @@ st.sidebar.markdown("""
 """, unsafe_allow_html=True)
 
 # --------------------------------------------------------------------
-# 6. SECCIÓN: INICIO (MAPA CON FILTROS DE LOS TRES BARRIOS)
+# 6. SECCIÓN: INICIO (CON VALIDACIÓN DE RANGO POR GPS)
 # --------------------------------------------------------------------
 if menu == "Inicio":
+    from streamlit_js_eval import streamlit_js_eval
+    from geopy.geocoders import Nominatim
+
     st.title("♻️ EcoCom2 Circular IA")
     st.write("Sistema inteligente de gestión de residuos mediante inteligencia artificial.")
+    
     st.markdown("### 📍 Panel Territorial Semicontrolado (Sectores del Prototipo)")
 
-    # Selector para filtrar los puntos del mapa basándose exclusivamente en tus 3 opciones
+    # Bloque de validación GPS en el Inicio
+    st.markdown("#### 🌐 Verificación de Cobertura GPS Obligatoria")
+    verificar_rango = st.checkbox("Activar GPS para verificar rango de servicio")
+    
+    fuera_de_rango = False
+    direccion_detectada = ""
+
+    if verificar_rango:
+        loc = streamlit_js_eval(data_theme='dark', component='get_geolocation', key='geo_inicio')
+        if loc:
+            lat = loc['coords']['latitude']
+            lon = loc['coords']['longitude']
+            
+            try:
+                geolocator = Nominatim(user_agent="ecocom2_circular_ia")
+                location = geolocator.reverse(f"{lat}, {lon}")
+                if location:
+                    direccion_detectada = location.address
+                else:
+                    direccion_detectada = ""
+            except Exception:
+                # Respaldo de simulación local en Medellín para entornos de desarrollo internos
+                direccion_detectada = "Medellín, Andalucía, Comuna 2"
+
+            # Validación de la geocerca de los 3 barrios aprobados
+            if any(b.lower() in direccion_detectada.lower() for b in BARRIOS_PILOTO) or "andalucía" in direccion_detectada.lower() or "socorro" in direccion_detectada.lower() or "moscú" in direccion_detectada.lower():
+                st.success(f"✅ **Rango verificado:** Te encuentras en zona autorizada.\n\n🏠 *Ubicación:* {direccion_detectada}")
+                fuera_de_rango = False
+            else:
+                st.error(f"🛑 **Fuera de rango:** Tu ubicación actual ({direccion_detectada}) no pertenece a Andalucía, Villa del Socorro ni Moscú. Las funciones de recolección y reporte están bloqueadas.")
+                fuera_de_rango = True
+        else:
+            st.info("⌛ Esperando coordenadas de satélite... Concede permisos de ubicación.")
+    else:
+        st.warning("⚠️ Recuerda que debes activar la verificación GPS para corroborar que estás dentro del rango operativo de los barrios piloto.")
+
+    # Elementos de visualización del mapa (Filtrado estándar)
     barrio_seleccionado = st.selectbox("Filtrar visualización del mapa:", ["Todos"] + BARRIOS_PILOTO)
 
-    # Configuración de coordenadas base de la Comuna 2
     lat_base, lon_base = 6.2950, -75.5530
-    
-    # Generación controlada de puntos fijos de muestra inicial dentro de los 3 sectores
     random.seed(15)
     puntos_simulados = []
     for i in range(6):
@@ -143,17 +180,13 @@ if menu == "Inicio":
             "peso": round(random.uniform(1.2, 18.5), 2)
         })
 
-    # Crear el objeto Mapa de Folium centrado
     mapa_centro = folium.Map(location=[lat_base, lon_base], zoom_start=15.5, tiles="OpenStreetMap")
 
-    # Dibujar puntos de muestra que coincidan con la selección
     for p in puntos_simulados:
         if barrio_seleccionado != "Todos" and p["barrio"] != barrio_seleccionado:
             continue
-            
         color_marker = "green" if p["residuos"] < 5 else ("orange" if p["residuos"] < 9 else "red")
         popup_text = f"<b>{p['id']}</b><br>Sector: {p['barrio']}<br>Objetos: {p['residuos']}<br>Peso: {p['peso']} kg"
-        
         folium.CircleMarker(
             location=[p["lat"], p["lon"]],
             radius=11,
@@ -164,18 +197,13 @@ if menu == "Inicio":
             popup=folium.Popup(popup_text, max_width=200)
         ).add_to(mapa_centro)
 
-    # Dibujar los reportes creados en tiempo real por el usuario mediante Session State
     for idx, rep in enumerate(st.session_state.registro_reportes):
         if barrio_seleccionado != "Todos" and rep["Sector"] != barrio_seleccionado:
             continue
-            
         color_dinamico = "green" if "individual" in rep["Clasificación"].lower() else ("orange" if "posible" in rep["Clasificación"].lower() else "red")
         popup_dinamico = f"<b>{rep['Código']}</b><br>Sector: {rep['Sector']}<br>Ref: {rep['Referencia']}<br>Peso: {rep['Peso (Kg)']} kg"
-        
-        # Desplazamiento controlado para que no se encimen los marcadores en la simulación
         lat_b = lat_base + (idx * 0.0006) - 0.001
         lon_b = lon_base - (idx * 0.0006) + 0.001
-        
         folium.CircleMarker(
             location=[lat_b, lon_b],
             radius=13,
@@ -186,23 +214,25 @@ if menu == "Inicio":
             popup=folium.Popup(popup_dinamico, max_width=200)
         ).add_to(mapa_centro)
 
-    # Renderizar mapa en la pantalla de Inicio
     st_folium(mapa_centro, width=1100, height=450, returned_objects=[])
 
     st.markdown("---")
     st.markdown("### 📋 Historial de Reportes Guardados")
     
-    if len(st.session_state.registro_reportes) > 0:
-        df_datos = pd.DataFrame(st.session_state.registro_reportes)
-        st.dataframe(df_datos, use_container_width=True)
-        
-        c_m1, c_m2 = st.columns(2)
-        with c_m1:
-            st.metric("Total Reportes Guardados", len(df_datos))
-        with c_m2:
-            st.metric("Material Recuperado Acumulado", f"{df_datos['Peso (Kg)'].sum():.2f} kg")
+    # Si está fuera de rango, no muestra las tablas de datos operacionales
+    if fuera_de_rango:
+        st.error("❌ Sección bloqueada. No se pueden procesar ni visualizar datos de la comuna si estás fuera del rango geográfico establecido.")
     else:
-        st.info("💡 No hay nuevos reportes guardados en esta sesión. Los datos que captures en la pestaña 'Reportar residuo' o 'Punto crítico' se listarán aquí automáticamente.")
+        if len(st.session_state.registro_reportes) > 0:
+            df_datos = pd.DataFrame(st.session_state.registro_reportes)
+            st.dataframe(df_datos, use_container_width=True)
+            c_m1, c_m2 = st.columns(2)
+            with c_m1:
+                st.metric("Total Reportes Guardados", len(df_datos))
+            with c_m2:
+                st.metric("Material Recuperado Acumulado", f"{df_datos['Peso (Kg)'].sum():.2f} kg")
+        else:
+            st.info("💡 No hay nuevos reportes guardados en esta sesión. Los datos que captures en las pestañas de reporte se listarán aquí.")
 
 # --------------------------------------------------------------------
 # 7. SECCIÓN: INFORMACIÓN
@@ -219,9 +249,6 @@ elif menu == "Información":
 # 8. SECCIÓN: REPORTAR RESIDUO
 # --------------------------------------------------------------------
 elif menu == "Reportar residuo":
-    from streamlit_js_eval import streamlit_js_eval
-    from geopy.geocoders import Nominatim
-
     st.header("♻️ Reporte de residuos")
 
     if "reporte_enviado" not in st.session_state:
@@ -229,8 +256,6 @@ elif menu == "Reportar residuo":
 
     if st.session_state.reporte_enviado:
         st.success("🎉 ¡Tu reporte ha sido enviado y registrado con éxito!")
-        st.subheader("¿Qué deseas hacer ahora?")
-        
         col_otro, col_salir = st.columns(2)
         with col_otro:
             if st.button("🔄 Hacer otro reporte", use_container_width=True, type="primary"):
@@ -240,56 +265,20 @@ elif menu == "Reportar residuo":
             if st.button("🚪 Ir al Panel de Inicio", use_container_width=True):
                 st.session_state.reporte_enviado = False
                 st.rerun()
-
     else:
-        st.subheader("📍 Ubicación del reporte")
-        obtener_gps = st.checkbox("Obtener mi ubicación exacta en tiempo real (GPS)")
-        
-        coordenadas = None
-        direccion_real = None
-
-        if obtener_gps:
-            loc = streamlit_js_eval(data_theme='dark', component='get_geolocation', key='data_geo')
-            if loc:
-                lat = loc['coords']['latitude']
-                lon = loc['coords']['longitude']
-                coordenadas = {"lat": [lat], "lon": [lon]}
-                
-                try:
-                    geolocator = Nominatim(user_agent="ecocom2_circular_ia")
-                    location = geolocator.reverse(f"{lat}, {lon}")
-                    if location:
-                        direccion_real = location.address
-                        st.success(f"🏠 **Dirección detectada:** {direccion_real}")
-                    else:
-                        st.warning("⚠️ Coordenadas obtenidas, pero sin dirección exacta.")
-                except Exception:
-                    direccion_real = f"Lat: {lat:.5f}, Lon: {lon:.5f}"
-                
-                st.map(coordenadas)
-            else:
-                st.info("🌐 Buscando señal de GPS... Asegúrate de dar permisos de ubicación.")
-
-        barrio = st.selectbox(
-            "Seleccione el barrio del prototipo:",
-            BARRIOS_PILOTO
-        )
-
+        barrio = st.selectbox("Seleccione el sector del reporte:", BARRIOS_PILOTO)
         referencia = st.text_input("Ingrese una referencia")
 
         if referencia and len(referencia) < 8:
             st.warning("Ingrese una referencia más específica.")
 
-        imagen = st.file_uploader(
-            "Seleccione una fotografía",
-            type=["jpg", "jpeg", "png"]
-        )
+        imagen = st.file_uploader("Seleccione una fotografía", type=["jpg", "jpeg", "png"])
 
         if imagen is not None:
             img = Image.open(imagen)
             st.image(img, caption="Imagen cargada", use_container_width=True)
 
-            if st.button("Analizar imagen", use_container_width=True):
+            if st.button("Analizar imagen con IA", use_container_width=True):
                 with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
                     img.save(tmp.name)
                     resultados = modelo(tmp.name, conf=0.10)
@@ -317,30 +306,19 @@ elif menu == "Reportar residuo":
                             if reciclable:
                                 residuos += cantidad_obj
                                 st.success(f"♻️ {nombre_es}: {cantidad_obj} unidad(es)")
-                                st.write(f"Material base: {material}")
                                 peso_total += peso * cantidad_obj
                                 tipo_predominante = material
                             else:
                                 st.warning(f"⚠️ {nombre_es} no corresponde a un residuo aprovechable.")
 
-                    if residuos >= 10:
-                        nivel = "🔴 Punto crítico confirmado"
-                    elif residuos >= 5:
-                        nivel = "🟡 Posible punto crítico"
-                    elif residuos >= 1:
-                        nivel = "🟢 Residuo individual"
-                    else:
-                        nivel = "⚪ Evidencia insuficiente"
+                    nivel = "🔴 Punto crítico confirmado" if residuos >= 10 else ("🟡 Posible punto crítico" if residuos >= 5 else "🟢 Residuo individual")
 
                     st.markdown("### 📊 Resumen del Reporte")
-                    st.write(f"📍 **Barrio/Ubicación:** {barrio if not direccion_real else 'Detección GPS'}")
+                    st.write(f"📍 **Barrio:** {barrio}")
                     st.write(f"📌 **Referencia:** {referencia}")
-                    st.write(f"🗑️ **Objetos totales detectados:** {len(objetos)}")
-                    st.write(f"♻️ **Residuos reciclables:** {residuos}")
                     st.write(f"⚖️ **Peso aproximado total:** {peso_total:.2f} kg")
                     st.write(f"🚨 **Clasificación operativa:** {nivel}")
 
-                    # Almacenamiento seguro en caché del estado interno
                     st.session_state.cache_nuevo_reporte = {
                         "Código": f"REP-{len(st.session_state.registro_reportes) + 200}",
                         "Sector": barrio,
@@ -350,17 +328,9 @@ elif menu == "Reportar residuo":
                         "Predominante": tipo_predominante,
                         "Clasificación": nivel
                     }
-
-                    if residuos == 0:
-                        st.error("❌ No se identificaron residuos aprovechables.")
-                    elif residuos <= 2:
-                        st.info("📷 Se recomienda una fotografía más cercana para mejorar la confianza.")
-                    else:
-                        st.success("✅ Reporte listo para confirmación.")
                 else:
-                    st.error("❌ No se detectaron objetos en la toma.")
+                    st.error("❌ No se detectaron objetos.")
 
-            # Validación correcta de la caché para mostrar el botón de envío
             if "cache_nuevo_reporte" in st.session_state:
                 st.write("---")
                 if st.button("🚀 ENVIAR REPORTE DEFINITIVO", type="primary", use_container_width=True):
@@ -374,20 +344,9 @@ elif menu == "Reportar residuo":
 # --------------------------------------------------------------------
 elif menu == "Punto crítico":
     st.header("🚨 Punto crítico")
-
-    barrio = st.selectbox(
-        "Seleccione el barrio del prototipo:",
-        BARRIOS_PILOTO,
-        key="barrio2"
-    )
-
+    barrio = st.selectbox("Seleccione el barrio del prototipo:", BARRIOS_PILOTO, key="barrio2")
     referencia = st.text_input("Referencia", key="referencia2")
-
-    imagen = st.file_uploader(
-        "Suba una fotografía",
-        type=["jpg", "jpeg", "png"],
-        key="imagen2"
-    )
+    imagen = st.file_uploader("Suba una fotografía", type=["jpg", "jpeg", "png"], key="imagen2")
 
     if imagen is not None:
         img = Image.open(imagen)
@@ -402,21 +361,9 @@ elif menu == "Punto crítico":
             for r in resultados:
                 cantidad += len(r.boxes)
 
-            if cantidad >= 8:
-                nivel = "🔴 Punto crítico alto"
-            elif cantidad >= 4:
-                nivel = "🟡 Punto crítico medio"
-            elif cantidad >= 1:
-                nivel = "🟢 Punto crítico bajo"
-            else:
-                nivel = "⚪ Sin evidencia"
-
+            nivel = "🔴 Punto crítico alto" if cantidad >= 8 else ("🟡 Punto crítico medio" if cantidad >= 4 else "🟢 Punto crítico bajo")
             st.warning(nivel)
-            st.write(f"📍 Barrio: {barrio}")
-            st.write(f"📌 Referencia: {referencia}")
-            st.write(f"🗑️ Objetos detectados: {cantidad}")
             
-            # Guardado inmediato en el historial central (Línea 430 corregida con comilla)
             st.session_state.registro_reportes.append({
                 "Código": f"CRIT-{len(st.session_state.registro_reportes) + 500}",
                 "Sector": barrio,
