@@ -163,7 +163,7 @@ if "lat" in query_params and "lon" in query_params:
         lon = float(query_params["lon"])
         st.session_state.gps_lat = lat
         st.session_state.gps_lon = lon
-        try:
+  try:
     geolocator = Nominatim(
         user_agent="ecocom2"
     )
