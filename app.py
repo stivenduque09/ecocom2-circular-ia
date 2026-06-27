@@ -64,42 +64,39 @@ st.markdown("""
 # ====================================================================
 # ============================================================
 # Polígono COMUNA 2 — SANTA CRUZ, Medellín
-# Verificado con límites reales (Decreto 346/2000 + OSM)
-#
-# Referencias:
-#  Acevedo metro      lat=6.2976  lon=-75.5686  (vértice SW)
-#  Andalucía cable    lat=6.3097  lon=-75.5598  (punto medio)
-#  Santo Domingo      lat=6.3187  lon=-75.5490  (punto NE)
-#  Norte: Quebrada Negra/Seca → límite Bello (lat≈6.318)
-#  Oeste: Río Medellín        → lon ≈ -75.568
-#  Sur:   Quebrada La Rosa    → lat ≈ 6.296
-#  Este:  Ladera Popular      → lon ≈ -75.549
+# Ajustado exactamente al área piloto visible en el mapa:
+#   Sur:   Calle 107  (lat ≈ 6.297)
+#   Norte: Calle 123  (lat ≈ 6.314)
+#   Oeste: Carrera 52 (lon ≈ -75.563)
+#   Este:  Ladera / Carrera 42B (lon ≈ -75.549)
 # ============================================================
 POLIGONO_COMUNA2 = Polygon([
-    # SW — Acevedo, junto al Río Medellín (punto de inicio sur)
-    (-75.5690, 6.2965),
-    # Oeste — Río Medellín subiendo al norte
-    (-75.5685, 6.3010),
-    (-75.5678, 6.3060),
-    (-75.5670, 6.3110),
-    # NW — Quebrada Negra, límite con Bello
-    (-75.5655, 6.3155),
-    (-75.5615, 6.3178),
-    (-75.5575, 6.3182),
-    # NE — ladera alta, Bello / Popular (Santo Domingo)
-    (-75.5535, 6.3168),
-    (-75.5500, 6.3135),   # Metrocable Santo Domingo
-    # Este — ladera bajando (límite con Popular)
-    (-75.5485, 6.3080),
-    (-75.5480, 6.3020),
-    (-75.5492, 6.2975),
-    # SE — Quebrada La Rosa, límite con Aranjuez
-    (-75.5525, 6.2955),
-    (-75.5570, 6.2950),
-    # Sur — cerrando hacia Acevedo
-    (-75.5630, 6.2952),
-    (-75.5670, 6.2958),
-    (-75.5690, 6.2965),   # cierre
+    # SW — Calle 107 × Carrera 52  (inicio sur-oeste)
+    (-75.5640, 6.2972),
+    # Oeste — subiendo Carrera 52 hacia el norte
+    (-75.5638, 6.3010),
+    (-75.5635, 6.3055),
+    (-75.5630, 6.3095),
+    # NW — esquina nor-oeste (Calle 123 × Cra 52)
+    (-75.5622, 6.3130),
+    # Norte — Calle 123 hacia el este
+    (-75.5580, 6.3145),
+    (-75.5535, 6.3148),
+    (-75.5500, 6.3142),
+    # NE — inicio ladera / Carrera 42B
+    (-75.5478, 6.3125),
+    # Este — ladera bajando hacia el sur
+    (-75.5465, 6.3080),
+    (-75.5460, 6.3030),
+    (-75.5465, 6.2985),
+    (-75.5480, 6.2958),
+    # SE — Calle 107 × Carrera 46
+    (-75.5510, 6.2948),
+    # Sur — Calle 107 hacia el oeste
+    (-75.5560, 6.2950),
+    (-75.5608, 6.2953),
+    (-75.5640, 6.2960),
+    (-75.5640, 6.2972),   # cierre
 ])
 
 BARRIOS = [
@@ -109,8 +106,8 @@ BARRIOS = [
 ]
 
 # Centro de la Comuna 2
-LAT_C = 6.3070
-LON_C = -75.5515
+LAT_C = 6.3055
+LON_C = -75.5555
 
 # ====================================================================
 # 3. SESIÓN
@@ -385,7 +382,7 @@ else:
         unsafe_allow_html=True)
 
 st.sidebar.markdown("---")
-menu = st.sidebar.radio("Menú", ["🏠 Inicio y Mapa", "ℹ️ Información"])
+menu = st.sidebar.radio("Menú", ["🏠 Inicio y Mapa", "ℹ️ Información"], key="menu_principal")
 st.sidebar.markdown("---")
 st.sidebar.markdown("""
 <div style="font-size:11px;color:#6b7280;padding:8px;background:rgba(16,185,129,0.06);
@@ -494,7 +491,7 @@ if menu == "🏠 Inicio y Mapa":
             tooltip=f"{rep['Código']} — {niv}"
         ).add_to(mapa)
 
-    mapa_data = st_folium(mapa, width="100%", height=440,
+    mapa_data = st_folium(mapa, width="100%", height=340,
                           returned_objects=["last_clicked"])
 
     # ── Click en el mapa → dirección automática en el campo de arriba ─
@@ -535,30 +532,33 @@ if menu == "🏠 Inicio y Mapa":
             f'</div>',
             unsafe_allow_html=True)
 
-        # ── BOTONES DE ACCIÓN RÁPIDA ──────────────────────────────────
-        # Llevan directamente a la pestaña correspondiente (abajo del mapa)
+        # ── BOTONES DE ACCIÓN — redirigen al menú lateral ───────────
         if dentro_clk and es_residente():
-            ba1, ba2, ba3 = st.columns(3)
-            with ba1:
-                if st.button("📸 Reportar Residuo",
-                             type="primary", use_container_width=True, key="btn_rep"):
-                    st.session_state.seccion = "residuo"
-                    st.session_state.scroll_to_form = True
-                    st.rerun()   # ← recarga y la pestaña "📸 Reportar Residuo" queda activa
-            with ba2:
-                if st.button("🚨 Punto Crítico",
-                             use_container_width=True, key="btn_crit"):
-                    st.session_state.seccion = "critico"
-                    st.session_state.scroll_to_form = True
+            st.markdown("")
+            # Guardar el punto seleccionado para que lo use la página de reporte
+            st.session_state.punto_para_reporte = {
+                "lat": clat, "lon": clon, "dir": cdir
+            }
+            bc1, bc2, bc3 = st.columns([2, 2, 1])
+            with bc1:
+                if st.button("📸 Ir a Reportar Residuo",
+                             type="primary", use_container_width=True, key="btn_ir_rep"):
+                    st.session_state.menu_principal = "📸 Reportar Residuo"
                     st.rerun()
-            with ba3:
-                if st.button("🗑️ Quitar punto", use_container_width=True, key="btn_quit"):
-                    for k in ["click_lat","click_lon","click_dir","cache","seccion",
-                               "scroll_to_form"]:
+            with bc2:
+                if st.button("🚨 Ir a Punto Crítico",
+                             use_container_width=True, key="btn_ir_crit"):
+                    st.session_state.menu_principal = "🚨 Punto Crítico"
+                    st.rerun()
+            with bc3:
+                if st.button("✖", use_container_width=True, key="btn_quit",
+                             help="Quitar punto seleccionado"):
+                    for k in ["click_lat","click_lon","click_dir",
+                               "cache","punto_para_reporte"]:
                         st.session_state.pop(k, None)
                     st.rerun()
-        elif not es_residente():
-            badge("⚠️ Verifica tu dirección arriba para poder reportar en este punto.", "warn")
+        elif clat and not es_residente():
+            badge("⚠️ Verifica tu dirección arriba para reportar en este punto.", "warn")
 
     st.markdown("")
 
@@ -780,35 +780,137 @@ if menu == "🏠 Inicio y Mapa":
 # 9. INFORMACIÓN
 # ====================================================================
 elif menu == "ℹ️ Información":
-    st.header("ℹ️ EcoCom2 Circular IA")
+    st.title("♻️ EcoCom2 Circular IA")
+    st.markdown(
+        '<div style="background:rgba(16,185,129,0.1);border:1px solid #4ade80;'
+        'border-radius:10px;padding:16px;margin-bottom:20px;font-size:15px;">'
+        '🌱 <b style="color:#4ade80">Plataforma de Gestión Inteligente de Residuos</b><br>'
+        'Tecnología IA al servicio de una <b>Comuna 2 más limpia y sostenible</b>.'
+        '</div>', unsafe_allow_html=True)
+
+    st.markdown("## 🔄 ¿Qué es la Economía Circular?")
     st.markdown("""
-**EcoCom2 Circular IA** — Gestión inteligente de residuos para la **Comuna 2, Santa Cruz, Medellín**.
+La **economía circular** es un modelo de producción y consumo que busca **eliminar los residuos
+desde el diseño**, manteniendo los materiales en uso el mayor tiempo posible. A diferencia de la
+economía lineal (fabricar → usar → tirar), la economía circular propone:
 
-### 📍 Área de cobertura
-Desde la **Estación Acevedo** (sur) hasta **Villa del Socorro** (norte), cubriendo los 11 barrios:
-Andalucía · Comuneros · Santa Cruz · Villa del Socorro · Moscú No.1 · La Francia · La Frontera · Pablo VI · Villa Niza · La Isla · La Rosa.
-
-### 🔐 ¿Cómo verificarme?
-1. Toca un punto del mapa → la dirección aparece sola en el campo de arriba
-2. Presiona **🔍 Verificar** → el sistema confirma si estás en la Comuna 2
-3. Si estás dentro → puedes reportar. Si no → puedes analizar imágenes pero no publicar.
-
-### 🗺️ Cómo usar el mapa
-1. Toca el punto exacto donde está el residuo → aparece la dirección automáticamente
-2. Presiona **📸 Reportar Residuo aquí** o **🚨 Marcar Punto Crítico**
-3. El formulario se abre directo abajo — sube la foto → IA analiza → publica
-
-### 🤖 Clasificación IA (YOLOv8)
-| Color | Significado |
-|---|---|
-| 🟢 Verde | Mayoría reciclables (≥60%) — alta valorización |
-| 🟡 Amarillo | Mezcla de reciclables y basura (30-60%) |
-| 🔴 Rojo | Mayoría basura sin valor reciclable (<30%) — acumulación crítica |
-
-### 💾 Persistencia
-Los reportes se guardan automáticamente y permanecen en el mapa entre recargas de página.
-Cuando el problema sea atendido, márcalo como resuelto desde **📋 Historial**.
+- **Reducir** el consumo de recursos y la generación de residuos
+- **Reutilizar** materiales y productos antes de descartarlos
+- **Reciclar** lo que ya no puede ser reutilizado para crear nuevos materiales
+- **Recuperar** energía de los residuos que no pueden reciclarse
 """)
-    for b in BARRIOS:
-        st.write(f"- 📍 **{b}**")
-    st.markdown("---\n**Versión:** 4.1 | **ITM Medellín** | Dev: Brandon Duque")
+
+    i1, i2, i3 = st.columns(3)
+    with i1:
+        st.markdown("""
+<div style="background:rgba(16,185,129,0.1);border:1px solid #4ade80;
+border-radius:10px;padding:14px;text-align:center;">
+<h2 style="color:#4ade80">♻️</h2>
+<b style="color:#4ade80">Reciclar</b><br>
+<span style="font-size:13px;color:#9ca3af">Papel, plástico, vidrio,<br>
+aluminio y electrónicos</span>
+</div>""", unsafe_allow_html=True)
+    with i2:
+        st.markdown("""
+<div style="background:rgba(251,191,36,0.1);border:1px solid #fbbf24;
+border-radius:10px;padding:14px;text-align:center;">
+<h2 style="color:#fbbf24">🔁</h2>
+<b style="color:#fbbf24">Reutilizar</b><br>
+<span style="font-size:13px;color:#9ca3af">Muebles, ropa, aparatos<br>
+que aún sirven</span>
+</div>""", unsafe_allow_html=True)
+    with i3:
+        st.markdown("""
+<div style="background:rgba(239,68,68,0.1);border:1px solid #ef4444;
+border-radius:10px;padding:14px;text-align:center;">
+<h2 style="color:#ef4444">🌱</h2>
+<b style="color:#ef4444">Compostar</b><br>
+<span style="font-size:13px;color:#9ca3af">Residuos orgánicos que<br>
+se convierten en abono</span>
+</div>""", unsafe_allow_html=True)
+
+    st.markdown("---")
+    st.markdown("## 🗺️ ¿Qué es un Punto Crítico de Residuos?")
+    st.markdown("""
+Un **punto crítico** es una zona donde se acumulan residuos de forma irregular, afectando la
+salud pública, el medio ambiente y la calidad de vida del barrio. En la **Comuna 2 — Santa Cruz**
+existen zonas donde los residuos se depositan en espacios públicos sin recolección oportuna.
+
+### 🟢 🟡 🔴 Sistema de Clasificación EcoCom2
+
+| Color | Significado | Acción recomendada |
+|---|---|---|
+| 🟢 **Verde** | ≥60% objetos reciclables. Punto de **alta valorización** | Ruta de reciclaje |
+| 🟡 **Amarillo** | 30-60% mixto: reciclables + basura | Separación en origen |
+| 🔴 **Rojo** | <30% reciclable. Acumulación crítica sin valor | Recolección urgente |
+""")
+
+    st.markdown("---")
+    st.markdown("## 🤖 ¿Cómo funciona la IA?")
+    st.markdown("""
+EcoCom2 usa **YOLOv8** (You Only Look Once), un modelo de visión artificial que analiza imágenes
+en tiempo real para detectar y clasificar objetos. El sistema:
+
+1. **Detecta** todos los objetos visibles en la fotografía
+2. **Clasifica** cada objeto en su tipo de material (Plástico, Papel, Vidrio, Metal, Electrónico, Orgánico)
+3. **Calcula** el peso estimado y el ratio reciclable/no-reciclable
+4. **Clasifica** el punto como Verde 🟢, Amarillo 🟡 o Rojo 🔴
+
+### 📦 Materiales que detecta la IA
+""")
+
+    mat_cols = st.columns(3)
+    categorias = {
+        "🧴 Plástico": ["Botellas", "Vasos", "Bolsas", "Baldes", "Sillas", "Juguetes"],
+        "📄 Papel/Cartón": ["Libros", "Periódicos", "Cajas", "Cuadernos"],
+        "🍶 Vidrio": ["Botellas", "Frascos", "Jarrones", "Copas"],
+        "🥫 Metal/Aluminio": ["Latas", "Cuchillos", "Tijeras", "Utensilios"],
+        "💻 Electrónicos": ["Celulares", "Portátiles", "Teclados", "Televisores", "Relojes"],
+        "🌿 Orgánico": ["Frutas", "Verduras", "Comida", "Plantas"],
+        "👕 Textil": ["Ropa", "Mochilas", "Bolsos", "Maletas"],
+        "🪵 Madera/Mixto": ["Mesas", "Sofás", "Camas", "Colchones"],
+    }
+    cat_items = list(categorias.items())
+    for i, col in enumerate(mat_cols):
+        with col:
+            for cat, items in cat_items[i*3:(i+1)*3]:
+                st.markdown(
+                    f'<div style="background:rgba(16,185,129,0.06);border-radius:8px;'
+                    f'padding:10px;margin-bottom:8px;font-size:13px;">'
+                    f'<b style="color:#4ade80">{cat}</b><br>'
+                    f'<span style="color:#9ca3af">{" · ".join(items)}</span></div>',
+                    unsafe_allow_html=True)
+
+    st.markdown("---")
+    st.markdown("## 📍 Cómo usar EcoCom2")
+    st.markdown("""
+1. **Verifica tu dirección** en 🏠 Inicio y Mapa — escribe tu dirección y presiona 🔍 Verificar
+2. **Toca el mapa** en el punto exacto donde están los residuos
+3. **Presiona el botón** "📸 Ir a Reportar Residuo" o "🚨 Ir a Punto Crítico"
+4. **Sube una foto** del residuo y deja que la IA lo analice
+5. **Publica el reporte** — quedará guardado en el mapa comunitario
+
+> Solo residentes **dentro del polígono de la Comuna 2** pueden publicar reportes.
+> Cualquier persona puede analizar imágenes con la IA.
+""")
+
+    st.markdown("---")
+    st.markdown("## 📍 Los 11 barrios de la Comuna 2 — Santa Cruz")
+    bc1, bc2 = st.columns(2)
+    mitad = len(BARRIOS) // 2
+    with bc1:
+        for b in BARRIOS[:mitad+1]:
+            st.markdown(f"- 📍 **{b}**")
+    with bc2:
+        for b in BARRIOS[mitad+1:]:
+            st.markdown(f"- 📍 **{b}**")
+
+    st.markdown("---")
+    st.markdown("""
+<div style="background:rgba(16,185,129,0.06);border:1px solid rgba(74,222,128,0.2);
+border-radius:10px;padding:16px;text-align:center;color:#9ca3af;font-size:13px;">
+⚙️ <b style="color:#4ade80">EcoCom2 Circular IA v4.0</b><br>
+Proyecto <b style="color:#4ade80">Territorio INN 2026</b> · Instituto Tecnológico Metropolitano (ITM) · Medellín<br>
+Desarrollado por: <b style="color:#4ade80">Brandon Duque</b> · Comuna 2 Santa Cruz
+</div>
+""", unsafe_allow_html=True)
