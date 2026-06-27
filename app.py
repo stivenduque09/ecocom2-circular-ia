@@ -956,63 +956,93 @@ elif menu == "🛡️ Panel Admin":
         st.markdown("---")
 
         # ── Gestión individual de reportes ────────────────────────────
+        # IMPORTANTE: Las keys usan rep['Código'] (estable), NO el índice numérico.
+        # El índice cambia al eliminar reportes y provoca removeChild en React.
         st.markdown("### 🗂️ Gestión de alertas")
 
-        for i, rep in enumerate(st.session_state.reportes):
+        # Manejar acciones pendientes ANTES de renderizar la lista
+        # (evita mutar la lista mientras se itera)
+        accion = st.session_state.pop("adm_accion_pendiente", None)
+        if accion:
+            cod_obj  = accion["codigo"]
+            tipo_acc = accion["tipo"]
+            if tipo_acc == "estado":
+                for r in st.session_state.reportes:
+                    if r["Código"] == cod_obj:
+                        r["Estado"] = accion["valor"]
+                        break
+                guardar_reportes_disco(st.session_state.reportes)
+            elif tipo_acc in ("resuelto", "eliminar"):
+                if tipo_acc == "resuelto":
+                    for r in st.session_state.reportes:
+                        if r["Código"] == cod_obj:
+                            r["Estado"] = "✅ Resuelto"
+                            break
+                    guardar_reportes_disco(st.session_state.reportes)
+                else:
+                    st.session_state.reportes = [
+                        r for r in st.session_state.reportes
+                        if r["Código"] != cod_obj
+                    ]
+                    guardar_reportes_disco(st.session_state.reportes)
+            st.rerun()
+
+        ESTADOS = ["🔴 Pendiente", "🟡 En proceso de recolección", "✅ Resuelto"]
+
+        for rep in list(st.session_state.reportes):   # list() → copia estable
+            codigo = rep["Código"]
+            # Sanear el código para usarlo como key (solo alfanumérico + guión)
+            key_safe = codigo.replace(" ", "_").replace("/", "_")
             estado = rep.get("Estado", "🔴 Pendiente")
             nivel  = rep.get("Clasificación", "")
-            color_borde = "#f87171" if "🔴" in nivel else ("#fbbf24" if "🟡" in nivel else "#4ade80")
+            icono  = "🔴" if "crítico" in nivel.lower() else ("🟡" if "amarillo" in nivel.lower() else "🟢")
 
             with st.expander(
-                f"{'🔴' if 'crítico' in nivel.lower() else '🟡' if 'amarillo' in nivel.lower() else '🟢'} "
-                f"{rep['Código']} — {rep.get('Sector','?')} — {rep.get('Referencia','?')[:40]} "
-                f"| {estado}",
+                f"{icono} {codigo} — {rep.get('Sector','?')} — "
+                f"{rep.get('Referencia','?')[:35]} | {estado}",
                 expanded=False
             ):
                 dc1, dc2 = st.columns(2)
                 with dc1:
-                    st.markdown(f"""
-**Código:** {rep['Código']}  
-**Sector:** {rep.get('Sector','—')}  
-**Referencia:** {rep.get('Referencia','—')}  
-**Registrado:** {rep.get('Fecha','Sin fecha')}  
-""")
+                    st.markdown(
+                        f"**Código:** {codigo}  \n"
+                        f"**Sector:** {rep.get('Sector','—')}  \n"
+                        f"**Referencia:** {rep.get('Referencia','—')}  \n"
+                        f"**Registrado:** {rep.get('Fecha','Sin fecha')}"
+                    )
                 with dc2:
-                    st.markdown(f"""
-**Clasificación:** {nivel}  
-**Objetos:** {rep.get('Objetos','—')}  
-**Peso:** {rep.get('Peso (Kg)','—')} kg  
-**Material:** {rep.get('Predominante','—')}  
-""")
+                    st.markdown(
+                        f"**Clasificación:** {nivel}  \n"
+                        f"**Objetos:** {rep.get('Objetos','—')}  \n"
+                        f"**Peso:** {rep.get('Peso (Kg)','—')} kg  \n"
+                        f"**Material:** {rep.get('Predominante','—')}"
+                    )
 
-                # Cambiar estado
-                ESTADOS = ["🔴 Pendiente", "🟡 En proceso de recolección", "✅ Resuelto"]
+                # Selectbox de estado — key estable basada en Código
                 idx_est = ESTADOS.index(estado) if estado in ESTADOS else 0
                 nuevo_estado = st.selectbox(
-                    "Cambiar estado:", ESTADOS, index=idx_est,
-                    key=f"adm_estado_{i}")
+                    "Estado:", ESTADOS, index=idx_est,
+                    key=f"sel_{key_safe}")
 
                 ac1, ac2, ac3 = st.columns(3)
                 with ac1:
-                    if st.button("💾 Guardar estado", key=f"adm_guardar_{i}",
+                    if st.button("💾 Guardar", key=f"grd_{key_safe}",
                                  use_container_width=True):
-                        st.session_state.reportes[i]["Estado"] = nuevo_estado
-                        guardar_reportes_disco(st.session_state.reportes)
-                        st.success(f"✅ Estado actualizado: {nuevo_estado}")
+                        st.session_state.adm_accion_pendiente = {
+                            "codigo": codigo, "tipo": "estado",
+                            "valor": nuevo_estado}
                         st.rerun()
                 with ac2:
-                    if st.button("✅ Marcar RESUELTO", key=f"adm_resuelto_{i}",
+                    if st.button("✅ Resuelto", key=f"res_{key_safe}",
                                  type="primary", use_container_width=True):
-                        st.session_state.reportes[i]["Estado"] = "✅ Resuelto"
-                        guardar_reportes_disco(st.session_state.reportes)
-                        st.success("✅ Marcado como resuelto.")
+                        st.session_state.adm_accion_pendiente = {
+                            "codigo": codigo, "tipo": "resuelto"}
                         st.rerun()
                 with ac3:
-                    if st.button("🗑️ ELIMINAR del mapa", key=f"adm_eliminar_{i}",
+                    if st.button("🗑️ Eliminar", key=f"del_{key_safe}",
                                  use_container_width=True):
-                        st.session_state.reportes.pop(i)
-                        guardar_reportes_disco(st.session_state.reportes)
-                        st.success(f"🗑️ Reporte {rep['Código']} eliminado.")
+                        st.session_state.adm_accion_pendiente = {
+                            "codigo": codigo, "tipo": "eliminar"}
                         st.rerun()
 
         st.markdown("---")
