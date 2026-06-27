@@ -8,6 +8,30 @@ from folium.plugins import LocateControl
 from streamlit_folium import st_folium
 import pandas as pd
 from shapely.geometry import Point, Polygon
+import json, os
+
+# ====================================================================
+# PERSISTENCIA — guarda los reportes en /tmp para sobrevivir recargas
+# ====================================================================
+REPORTES_FILE = "/tmp/ecocom2_reportes.json"
+
+def cargar_reportes_disco():
+    """Carga reportes guardados desde el archivo JSON."""
+    if os.path.exists(REPORTES_FILE):
+        try:
+            with open(REPORTES_FILE, "r", encoding="utf-8") as f:
+                return json.load(f)
+        except Exception:
+            return []
+    return []
+
+def guardar_reportes_disco(reportes: list):
+    """Guarda todos los reportes en el archivo JSON."""
+    try:
+        with open(REPORTES_FILE, "w", encoding="utf-8") as f:
+            json.dump(reportes, f, ensure_ascii=False, indent=2)
+    except Exception:
+        pass
 
 # ====================================================================
 # 1. CONFIGURACIÓN
@@ -61,18 +85,21 @@ LON_C = -75.5590
 # 3. SESIÓN
 # ====================================================================
 DEFAULTS = {
-    "reportes": [],
     "lat": None, "lon": None,
     "validado": False, "fuera": True,
     "direccion": "",
     "reporte_ok": False,
     "cache": None,
-    "modo": None,          # "residuo" | "critico"
-    "tab_activa": "mapa",  # "mapa" | "reportar" | "critico"
+    "modo": None,
+    "tab_activa": "mapa",
 }
 for k, v in DEFAULTS.items():
     if k not in st.session_state:
         st.session_state[k] = v
+
+# Cargar reportes desde disco (persisten entre recargas de página)
+if "reportes" not in st.session_state:
+    st.session_state.reportes = cargar_reportes_disco()
 
 # ====================================================================
 # 4. MODELO YOLO
@@ -223,9 +250,27 @@ def procesar(resultados):
                           "Confianza": conf, "♻️": "❌ No"})
 
     tipo = cnt_mat.most_common(1)[0][0] if cnt_mat else "Mixto"
-    nivel = ("🔴 Punto crítico confirmado" if residuos >= 10
-             else "🟡 Posible punto crítico" if residuos >= 5
-             else "🟢 Residuo individual")
+
+    # Clasificación basada en RATIO reciclable vs no-reciclable
+    # (no en cantidad bruta) — como en la imagen de basura real:
+    # mucha basura mezclada sin valor = 🔴 aunque haya muchos objetos
+    total_obj     = sum(conteo.values())
+    no_reciclables = total_obj - residuos
+    ratio = residuos / total_obj if total_obj > 0 else 0
+
+    if total_obj <= 2:
+        # Pocos objetos — no es un punto crítico aún
+        nivel = "🟢 Residuo puntual — 1 a 2 objetos"
+    elif ratio >= 0.60:
+        # 60%+ son reciclables → punto verde (bueno para aprovechar)
+        nivel = "🟢 Punto verde — Alta valorización reciclable"
+    elif ratio >= 0.30:
+        # Mezcla 30-60% reciclable → amarillo
+        nivel = "🟡 Punto amarillo — Residuos mixtos"
+    else:
+        # Menos del 30% reciclable → mayoría basura sin valor → rojo
+        nivel = "🔴 Punto crítico — Acumulación sin valorización"
+
     return tabla, residuos, round(peso_total, 2), tipo, nivel
 
 
@@ -420,39 +465,103 @@ if menu == "🏠 Inicio y Mapa":
                 set_ubicacion(lat_clk, lon_clk, dir_obtenida)
             st.rerun()   # <-- recarga y el campo muestra la nueva dirección
 
-    # ── PESTAÑAS DE ACCIÓN — visibles en celular y computador ─────────
-    st.markdown("")
+    # ── Variables del punto clickeado ────────────────────────────────
     clat  = st.session_state.get("click_lat")
     clon  = st.session_state.get("click_lon")
     cdir  = st.session_state.get("click_dir", "")
     dentro_click = POLIGONO_COMUNA2.contains(Point(clon, clat)) if clat else False
 
-    tab_mapa, tab_residuo, tab_critico, tab_historial = st.tabs([
-        "📍 Punto seleccionado",
+    # ── PANEL RÁPIDO: aparece al tocar el mapa, ANTES de las pestañas ─
+    if clat:
+        st.markdown("")
+        if dentro_click and es_residente():
+            st.markdown(
+                f'<div style="background:rgba(16,185,129,0.12);border:1px solid #4ade80;'
+                f'border-radius:10px;padding:12px 16px;margin-bottom:8px;">'
+                f'<span style="color:#4ade80;font-weight:bold;font-size:14px;">'
+                f'📌 {cdir}</span><br>'
+                f'<span style="color:#9ca3af;font-size:12px;">✅ Dentro de la Comuna 2 · '
+                f'{clat:.5f}, {clon:.5f}</span></div>',
+                unsafe_allow_html=True)
+            # Botones grandes que activan la pestaña correcta
+            pb1, pb2, pb3 = st.columns(3)
+            with pb1:
+                if st.button("📸 Reportar Residuo",
+                             type="primary", use_container_width=True,
+                             key="btn_ir_residuo"):
+                    st.session_state.tab_idx = 1
+                    st.rerun()
+            with pb2:
+                if st.button("🚨 Punto Crítico",
+                             use_container_width=True, key="btn_ir_critico"):
+                    st.session_state.tab_idx = 2
+                    st.rerun()
+            with pb3:
+                if st.button("🗑️ Limpiar", use_container_width=True,
+                             key="btn_limpiar"):
+                    for k in ["click_lat","click_lon","click_dir","cache",
+                               "punto_lat","punto_lon","punto_dir","tab_idx"]:
+                        st.session_state.pop(k, None)
+                    st.rerun()
+        elif not es_residente():
+            st.markdown(
+                f'<div style="background:rgba(251,191,36,0.1);border:1px solid #fbbf24;'
+                f'border-radius:10px;padding:12px 16px;">'
+                f'<span style="color:#fbbf24;font-size:13px;">'
+                f'📌 {cdir}<br>⚠️ Verifica tu dirección arriba para poder reportar.</span></div>',
+                unsafe_allow_html=True)
+        elif not dentro_click:
+            st.markdown(
+                f'<div style="background:rgba(239,68,68,0.1);border:1px solid #ef4444;'
+                f'border-radius:10px;padding:12px 16px;">'
+                f'<span style="color:#ef4444;font-size:13px;">'
+                f'📌 {cdir}<br>🛑 Este punto está fuera del área piloto de la Comuna 2.</span></div>',
+                unsafe_allow_html=True)
+
+    st.markdown("")
+
+    # ── PESTAÑAS — el índice activo se controla desde session_state ───
+    # st.tabs no permite activar por código, así que reordenamos las tabs
+    # poniendo primero la que debe estar activa según tab_idx
+    idx = st.session_state.get("tab_idx", 0)
+
+    TABS_LABELS = [
+        "📍 Punto",
         "📸 Reportar Residuo",
         "🚨 Punto Crítico",
         "📋 Historial",
-    ])
+    ]
+    # Rotamos la lista para que la tab_idx quede de primera
+    labels_rot = TABS_LABELS[idx:] + TABS_LABELS[:idx]
+    tabs_rot   = st.tabs(labels_rot)
 
-    # ── TAB 1: info del punto ─────────────────────────────────────────
+    # Mapear cada tab rotada a su índice original
+    def get_tab(original_idx):
+        pos_en_rot = (original_idx - idx) % len(TABS_LABELS)
+        return tabs_rot[pos_en_rot]
+
+    tab_mapa     = get_tab(0)
+    tab_residuo  = get_tab(1)
+    tab_critico  = get_tab(2)
+    tab_historial= get_tab(3)
+
+    # Resetear tab_idx después de mostrar para que no quede pegado
+    # (solo se activa la primera vez que llega el rerun del botón)
+    if "tab_idx" in st.session_state and st.session_state.get("_tab_mostrado"):
+        del st.session_state["tab_idx"]
+        st.session_state["_tab_mostrado"] = False
+    elif "tab_idx" in st.session_state:
+        st.session_state["_tab_mostrado"] = True
+
+    # ── TAB 0: Punto seleccionado ─────────────────────────────────────
     with tab_mapa:
         if not clat:
-            st.info("👆 Toca cualquier punto del mapa para ver la dirección y reportar.")
+            st.info("👆 Toca cualquier punto del mapa para ver la dirección y las opciones de reporte.")
         else:
-            st.markdown(f"**📌 Dirección detectada:**")
-            st.markdown(
-                f'<div class="badge-ok" style="font-size:14px;">{cdir}</div>',
-                unsafe_allow_html=True)
-            st.caption(f"🌐 Coordenadas: {clat:.6f}, {clon:.6f}")
-            if dentro_click:
-                st.success("✅ Este punto está dentro de la Comuna 2.")
-            else:
-                st.error("🛑 Este punto está fuera del área piloto.")
-            if st.button("🗑️ Limpiar punto seleccionado", key="tab_limpiar"):
-                for k in ["click_lat","click_lon","click_dir",
-                           "punto_lat","punto_lon","punto_dir","cache"]:
-                    st.session_state.pop(k, None)
-                st.rerun()
+            st.markdown(f'<div class="badge-ok" style="font-size:14px;">📌 {cdir}</div>',
+                        unsafe_allow_html=True)
+            st.caption(f"🌐 {clat:.6f}, {clon:.6f}")
+            st.markdown("👇 Usa los botones de arriba o las pestañas para reportar.")
 
     # ── TAB 2: Reportar Residuo ───────────────────────────────────────
     with tab_residuo:
@@ -519,11 +628,13 @@ if menu == "🏠 Inicio y Mapa":
                     if st.button("🚀 PUBLICAR EN EL MAPA", type="primary",
                                  use_container_width=True, key="t1_publicar"):
                         st.session_state.reportes.append(r)
+                        guardar_reportes_disco(st.session_state.reportes)
                         st.session_state.cache = None
+                        st.session_state.tab_idx = 3   # ir a Historial
                         for k in ["click_lat","click_lon","click_dir",
                                    "punto_lat","punto_lon","punto_dir"]:
                             st.session_state.pop(k, None)
-                        st.success("✅ ¡Publicado en el mapa!")
+                        st.success("✅ ¡Publicado! Aparece en el mapa y en Historial.")
                         st.rerun()
 
     # ── TAB 3: Punto Crítico ──────────────────────────────────────────
@@ -566,7 +677,7 @@ if menu == "🏠 Inicio y Mapa":
                     metricas(res2_r, peso2, nivel2)
                     if st.button("🚨 REGISTRAR ALERTA", type="primary",
                                  use_container_width=True, key="t2_registrar"):
-                        st.session_state.reportes.append({
+                        nuevo_crit = {
                             "Código":        f"CRIT-{len(st.session_state.reportes)+500}",
                             "Sector":        t2_barrio,
                             "Referencia":    t2_ref,
@@ -575,10 +686,13 @@ if menu == "🏠 Inicio y Mapa":
                             "Predominante":  tipo2 or "Mixto",
                             "Clasificación": nivel2,
                             "Lat": plat, "Lon": plon,
-                        })
+                        }
+                        st.session_state.reportes.append(nuevo_crit)
+                        guardar_reportes_disco(st.session_state.reportes)
+                        st.session_state.tab_idx = 3
                         for k in ["click_lat","click_lon","click_dir"]:
                             st.session_state.pop(k, None)
-                        st.success("✅ ¡Alerta registrada en el mapa!")
+                        st.success("✅ ¡Alerta registrada! Queda guardada permanentemente en el mapa.")
                         st.rerun()
 
     # ── TAB 4: Historial ─────────────────────────────────────────────
@@ -601,6 +715,21 @@ if menu == "🏠 Inicio y Mapa":
                 crit = df["Clasificación"].str.contains("crítico", case=False, na=False).sum()
                 st.markdown(f'<div class="metric-card"><h2 style="color:#f87171">'
                             f'{crit}</h2><p>Puntos críticos</p></div>', unsafe_allow_html=True)
+
+            # ── Marcar reporte como resuelto (lo elimina del mapa) ────
+            st.markdown("---")
+            st.markdown("**✅ ¿El problema ya fue atendido? Márcalo como resuelto:**")
+            codigos = [r["Código"] for r in st.session_state.reportes]
+            sel_codigo = st.selectbox("Selecciona el código del reporte:", codigos,
+                                      key="hist_sel")
+            if st.button("✅ Marcar como RESUELTO y retirar del mapa",
+                         use_container_width=True, key="hist_resolver"):
+                st.session_state.reportes = [
+                    r for r in st.session_state.reportes if r["Código"] != sel_codigo
+                ]
+                guardar_reportes_disco(st.session_state.reportes)
+                st.success(f"✅ Reporte {sel_codigo} marcado como resuelto y retirado del mapa.")
+                st.rerun()
         else:
             st.info("Sin reportes aún. Toca el mapa y usa las pestañas para reportar.")
 
