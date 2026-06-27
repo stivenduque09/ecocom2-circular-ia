@@ -296,293 +296,313 @@ if menu == "🏠 Inicio y Mapa":
     st.title("♻️ EcoCom2 Circular IA")
     st.caption("Sistema inteligente de residuos — Solo residentes de la **Comuna 2** pueden publicar reportes.")
 
-    # ── VERIFICACIÓN POR DIRECCIÓN ────────────────────────────────────
-    st.markdown("### 📍 ¿Dónde estás? Ingresa tu dirección")
+    # ── CAMPO DE DIRECCIÓN — se auto-rellena con el click del mapa ───
+    # Valor inicial: lo que había antes o lo que vino del click
+    dir_default = (st.session_state.get("click_dir") or
+                   st.session_state.get("direccion") or "")
 
-    if not st.session_state.validado:
-        col_inp, col_btn = st.columns([5, 1])
-        with col_inp:
-            dir_inp = st.text_input(
-                "Dirección",
-                placeholder="Ej: Carrera 50 #107-62, Andalucía",
-                label_visibility="collapsed",
-                key="dir_inp"
-            )
-        with col_btn:
-            if st.button("🔍 Verificar", type="primary", use_container_width=True):
-                if dir_inp.strip():
-                    with st.spinner("Buscando..."):
-                        lat, lon, addr = geocodificar(dir_inp.strip())
-                    if lat:
-                        set_ubicacion(lat, lon, addr)
-                        st.rerun()
-                    else:
-                        st.error("❌ No encontré esa dirección. Intenta con más detalle.")
-                else:
-                    st.warning("Escribe tu dirección primero.")
-    else:
-        if not st.session_state.fuera:
-            badge(f"✅ Verificado dentro de la Comuna 2<br>"
-                  f"<span style='font-weight:normal;font-size:13px'>{st.session_state.direccion}</span>", "ok")
-        else:
-            badge(f"🛑 Dirección fuera de la Comuna 2 — solo puedes ver el mapa<br>"
-                  f"<span style='font-weight:normal;font-size:13px'>{st.session_state.direccion}</span>", "err")
-        if st.button("🔄 Cambiar dirección", key="cambiar_dir"):
-            for k in ["validado", "lat", "lon", "fuera", "direccion"]:
-                st.session_state[k] = DEFAULTS[k]
-            st.rerun()
-
-    st.markdown("---")
-    st.markdown("### 🗺️ Mapa Comunitario — Haz clic en el punto exacto del residuo")
-
-    lat_c = st.session_state.lat or LAT_C
-    lon_c = st.session_state.lon or LON_C
-
-    # Layout: mapa (izquierda) + panel de acción rápida (derecha)
-    col_mapa, col_panel = st.columns([3, 1], gap="medium")
-
-    with col_mapa:
-        mapa = folium.Map(location=[lat_c, lon_c], zoom_start=15,
-                          tiles="CartoDB dark_matter")
-
-        # Polígono Comuna 2
-        coords_p = [(la, lo) for lo, la in POLIGONO_COMUNA2.exterior.coords]
-        folium.Polygon(
-            locations=coords_p, color="#4ade80", weight=2,
-            fill=True, fill_color="#4ade80", fill_opacity=0.07,
-            tooltip="📍 Área piloto EcoCom2 — Comuna 2"
-        ).add_to(mapa)
-
-        # Pin del usuario
+    col_inp, col_btn, col_cambiar = st.columns([5, 1, 1])
+    with col_inp:
+        dir_inp = st.text_input(
+            "📍 Tu dirección:",
+            value=dir_default,
+            placeholder="Haz clic en el mapa o escribe tu dirección...",
+            key="dir_campo",
+            label_visibility="collapsed",
+            help="Al hacer clic en el mapa se rellena automáticamente"
+        )
+    with col_btn:
+        verificar_btn = st.button("🔍 Verificar", type="primary",
+                                  use_container_width=True, key="btn_verificar")
+    with col_cambiar:
         if st.session_state.validado:
-            col_pin = "blue" if not st.session_state.fuera else "gray"
-            folium.Marker(
-                location=[st.session_state.lat, st.session_state.lon],
-                popup=f"📍 Tu dirección<br>{st.session_state.direccion}",
-                tooltip="📍 Tu ubicación",
-                icon=folium.Icon(color=col_pin, icon="home", prefix="fa")
-            ).add_to(mapa)
-
-        # Pin del punto seleccionado (click previo)
-        if st.session_state.get("click_lat"):
-            folium.Marker(
-                location=[st.session_state.click_lat, st.session_state.click_lon],
-                popup="📌 Punto seleccionado",
-                tooltip="📌 Punto seleccionado",
-                icon=folium.Icon(color="red", icon="map-marker", prefix="fa")
-            ).add_to(mapa)
-
-        # Reportes existentes
-        for rep in st.session_state.reportes:
-            niv = rep.get("Clasificación", "🟢")
-            col = "red" if "🔴" in niv else ("orange" if "🟡" in niv else "green")
-            folium.CircleMarker(
-                location=[rep["Lat"], rep["Lon"]], radius=11,
-                color=col, fill=True, fill_color=col, fill_opacity=0.85,
-                popup=folium.Popup(
-                    f"<b>{rep['Código']}</b><br>📍 {rep['Sector']}<br>"
-                    f"📌 {rep['Referencia']}<br>♻️ {rep['Objetos']} obj | "
-                    f"⚖️ {rep['Peso (Kg)']} kg<br><b>{niv}</b>",
-                    max_width=200),
-                tooltip=rep["Código"]
-            ).add_to(mapa)
-
-        mapa_data = st_folium(mapa, width="100%", height=480,
-                              returned_objects=["last_clicked"])
-
-        # Click detectado → guardar coords + geocodificación inversa automática
-        if mapa_data and mapa_data.get("last_clicked"):
-            clk = mapa_data["last_clicked"]
-            lat_clk = round(clk["lat"], 7)
-            lon_clk = round(clk["lng"], 7)
-            if (lat_clk != st.session_state.get("click_lat") or
-                    lon_clk != st.session_state.get("click_lon")):
-                st.session_state.click_lat = lat_clk
-                st.session_state.click_lon = lon_clk
-                # Geocodificación inversa automática → dirección del punto
-                with st.spinner("Obteniendo dirección del punto..."):
-                    dir_punto = geocodificar_inversa(lat_clk, lon_clk)
-                st.session_state.click_dir = dir_punto
+            if st.button("🔄", use_container_width=True, key="btn_cambiar",
+                         help="Cambiar dirección"):
+                for k in ["validado","lat","lon","fuera","direccion",
+                          "click_lat","click_lon","click_dir",
+                          "punto_lat","punto_lon","punto_dir"]:
+                    st.session_state.pop(k, None)
                 st.rerun()
 
-    # ── PANEL LATERAL DE ACCIÓN RÁPIDA ───────────────────────────────
-    with col_panel:
-        st.markdown("""
-<div style="background:rgba(16,185,129,0.06);border:1px solid rgba(74,222,128,0.2);
-border-radius:10px;padding:14px;font-family:sans-serif;">
-<b style="color:#4ade80;font-size:15px;">⚡ Acción Rápida</b>
-</div>""", unsafe_allow_html=True)
-        st.markdown("")
-
-        if not st.session_state.get("click_lat"):
-            st.markdown(
-                '<div style="color:#9ca3af;font-size:13px;text-align:center;'
-                'padding:20px 8px;">👆 Haz clic en el mapa para seleccionar<br>el punto del residuo</div>',
-                unsafe_allow_html=True)
+    if verificar_btn:
+        texto = dir_inp.strip()
+        if texto:
+            with st.spinner("Buscando dirección..."):
+                lat, lon, addr = geocodificar(texto)
+            if lat:
+                set_ubicacion(lat, lon, addr)
+                st.rerun()
+            else:
+                st.error("❌ No encontré esa dirección. Intenta: Cra 50 #107-62, Andalucía, Medellín")
         else:
-            clat  = st.session_state.click_lat
-            clon  = st.session_state.click_lon
-            cdir  = st.session_state.get("click_dir", f"{clat:.5f}, {clon:.5f}")
-            dentro = POLIGONO_COMUNA2.contains(Point(clon, clat))
+            st.warning("Escribe o selecciona una dirección primero.")
 
-            # Dirección auto-detectada del punto clickeado
-            st.markdown("**📌 Punto seleccionado:**")
+    # Badge de estado debajo del campo
+    if st.session_state.validado:
+        if not st.session_state.fuera:
+            badge(f"✅ <b>Dentro de la Comuna 2</b> — {st.session_state.direccion[:80]}", "ok")
+        else:
+            badge(f"🛑 Fuera de la Comuna 2 — {st.session_state.direccion[:70]}", "err")
+    elif dir_default:
+        st.caption("👆 Presiona **🔍 Verificar** para confirmar si estás en la Comuna 2.")
+
+    st.markdown("---")
+
+    # ── MAPA ──────────────────────────────────────────────────────────
+    st.markdown("### 🗺️ Toca el mapa para seleccionar el punto del residuo")
+    st.caption("Al tocar un punto, la dirección aparece automáticamente arriba y en las pestañas de reporte.")
+
+    lat_c = st.session_state.get("lat") or LAT_C
+    lon_c = st.session_state.get("lon") or LON_C
+
+    mapa = folium.Map(location=[lat_c, lon_c], zoom_start=15,
+                      tiles="CartoDB dark_matter")
+
+    # Polígono Comuna 2
+    coords_p = [(la, lo) for lo, la in POLIGONO_COMUNA2.exterior.coords]
+    folium.Polygon(
+        locations=coords_p, color="#4ade80", weight=2,
+        fill=True, fill_color="#4ade80", fill_opacity=0.07,
+        tooltip="📍 Área piloto — Comuna 2 Santa Cruz"
+    ).add_to(mapa)
+
+    # Pin hogar del usuario
+    if st.session_state.get("validado") and st.session_state.get("lat"):
+        col_pin = "blue" if not st.session_state.fuera else "gray"
+        folium.Marker(
+            location=[st.session_state.lat, st.session_state.lon],
+            popup=f"🏠 Tu dirección<br>{st.session_state.direccion}",
+            tooltip="🏠 Tu ubicación",
+            icon=folium.Icon(color=col_pin, icon="home", prefix="fa")
+        ).add_to(mapa)
+
+    # Pin rojo del punto clickeado
+    if st.session_state.get("click_lat"):
+        folium.Marker(
+            location=[st.session_state.click_lat, st.session_state.click_lon],
+            popup=f"📌 {st.session_state.get('click_dir','Punto seleccionado')}",
+            tooltip="📌 Punto seleccionado",
+            icon=folium.Icon(color="red", icon="map-marker", prefix="fa")
+        ).add_to(mapa)
+
+    # Reportes registrados
+    for rep in st.session_state.reportes:
+        niv = rep.get("Clasificación", "🟢")
+        col = "red" if "🔴" in niv else ("orange" if "🟡" in niv else "green")
+        folium.CircleMarker(
+            location=[rep["Lat"], rep["Lon"]], radius=11,
+            color=col, fill=True, fill_color=col, fill_opacity=0.85,
+            popup=folium.Popup(
+                f"<b>{rep['Código']}</b><br>📍 {rep['Sector']}<br>"
+                f"📌 {rep['Referencia']}<br>♻️ {rep['Objetos']} obj "
+                f"| ⚖️ {rep['Peso (Kg)']} kg<br><b>{niv}</b>",
+                max_width=200),
+            tooltip=rep["Código"]
+        ).add_to(mapa)
+
+    mapa_data = st_folium(mapa, width="100%", height=440,
+                          returned_objects=["last_clicked"])
+
+    # ── Click detectado → geocodificación inversa + auto-rellenar campo
+    if mapa_data and mapa_data.get("last_clicked"):
+        clk     = mapa_data["last_clicked"]
+        lat_clk = round(clk["lat"], 7)
+        lon_clk = round(clk["lng"], 7)
+        if (lat_clk != st.session_state.get("click_lat") or
+                lon_clk != st.session_state.get("click_lon")):
+            st.session_state.click_lat = lat_clk
+            st.session_state.click_lon = lon_clk
+            with st.spinner("📍 Detectando dirección del punto..."):
+                dir_obtenida = geocodificar_inversa(lat_clk, lon_clk)
+            st.session_state.click_dir = dir_obtenida
+            # Si no está verificado aún, pre-llenar también la validación
+            if not st.session_state.get("validado"):
+                set_ubicacion(lat_clk, lon_clk, dir_obtenida)
+            st.rerun()   # <-- recarga y el campo muestra la nueva dirección
+
+    # ── PESTAÑAS DE ACCIÓN — visibles en celular y computador ─────────
+    st.markdown("")
+    clat  = st.session_state.get("click_lat")
+    clon  = st.session_state.get("click_lon")
+    cdir  = st.session_state.get("click_dir", "")
+    dentro_click = POLIGONO_COMUNA2.contains(Point(clon, clat)) if clat else False
+
+    tab_mapa, tab_residuo, tab_critico, tab_historial = st.tabs([
+        "📍 Punto seleccionado",
+        "📸 Reportar Residuo",
+        "🚨 Punto Crítico",
+        "📋 Historial",
+    ])
+
+    # ── TAB 1: info del punto ─────────────────────────────────────────
+    with tab_mapa:
+        if not clat:
+            st.info("👆 Toca cualquier punto del mapa para ver la dirección y reportar.")
+        else:
+            st.markdown(f"**📌 Dirección detectada:**")
             st.markdown(
-                f'<div style="background:rgba(16,185,129,0.1);border-radius:6px;'
-                f'padding:8px;font-size:12px;color:#a7f3d0;margin-bottom:8px;">'
-                f'{cdir}</div>',
+                f'<div class="badge-ok" style="font-size:14px;">{cdir}</div>',
                 unsafe_allow_html=True)
-            st.caption(f"🌐 {clat:.5f}, {clon:.5f}")
-
-            if dentro:
-                st.markdown(
-                    '<div style="color:#4ade80;font-size:12px;margin-bottom:10px;">'
-                    '✅ Dentro de la Comuna 2</div>',
-                    unsafe_allow_html=True)
+            st.caption(f"🌐 Coordenadas: {clat:.6f}, {clon:.6f}")
+            if dentro_click:
+                st.success("✅ Este punto está dentro de la Comuna 2.")
             else:
-                st.markdown(
-                    '<div style="color:#ef4444;font-size:12px;margin-bottom:10px;">'
-                    '🛑 Fuera del área piloto</div>',
-                    unsafe_allow_html=True)
+                st.error("🛑 Este punto está fuera del área piloto.")
+            if st.button("🗑️ Limpiar punto seleccionado", key="tab_limpiar"):
+                for k in ["click_lat","click_lon","click_dir",
+                           "punto_lat","punto_lon","punto_dir","cache"]:
+                    st.session_state.pop(k, None)
+                st.rerun()
 
-            if dentro and es_residente():
-                if st.button("📸 Reportar Residuo",
-                             type="primary", use_container_width=True,
-                             key="ir_residuo"):
-                    st.session_state.punto_lat = clat
-                    st.session_state.punto_lon = clon
-                    st.session_state.punto_dir = cdir
-                    st.rerun()
-                st.markdown("")
-                if st.button("🚨 Punto Crítico",
-                             use_container_width=True,
-                             key="ir_critico"):
-                    st.session_state.punto_lat = clat
-                    st.session_state.punto_lon = clon
-                    st.session_state.punto_dir = cdir
-                    st.rerun()
-                st.markdown("")
-                if st.button("🗑️ Limpiar punto", use_container_width=True,
-                             key="limpiar_punto"):
-                    for k in ["click_lat","click_lon","click_dir",
-                               "punto_lat","punto_lon","punto_dir"]:
-                        st.session_state.pop(k, None)
-                    st.rerun()
-            elif not es_residente():
-                st.markdown(
-                    '<div style="color:#fbbf24;font-size:12px;padding:8px;'
-                    'background:rgba(251,191,36,0.1);border-radius:6px;">'
-                    '⚠️ Verifica tu dirección arriba para poder reportar.</div>',
-                    unsafe_allow_html=True)
-            else:
-                st.markdown(
-                    '<div style="color:#ef4444;font-size:12px;padding:8px;'
-                    'background:rgba(239,68,68,0.1);border-radius:6px;">'
-                    '🛑 Este punto está fuera del área piloto.</div>',
-                    unsafe_allow_html=True)
+    # ── TAB 2: Reportar Residuo ───────────────────────────────────────
+    with tab_residuo:
+        if not es_residente():
+            st.warning("⚠️ Verifica tu dirección en el campo de arriba para reportar.")
+        elif not clat:
+            st.info("👆 Primero toca un punto en el mapa.")
+        elif not dentro_click:
+            st.error("🛑 El punto seleccionado está fuera de la Comuna 2.")
+        else:
+            plat = clat; plon = clon; pdir = cdir
+            # Dirección pre-rellenada automáticamente
+            st.markdown(f'<div class="badge-ok" style="font-size:13px;">📌 {pdir}</div>',
+                        unsafe_allow_html=True)
+            st.markdown("")
+            t1c1, t1c2 = st.columns(2)
+            with t1c1:
+                t1_barrio = st.selectbox("Barrio:", BARRIOS, key="t1_barrio")
+            with t1c2:
+                # Referencia = dirección detectada, editable
+                t1_ref = st.text_input("Referencia (edita si quieres):",
+                                       value=pdir, key="t1_ref")
+            t1_img = st.file_uploader("📷 Foto del residuo:",
+                                      type=["jpg","jpeg","png"], key="t1_img")
+            if t1_img:
+                img = Image.open(t1_img)
+                if st.button("🔍 Analizar con IA", type="primary",
+                             use_container_width=True, key="t1_analizar"):
+                    with st.spinner("Analizando..."):
+                        res = analizar(img)
+                    c1t, c2t = st.columns(2)
+                    with c1t:
+                        st.image(img, caption="Original", use_container_width=True)
+                    with c2t:
+                        st.image(res[0].plot(), caption="Detecciones IA",
+                                 use_container_width=True)
+                    tabla, residuos, peso, tipo, nivel = procesar(res)
+                    if tabla:
+                        df_si = pd.DataFrame(tabla)
+                        df_si = df_si[df_si["♻️"] == "✅ Sí"]
+                        if not df_si.empty:
+                            st.dataframe(df_si, use_container_width=True, hide_index=True)
+                    if residuos > 0:
+                        metricas(residuos, peso, nivel)
+                    if residuos > 0:
+                        st.session_state.cache = {
+                            "Código":        f"REP-{len(st.session_state.reportes)+200}",
+                            "Sector":        t1_barrio,
+                            "Referencia":    t1_ref,
+                            "Objetos":       residuos,
+                            "Peso (Kg)":     peso,
+                            "Predominante":  tipo,
+                            "Clasificación": nivel,
+                            "Lat": plat, "Lon": plon,
+                        }
+                    else:
+                        st.warning("No se detectaron residuos reciclables.")
 
-    # ── PANEL RÁPIDO DE REPORTE INLINE (si viene del botón del panel) ─
-    if (st.session_state.get("punto_lat") and es_residente()
-            and not st.session_state.reporte_ok):
-        st.markdown("---")
-        st.markdown("### 📸 Reportar en este punto")
+            if st.session_state.get("cache"):
+                r = st.session_state.cache
+                if r.get("Lat") == plat:
+                    st.markdown(f"**Clasificación:** {r['Clasificación']} · "
+                                f"**{r['Objetos']}** obj · **{r['Peso (Kg)']}** kg")
+                    if st.button("🚀 PUBLICAR EN EL MAPA", type="primary",
+                                 use_container_width=True, key="t1_publicar"):
+                        st.session_state.reportes.append(r)
+                        st.session_state.cache = None
+                        for k in ["click_lat","click_lon","click_dir",
+                                   "punto_lat","punto_lon","punto_dir"]:
+                            st.session_state.pop(k, None)
+                        st.success("✅ ¡Publicado en el mapa!")
+                        st.rerun()
 
-        plat = st.session_state.punto_lat
-        plon = st.session_state.punto_lon
-        pdir = st.session_state.get("punto_dir", f"{plat:.5f}, {plon:.5f}")
+    # ── TAB 3: Punto Crítico ──────────────────────────────────────────
+    with tab_critico:
+        if not es_residente():
+            st.warning("⚠️ Verifica tu dirección en el campo de arriba para registrar alertas.")
+        elif not clat:
+            st.info("👆 Primero toca un punto en el mapa.")
+        elif not dentro_click:
+            st.error("🛑 El punto seleccionado está fuera de la Comuna 2.")
+        else:
+            plat = clat; plon = clon; pdir = cdir
+            st.markdown(f'<div class="badge-err" style="font-size:13px;">🚨 {pdir}</div>',
+                        unsafe_allow_html=True)
+            st.markdown("")
+            t2c1, t2c2 = st.columns(2)
+            with t2c1:
+                t2_barrio = st.selectbox("Barrio:", BARRIOS, key="t2_barrio")
+            with t2c2:
+                t2_ref = st.text_input("Referencia:", value=pdir, key="t2_ref")
+            t2_img = st.file_uploader("📷 Foto del punto crítico:",
+                                      type=["jpg","jpeg","png"], key="t2_img")
+            if t2_img:
+                img2 = Image.open(t2_img)
+                if st.button("🔍 Evaluar con IA", type="primary",
+                             use_container_width=True, key="t2_analizar"):
+                    with st.spinner("Analizando..."):
+                        res2 = analizar(img2)
+                    c1t2, c2t2 = st.columns(2)
+                    with c1t2:
+                        st.image(img2, caption="Original", use_container_width=True)
+                    with c2t2:
+                        st.image(res2[0].plot(), caption="Detecciones IA",
+                                 use_container_width=True)
+                    tabla2, res2_r, peso2, tipo2, _ = procesar(res2)
+                    total2 = sum(len(r.boxes) for r in res2)
+                    nivel2 = ("🔴 Punto crítico alto"   if total2 >= 8
+                              else "🟡 Punto crítico medio" if total2 >= 4
+                              else "🟢 Punto crítico bajo")
+                    metricas(res2_r, peso2, nivel2)
+                    if st.button("🚨 REGISTRAR ALERTA", type="primary",
+                                 use_container_width=True, key="t2_registrar"):
+                        st.session_state.reportes.append({
+                            "Código":        f"CRIT-{len(st.session_state.reportes)+500}",
+                            "Sector":        t2_barrio,
+                            "Referencia":    t2_ref,
+                            "Objetos":       total2,
+                            "Peso (Kg)":     round(total2 * 0.4, 2),
+                            "Predominante":  tipo2 or "Mixto",
+                            "Clasificación": nivel2,
+                            "Lat": plat, "Lon": plon,
+                        })
+                        for k in ["click_lat","click_lon","click_dir"]:
+                            st.session_state.pop(k, None)
+                        st.success("✅ ¡Alerta registrada en el mapa!")
+                        st.rerun()
 
-        # Dirección automática pre-cargada en el campo de referencia
-        st.markdown(
-            f'<div class="badge-ok" style="font-size:13px;">📌 <b>Dirección detectada automáticamente:</b> {pdir}</div>',
-            unsafe_allow_html=True)
-        st.markdown("")
-
-        qi1, qi2 = st.columns(2)
-        with qi1:
-            q_barrio = st.selectbox("Barrio:", BARRIOS, key="q_barrio")
-        with qi2:
-            q_tipo = st.radio("Tipo:", ["📸 Residuo", "🚨 Crítico"],
-                              horizontal=True, key="q_tipo")
-
-        # Referencia pre-rellenada con la dirección del mapa
-        q_ref = st.text_input("Referencia (edita si quieres):",
-                              value=pdir, key="q_ref")
-
-        q_img = st.file_uploader("📷 Foto:", type=["jpg","jpeg","png"], key="q_img")
-
-        if q_img:
-            img = Image.open(q_img)
-            if st.button("🔍 Analizar y preparar reporte",
-                         type="primary", use_container_width=True, key="q_analizar"):
-                with st.spinner("Analizando con IA..."):
-                    resultados = analizar(img)
-
-                co2, cd2 = st.columns(2)
-                with co2:
-                    st.image(img, caption="Original", use_container_width=True)
-                with cd2:
-                    st.image(resultados[0].plot(),
-                             caption="Detecciones IA", use_container_width=True)
-
-                tabla, residuos, peso, tipo, nivel = procesar(resultados)
-
-                if tabla:
-                    df_t = pd.DataFrame(tabla)
-                    df_si = df_t[df_t["♻️"] == "✅ Sí"]
-                    if not df_si.empty:
-                        st.dataframe(df_si, use_container_width=True, hide_index=True)
-
-                if residuos > 0:
-                    metricas(residuos, peso, nivel)
-
-                total_obj = sum(len(r.boxes) for r in resultados)
-                if "Crítico" in q_tipo:
-                    nivel_final = ("🔴 Punto crítico alto"  if total_obj >= 8
-                                   else "🟡 Punto crítico medio" if total_obj >= 4
-                                   else "🟢 Punto crítico bajo")
-                    codigo = f"CRIT-{len(st.session_state.reportes)+500}"
-                    objetos_n = total_obj
-                    peso_n = round(total_obj * 0.4, 2)
-                else:
-                    nivel_final = nivel
-                    codigo = f"REP-{len(st.session_state.reportes)+200}"
-                    objetos_n = residuos
-                    peso_n = peso
-
-                st.session_state.cache = {
-                    "Código":        codigo,
-                    "Sector":        q_barrio,
-                    "Referencia":    q_ref,
-                    "Objetos":       objetos_n,
-                    "Peso (Kg)":     peso_n,
-                    "Predominante":  tipo,
-                    "Clasificación": nivel_final,
-                    "Lat":           plat,
-                    "Lon":           plon,
-                }
-
-        if st.session_state.cache:
-            r = st.session_state.cache
-            st.markdown(f"**Listo para publicar:** {r['Clasificación']} · "
-                        f"{r['Objetos']} obj · {r['Peso (Kg)']} kg · 📍 {pdir[:60]}")
-            col_pub, col_can = st.columns(2)
-            with col_pub:
-                if st.button("🚀 PUBLICAR EN EL MAPA",
-                             type="primary", use_container_width=True, key="q_publicar"):
-                    st.session_state.reportes.append(r)
-                    st.session_state.cache = None
-                    for k in ["punto_lat","punto_lon","punto_dir",
-                               "click_lat","click_lon","click_dir","q_img"]:
-                        st.session_state.pop(k, None)
-                    st.success("✅ ¡Publicado! Aparece en el mapa.")
-                    st.rerun()
-            with col_can:
-                if st.button("❌ Cancelar", use_container_width=True, key="q_cancelar"):
-                    st.session_state.cache = None
-                    for k in ["punto_lat","punto_lon","punto_dir",
-                               "click_lat","click_lon","click_dir"]:
-                        st.session_state.pop(k, None)
-                    st.rerun()
+    # ── TAB 4: Historial ─────────────────────────────────────────────
+    with tab_historial:
+        if st.session_state.reportes:
+            df = pd.DataFrame(st.session_state.reportes)
+            cols = [c for c in ["Código","Sector","Referencia","Objetos",
+                                 "Peso (Kg)","Clasificación","Lat","Lon"]
+                    if c in df.columns]
+            st.dataframe(df[cols], use_container_width=True, hide_index=True)
+            hc1, hc2, hc3 = st.columns(3)
+            with hc1:
+                st.markdown(f'<div class="metric-card"><h2 style="color:#4ade80">'
+                            f'{len(df)}</h2><p>Reportes</p></div>', unsafe_allow_html=True)
+            with hc2:
+                st.markdown(f'<div class="metric-card"><h2 style="color:#4ade80">'
+                            f'{df["Peso (Kg)"].sum():.1f} kg</h2><p>Carga total</p></div>',
+                            unsafe_allow_html=True)
+            with hc3:
+                crit = df["Clasificación"].str.contains("crítico", case=False, na=False).sum()
+                st.markdown(f'<div class="metric-card"><h2 style="color:#f87171">'
+                            f'{crit}</h2><p>Puntos críticos</p></div>', unsafe_allow_html=True)
+        else:
+            st.info("Sin reportes aún. Toca el mapa y usa las pestañas para reportar.")
 
     # ── HISTORIAL ─────────────────────────────────────────────────────
     if st.session_state.reportes:
