@@ -727,10 +727,13 @@ if menu == "🏠 Inicio y Mapa":
                                       type=["jpg","jpeg","png"], key="cr_img")
             if cr_img:
                 img2 = Image.open(cr_img)
+
+                # ── Botón de análisis — guarda resultados en cache_critico ──
                 if st.button("🔍 Evaluar con IA", type="primary",
                              use_container_width=True, key="cr_analizar"):
-                    with st.spinner("Analizando..."):
+                    with st.spinner("Analizando con YOLOv8..."):
                         res2 = analizar(img2)
+
                     co2, cd2 = st.columns(2)
                     with co2:
                         st.markdown("**📷 Original**")
@@ -741,66 +744,104 @@ if menu == "🏠 Inicio y Mapa":
 
                     tabla2, res2_r, peso2, tipo2, nivel2 = procesar(res2)
                     total2 = sum(len(r.boxes) for r in res2)
+
                     if tabla2:
-                        df_t2 = pd.DataFrame(tabla2)
-                        df_si2 = df_t2[df_t2["♻️"] == "✅ Sí"]
+                        df_si2 = pd.DataFrame(tabla2)
+                        df_si2 = df_si2[df_si2["♻️"] == "✅ Sí"]
                         if not df_si2.empty:
                             st.dataframe(df_si2, use_container_width=True, hide_index=True)
 
-                    # ── Fallback manual para escombros/basura no detectada ─
-                    if total2 == 0:
+                    # Guardar en session_state para que persista entre reruns
+                    st.session_state.cache_critico = {
+                        "residuos":    res2_r,
+                        "peso":        peso2,
+                        "tipo":        tipo2,
+                        "nivel":       nivel2,
+                        "total":       total2,
+                        "ia_detecto":  total2 > 0,
+                        "Lat":         plat,
+                        "Lon":         plon,
+                    }
+
+                # ── Resultados y botón REGISTRAR — FUERA del bloque analizar ──
+                # (esto persiste entre reruns gracias a cache_critico)
+                if st.session_state.get("cache_critico"):
+                    cc = st.session_state.cache_critico
+
+                    # Si la IA no detectó nada → selector manual
+                    if not cc["ia_detecto"]:
                         st.warning(
-                            "⚠️ La IA no reconoció objetos. Clasifica manualmente:"
+                            "⚠️ La IA no reconoció objetos específicos "
+                            "(escombros, bolsas oscuras, basura mezclada). "
+                            "Clasifica manualmente:"
                         )
-                        tipo_mc = st.selectbox(
-                            "¿Qué ves en la imagen?",
-                            ["🏗️ Escombros / Construcción",
-                             "🗑️ Basura doméstica / bolsas",
-                             "🧹 Residuos orgánicos",
-                             "⚠️ Mezcla de varios tipos"],
-                            key="cr_tipo_manual"
-                        )
-                        cant_mc = st.slider("Cantidad aproximada:", 1, 20, 8,
+                        OPCIONES_MC = [
+                            "🏗️ Escombros / Residuos de construcción",
+                            "🗑️ Basura doméstica mezclada / bolsas",
+                            "🧹 Residuos orgánicos (comida, vegetación)",
+                            "⚠️ Mezcla de varios tipos",
+                        ]
+                        tipo_mc = st.selectbox("¿Qué ves en la imagen?",
+                                               OPCIONES_MC, key="cr_tipo_manual")
+                        cant_mc = st.slider("Cantidad aproximada de residuos:", 1, 30, 8,
                                             key="cr_cant_manual")
                         MAP_MC = {
-                            "🏗️ Escombros / Construcción":
+                            "🏗️ Escombros / Residuos de construcción":
                                 ("🔴 Punto crítico — Acumulación sin valorización",
                                  "Escombros", round(cant_mc * 5.0, 1)),
-                            "🗑️ Basura doméstica / bolsas":
+                            "🗑️ Basura doméstica mezclada / bolsas":
                                 ("🔴 Punto crítico — Acumulación sin valorización",
-                                 "Residuo mixto", round(cant_mc * 0.5, 1)),
-                            "🧹 Residuos orgánicos":
+                                 "Residuo mixto", round(cant_mc * 0.8, 1)),
+                            "🧹 Residuos orgánicos (comida, vegetación)":
                                 ("🟡 Punto amarillo — Residuos mixtos",
                                  "Orgánico", round(cant_mc * 0.3, 1)),
                             "⚠️ Mezcla de varios tipos":
                                 ("🔴 Punto crítico — Acumulación sin valorización",
-                                 "Mixto", round(cant_mc * 1.0, 1)),
+                                 "Mixto", round(cant_mc * 1.5, 1)),
                         }
-                        nivel2, tipo2, peso2 = MAP_MC[tipo_mc]
-                        total2 = cant_mc
-                        res2_r  = 0
+                        nivel_f, tipo_f, peso_f = MAP_MC[tipo_mc]
+                        total_f = cant_mc
+                        residuos_f = 0
+                    else:
+                        nivel_f   = cc["nivel"]
+                        tipo_f    = cc["tipo"]
+                        peso_f    = cc["peso"]
+                        total_f   = cc["total"]
+                        residuos_f= cc["residuos"]
 
-                    metricas(res2_r, peso2, nivel2)
+                    metricas(residuos_f, peso_f, nivel_f)
 
-                    if st.button("🚨 REGISTRAR ALERTA EN EL MAPA", type="primary",
-                                 use_container_width=True, key="cr_registrar"):
-                        nuevo = {
-                            "Código":        f"CRIT-{len(st.session_state.reportes)+500}",
-                            "Sector":        cr_barrio,
-                            "Referencia":    cr_ref,
-                            "Objetos":       total2,
-                            "Peso (Kg)":     round(total2 * 0.4, 2),
-                            "Predominante":  tipo2 or "Mixto",
-                            "Clasificación": nivel2,
-                            "Lat": plat, "Lon": plon,
-                        }
-                        st.session_state.reportes.append(nuevo)
-                        guardar_reportes_disco(st.session_state.reportes)
-                        st.session_state.seccion = "historial"
-                        for k in ["click_lat","click_lon","click_dir"]:
-                            st.session_state.pop(k, None)
-                        st.success("✅ ¡Alerta registrada permanentemente en el mapa!")
-                        st.rerun()
+                    # Botón REGISTRAR fuera del bloque analizar → siempre visible
+                    st.markdown("")
+                    cr_pub, cr_can = st.columns(2)
+                    with cr_pub:
+                        if st.button("🚨 REGISTRAR ALERTA EN EL MAPA",
+                                     type="primary", use_container_width=True,
+                                     key="cr_registrar"):
+                            nuevo = {
+                                "Código":        f"CRIT-{len(st.session_state.reportes)+500}",
+                                "Sector":        cr_barrio,
+                                "Referencia":    cr_ref,
+                                "Objetos":       total_f,
+                                "Peso (Kg)":     round(peso_f, 2),
+                                "Predominante":  tipo_f or "Mixto",
+                                "Clasificación": nivel_f,
+                                "Lat":           cc["Lat"],
+                                "Lon":           cc["Lon"],
+                            }
+                            st.session_state.reportes.append(nuevo)
+                            guardar_reportes_disco(st.session_state.reportes)
+                            st.session_state.cache_critico = None
+                            st.session_state.seccion = "historial"
+                            for k in ["click_lat","click_lon","click_dir"]:
+                                st.session_state.pop(k, None)
+                            st.success("✅ ¡Alerta registrada permanentemente!")
+                            st.rerun()
+                    with cr_can:
+                        if st.button("❌ Cancelar", use_container_width=True,
+                                     key="cr_cancelar"):
+                            st.session_state.cache_critico = None
+                            st.rerun()
 
     # ── SECCIÓN: Historial ─────────────────────────────────────────────
     elif seccion == "historial":
