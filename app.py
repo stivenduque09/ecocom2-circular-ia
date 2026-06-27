@@ -8,6 +8,7 @@ from streamlit_folium import st_folium
 import pandas as pd
 from shapely.geometry import Point, Polygon
 import json, os
+from datetime import datetime
 
 # ====================================================================
 # PERSISTENCIA
@@ -382,12 +383,38 @@ else:
         unsafe_allow_html=True)
 
 st.sidebar.markdown("---")
-menu = st.sidebar.radio("Menú", ["🏠 Inicio y Mapa", "ℹ️ Información"], key="menu_principal")
+PAGINAS_BASE = ["🏠 Inicio y Mapa", "ℹ️ Información"]
+PAGINAS_ADMIN = ["🏠 Inicio y Mapa", "🛡️ Panel Admin", "ℹ️ Información"]
+es_admin = st.session_state.get("admin_ok", False)
+menu = st.sidebar.radio("Menú", PAGINAS_ADMIN if es_admin else PAGINAS_BASE,
+                        key="menu_principal")
+
+st.sidebar.markdown("---")
+
+# ── Login de administrador ────────────────────────────────────────
+if not es_admin:
+    with st.sidebar.expander("🔐 Acceso Administrador"):
+        pwd = st.text_input("Contraseña:", type="password", key="adm_pwd")
+        if st.button("Ingresar", key="adm_login"):
+            if pwd == "ecocom2admin2026":   # ← cambia esta contraseña
+                st.session_state.admin_ok = True
+                st.rerun()
+            else:
+                st.error("Contraseña incorrecta")
+else:
+    st.sidebar.markdown(
+        '<div class="badge-ok" style="font-size:12px;">🛡️ Admin activo<br>'
+        '<span style="font-weight:normal">Brandon Duque · ITM</span></div>',
+        unsafe_allow_html=True)
+    if st.sidebar.button("🔓 Cerrar sesión admin", key="adm_logout"):
+        st.session_state.admin_ok = False
+        st.rerun()
+
 st.sidebar.markdown("---")
 st.sidebar.markdown("""
 <div style="font-size:11px;color:#6b7280;padding:8px;background:rgba(16,185,129,0.06);
 border-radius:6px;border:1px solid rgba(74,222,128,0.15);">
-⚙️ <b style="color:#4ade80">EcoCom2 v4.1</b><br>
+⚙️ <b style="color:#4ade80">EcoCom2 v4.2</b><br>
 Territorio INN 2026 | ITM Medellín<br>
 Dev: <b style="color:#4ade80">Brandon Duque</b>
 </div>""", unsafe_allow_html=True)
@@ -683,6 +710,8 @@ if menu == "🏠 Inicio y Mapa":
                         "Predominante":  tipo,
                         "Clasificación": nivel,
                         "Lat": plat, "Lon": plon,
+                        "Fecha": datetime.now().strftime("%Y-%m-%d %H:%M"),
+                        "Estado": "🔴 Pendiente",
                     }
 
             if st.session_state.get("cache"):
@@ -828,6 +857,8 @@ if menu == "🏠 Inicio y Mapa":
                                 "Clasificación": nivel_f,
                                 "Lat":           cc["Lat"],
                                 "Lon":           cc["Lon"],
+                                "Fecha":         datetime.now().strftime("%Y-%m-%d %H:%M"),
+                                "Estado":        "🔴 Pendiente",
                             }
                             st.session_state.reportes.append(nuevo)
                             guardar_reportes_disco(st.session_state.reportes)
@@ -846,43 +877,170 @@ if menu == "🏠 Inicio y Mapa":
     # ── SECCIÓN: Historial ─────────────────────────────────────────────
     elif seccion == "historial":
         st.markdown("### 📋 Historial de Reportes")
-        if st.session_state.reportes:
-            df = pd.DataFrame(st.session_state.reportes)
-            cols = [c for c in ["Código","Sector","Referencia","Objetos",
-                                 "Peso (Kg)","Clasificación","Lat","Lon"]
-                    if c in df.columns]
-            st.dataframe(df[cols], use_container_width=True, hide_index=True)
-            h1, h2, h3 = st.columns(3)
-            with h1:
-                st.markdown(f'<div class="metric-card"><h2 style="color:#4ade80">'
-                            f'{len(df)}</h2><p>Reportes guardados</p></div>',
-                            unsafe_allow_html=True)
-            with h2:
-                st.markdown(f'<div class="metric-card"><h2 style="color:#4ade80">'
-                            f'{df["Peso (Kg)"].sum():.1f} kg</h2><p>Carga total</p></div>',
-                            unsafe_allow_html=True)
-            with h3:
-                crit = df["Clasificación"].str.contains("crítico|rojo", case=False, na=False).sum()
-                st.markdown(f'<div class="metric-card"><h2 style="color:#f87171">'
-                            f'{crit}</h2><p>Puntos críticos</p></div>',
-                            unsafe_allow_html=True)
-            st.markdown("---")
-            st.markdown("**✅ Marcar como resuelto** (retira el ícono del mapa):")
-            codigos = [r["Código"] for r in st.session_state.reportes]
-            sel = st.selectbox("Código del reporte:", codigos, key="h_sel")
-            if st.button("✅ Retirar del mapa — problema resuelto",
-                         use_container_width=True, key="h_resolver"):
-                st.session_state.reportes = [
-                    r for r in st.session_state.reportes if r["Código"] != sel]
-                guardar_reportes_disco(st.session_state.reportes)
-                st.success(f"✅ Reporte {sel} retirado del mapa.")
-                st.rerun()
-        else:
+        if not st.session_state.reportes:
             st.info("Sin reportes aún. Toca el mapa y usa '📸 Reportar Residuo' para el primero.")
+        else:
+            df = pd.DataFrame(st.session_state.reportes)
+
+            # Métricas resumen
+            h1, h2, h3, h4 = st.columns(4)
+            pendientes = df.get("Estado", pd.Series([])).str.contains("Pendiente", na=False).sum() if "Estado" in df.columns else len(df)
+            resueltos  = df.get("Estado", pd.Series([])).str.contains("Resuelto",  na=False).sum() if "Estado" in df.columns else 0
+            crit = df["Clasificación"].str.contains("crítico", case=False, na=False).sum()
+            with h1:
+                st.markdown(f'<div class="metric-card"><h2 style="color:#4ade80">{len(df)}</h2><p>Total</p></div>', unsafe_allow_html=True)
+            with h2:
+                st.markdown(f'<div class="metric-card"><h2 style="color:#f87171">{crit}</h2><p>Críticos 🔴</p></div>', unsafe_allow_html=True)
+            with h3:
+                st.markdown(f'<div class="metric-card"><h2 style="color:#fbbf24">{pendientes}</h2><p>Pendientes</p></div>', unsafe_allow_html=True)
+            with h4:
+                st.markdown(f'<div class="metric-card"><h2 style="color:#4ade80">{resueltos}</h2><p>Resueltos ✅</p></div>', unsafe_allow_html=True)
+
+            st.markdown("")
+
+            # Tabla con columnas relevantes
+            COLS = ["Código","Fecha","Estado","Sector","Referencia",
+                    "Objetos","Peso (Kg)","Clasificación"]
+            cols_ok = [c for c in COLS if c in df.columns]
+            st.dataframe(df[cols_ok], use_container_width=True, hide_index=True)
+
+            # Exportar CSV
+            csv_data = df[cols_ok].to_csv(index=False).encode("utf-8")
+            st.download_button(
+                "📥 Exportar como CSV",
+                data=csv_data,
+                file_name=f"ecocom2_reportes_{datetime.now().strftime('%Y%m%d')}.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
 
 # ====================================================================
 # 9. INFORMACIÓN
 # ====================================================================
+elif menu == "🛡️ Panel Admin":
+    st.title("🛡️ Panel de Administración — EcoCom2")
+    st.caption("Solo el administrador autorizado puede gestionar los reportes desde aquí.")
+
+    if not st.session_state.get("admin_ok"):
+        st.error("🔐 Acceso denegado. Inicia sesión como administrador en el menú lateral.")
+        st.stop()
+
+    reportes = st.session_state.reportes
+
+    if not reportes:
+        st.info("No hay reportes registrados aún.")
+    else:
+        df_a = pd.DataFrame(reportes)
+
+        # ── Métricas admin ────────────────────────────────────────────
+        st.markdown("### 📊 Resumen del territorio")
+        a1, a2, a3, a4, a5 = st.columns(5)
+        total   = len(df_a)
+        criticos= df_a["Clasificación"].str.contains("crítico", case=False, na=False).sum()
+        amarillo= df_a["Clasificación"].str.contains("amarillo", case=False, na=False).sum()
+        verde   = df_a["Clasificación"].str.contains("verde", case=False, na=False).sum()
+        peso_t  = df_a["Peso (Kg)"].sum()
+        for col, val, label, color in [
+            (a1, total,    "Total reportes",  "#4ade80"),
+            (a2, criticos, "🔴 Críticos",     "#f87171"),
+            (a3, amarillo, "🟡 Mixtos",       "#fbbf24"),
+            (a4, verde,    "🟢 Reciclables",  "#4ade80"),
+            (a5, f"{peso_t:.0f} kg", "Carga total", "#a78bfa"),
+        ]:
+            with col:
+                st.markdown(
+                    f'<div class="metric-card"><h2 style="color:{color}">{val}</h2>'
+                    f'<p style="font-size:12px">{label}</p></div>',
+                    unsafe_allow_html=True)
+
+        st.markdown("---")
+
+        # ── Gestión individual de reportes ────────────────────────────
+        st.markdown("### 🗂️ Gestión de alertas")
+
+        for i, rep in enumerate(st.session_state.reportes):
+            estado = rep.get("Estado", "🔴 Pendiente")
+            nivel  = rep.get("Clasificación", "")
+            color_borde = "#f87171" if "🔴" in nivel else ("#fbbf24" if "🟡" in nivel else "#4ade80")
+
+            with st.expander(
+                f"{'🔴' if 'crítico' in nivel.lower() else '🟡' if 'amarillo' in nivel.lower() else '🟢'} "
+                f"{rep['Código']} — {rep.get('Sector','?')} — {rep.get('Referencia','?')[:40]} "
+                f"| {estado}",
+                expanded=False
+            ):
+                dc1, dc2 = st.columns(2)
+                with dc1:
+                    st.markdown(f"""
+**Código:** {rep['Código']}  
+**Sector:** {rep.get('Sector','—')}  
+**Referencia:** {rep.get('Referencia','—')}  
+**Registrado:** {rep.get('Fecha','Sin fecha')}  
+""")
+                with dc2:
+                    st.markdown(f"""
+**Clasificación:** {nivel}  
+**Objetos:** {rep.get('Objetos','—')}  
+**Peso:** {rep.get('Peso (Kg)','—')} kg  
+**Material:** {rep.get('Predominante','—')}  
+""")
+
+                # Cambiar estado
+                ESTADOS = ["🔴 Pendiente", "🟡 En proceso de recolección", "✅ Resuelto"]
+                idx_est = ESTADOS.index(estado) if estado in ESTADOS else 0
+                nuevo_estado = st.selectbox(
+                    "Cambiar estado:", ESTADOS, index=idx_est,
+                    key=f"adm_estado_{i}")
+
+                ac1, ac2, ac3 = st.columns(3)
+                with ac1:
+                    if st.button("💾 Guardar estado", key=f"adm_guardar_{i}",
+                                 use_container_width=True):
+                        st.session_state.reportes[i]["Estado"] = nuevo_estado
+                        guardar_reportes_disco(st.session_state.reportes)
+                        st.success(f"✅ Estado actualizado: {nuevo_estado}")
+                        st.rerun()
+                with ac2:
+                    if st.button("✅ Marcar RESUELTO", key=f"adm_resuelto_{i}",
+                                 type="primary", use_container_width=True):
+                        st.session_state.reportes[i]["Estado"] = "✅ Resuelto"
+                        guardar_reportes_disco(st.session_state.reportes)
+                        st.success("✅ Marcado como resuelto.")
+                        st.rerun()
+                with ac3:
+                    if st.button("🗑️ ELIMINAR del mapa", key=f"adm_eliminar_{i}",
+                                 use_container_width=True):
+                        st.session_state.reportes.pop(i)
+                        guardar_reportes_disco(st.session_state.reportes)
+                        st.success(f"🗑️ Reporte {rep['Código']} eliminado.")
+                        st.rerun()
+
+        st.markdown("---")
+        st.markdown("### 📥 Exportar datos")
+        df_exp = pd.DataFrame(st.session_state.reportes)
+        csv_exp = df_exp.to_csv(index=False).encode("utf-8")
+        st.download_button(
+            "📥 Descargar todos los reportes en CSV",
+            data=csv_exp,
+            file_name=f"ecocom2_admin_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+            mime="text/csv",
+            use_container_width=True,
+        )
+
+        st.markdown("---")
+        st.markdown("### ⚠️ Zona de riesgo")
+        if st.button("🗑️ ELIMINAR TODOS los reportes resueltos",
+                     use_container_width=True, key="adm_limpiar_resueltos"):
+            antes = len(st.session_state.reportes)
+            st.session_state.reportes = [
+                r for r in st.session_state.reportes
+                if r.get("Estado") != "✅ Resuelto"
+            ]
+            guardar_reportes_disco(st.session_state.reportes)
+            eliminados = antes - len(st.session_state.reportes)
+            st.success(f"✅ {eliminados} reporte(s) resuelto(s) eliminado(s) del mapa.")
+            st.rerun()
+
 elif menu == "ℹ️ Información":
     st.title("♻️ EcoCom2 Circular IA")
     st.markdown(
