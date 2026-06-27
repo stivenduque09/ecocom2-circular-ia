@@ -541,14 +541,14 @@ if menu == "🏠 Inicio y Mapa":
             }
             bc1, bc2, bc3 = st.columns([2, 2, 1])
             with bc1:
-                if st.button("📸 Ir a Reportar Residuo",
+                if st.button("📸 Reportar Residuo",
                              type="primary", use_container_width=True, key="btn_ir_rep"):
-                    st.session_state.menu_principal = "📸 Reportar Residuo"
+                    st.session_state.seccion = "residuo"
                     st.rerun()
             with bc2:
-                if st.button("🚨 Ir a Punto Crítico",
+                if st.button("🚨 Punto Crítico",
                              use_container_width=True, key="btn_ir_crit"):
-                    st.session_state.menu_principal = "🚨 Punto Crítico"
+                    st.session_state.seccion = "critico"
                     st.rerun()
             with bc3:
                 if st.button("✖", use_container_width=True, key="btn_quit",
@@ -562,41 +562,23 @@ if menu == "🏠 Inicio y Mapa":
 
     st.markdown("")
 
-    # ── Ancla para scroll automático al formulario ────────────────────
-    st.markdown('<div id="formulario-ancla"></div>', unsafe_allow_html=True)
-
-    # Si el usuario viene de los botones de acción → bajar la pantalla
-    if st.session_state.pop("scroll_to_form", False):
-        import streamlit.components.v1 as _comp
-        _comp.html("""<script>
-            setTimeout(function(){
-                var el = window.parent.document.getElementById('formulario-ancla');
-                if(el){ el.scrollIntoView({behavior:'smooth', block:'start'}); }
-                else {
-                    window.parent.scrollTo({top: document.body.scrollHeight, behavior:'smooth'});
-                }
-            }, 400);
-        </script>""", height=0)
-
-    # ====================================================================
-    # PESTAÑAS DE NAVEGACIÓN — visibles en celular y computador
-    # ====================================================================
-    seccion = st.session_state.get("seccion", "info")
-    nav_tabs(seccion)
     st.markdown("")
+    seccion = st.session_state.get("seccion", "info")
 
-    # ── SECCIÓN: Info del punto ────────────────────────────────────────
+    # ── Indicador de sección activa (compacto, sin duplicar botones) ──
+    if seccion != "info":
+        iconos = {"residuo": "📸 Reportar Residuo", "critico": "🚨 Punto Crítico",
+                  "historial": "📋 Historial"}
+        st.markdown(
+            f'<div style="border-bottom:2px solid #4ade80;padding:6px 0 4px 0;'
+            f'color:#4ade80;font-weight:bold;font-size:15px;margin-bottom:12px;">'
+            f'{iconos.get(seccion,"")}</div>',
+            unsafe_allow_html=True)
+
+    # ── SECCIÓN: Punto en el mapa ──────────────────────────────────────
     if seccion == "info":
         if not clat:
-            st.info("👆 Toca cualquier punto del mapa para ver la dirección y las opciones de reporte.")
-        else:
-            badge(f"📌 <b>{cdir}</b><br>"
-                  f"<span style='font-weight:normal;font-size:13px'>"
-                  f"{'✅ Dentro de la Comuna 2' if dentro_clk else '🛑 Fuera del área piloto'} — "
-                  f"{clat:.6f}, {clon:.6f}</span>",
-                  "ok" if dentro_clk else "err")
-            if dentro_clk and es_residente():
-                st.markdown("👇 Usa los botones de arriba o las pestañas **📸 Reportar Residuo** o **🚨 Punto Crítico**.")
+            st.info("👆 Toca cualquier punto del mapa y usa los botones que aparecen para reportar.")
 
     # ── SECCIÓN: Reportar Residuo ──────────────────────────────────────
     elif seccion == "residuo":
@@ -644,7 +626,54 @@ if menu == "🏠 Inicio y Mapa":
                         if not df_no.empty:
                             st.markdown("**⚠️ No aprovechables:**")
                             st.dataframe(df_no, use_container_width=True, hide_index=True)
-                    metricas(residuos, peso, nivel)
+
+                    # ── Fallback manual si YOLO no detecta nada ──────
+                    # (escombros, basura genérica, plástico oscuro, etc.)
+                    if residuos == 0 and len(tabla) == 0:
+                        st.warning(
+                            "⚠️ La IA no reconoció objetos específicos. "
+                            "Esto ocurre con escombros, basura mezclada o bolsas oscuras. "
+                            "Clasifica manualmente:"
+                        )
+                        tipo_manual = st.selectbox(
+                            "¿Qué tipo de residuo observas en la imagen?",
+                            [
+                                "🏗️ Escombros / Residuos de construcción",
+                                "🗑️ Basura doméstica mezclada / bolsas",
+                                "🧹 Residuos orgánicos (comida, vegetación)",
+                                "♻️ Materiales reciclables sin identificar",
+                                "⚠️ Mezcla de varios tipos",
+                            ],
+                            key="r_tipo_manual"
+                        )
+                        cant_manual = st.slider(
+                            "Cantidad aproximada de residuos visibles:",
+                            1, 20, 5, key="r_cant_manual"
+                        )
+                        # Clasificar según selección
+                        MAP_MANUAL = {
+                            "🏗️ Escombros / Residuos de construcción":
+                                ("🔴 Punto crítico — Acumulación sin valorización",
+                                 "Escombros", round(cant_manual * 5.0, 1)),
+                            "🗑️ Basura doméstica mezclada / bolsas":
+                                ("🔴 Punto crítico — Acumulación sin valorización",
+                                 "Residuo mixto", round(cant_manual * 0.5, 1)),
+                            "🧹 Residuos orgánicos (comida, vegetación)":
+                                ("🟡 Punto amarillo — Residuos mixtos",
+                                 "Orgánico", round(cant_manual * 0.3, 1)),
+                            "♻️ Materiales reciclables sin identificar":
+                                ("🟢 Punto verde — Alta valorización reciclable",
+                                 "Reciclable", round(cant_manual * 0.4, 1)),
+                            "⚠️ Mezcla de varios tipos":
+                                ("🟡 Punto amarillo — Residuos mixtos",
+                                 "Mixto", round(cant_manual * 1.0, 1)),
+                        }
+                        nivel, tipo, peso = MAP_MANUAL[tipo_manual]
+                        residuos = cant_manual if "reciclable" in tipo_manual.lower() else 0
+                        metricas(residuos, peso, nivel)
+                    else:
+                        metricas(residuos, peso, nivel)
+
                     st.session_state.cache = {
                         "Código":        f"REP-{len(st.session_state.reportes)+200}",
                         "Sector":        r_barrio,
@@ -717,6 +746,40 @@ if menu == "🏠 Inicio y Mapa":
                         df_si2 = df_t2[df_t2["♻️"] == "✅ Sí"]
                         if not df_si2.empty:
                             st.dataframe(df_si2, use_container_width=True, hide_index=True)
+
+                    # ── Fallback manual para escombros/basura no detectada ─
+                    if total2 == 0:
+                        st.warning(
+                            "⚠️ La IA no reconoció objetos. Clasifica manualmente:"
+                        )
+                        tipo_mc = st.selectbox(
+                            "¿Qué ves en la imagen?",
+                            ["🏗️ Escombros / Construcción",
+                             "🗑️ Basura doméstica / bolsas",
+                             "🧹 Residuos orgánicos",
+                             "⚠️ Mezcla de varios tipos"],
+                            key="cr_tipo_manual"
+                        )
+                        cant_mc = st.slider("Cantidad aproximada:", 1, 20, 8,
+                                            key="cr_cant_manual")
+                        MAP_MC = {
+                            "🏗️ Escombros / Construcción":
+                                ("🔴 Punto crítico — Acumulación sin valorización",
+                                 "Escombros", round(cant_mc * 5.0, 1)),
+                            "🗑️ Basura doméstica / bolsas":
+                                ("🔴 Punto crítico — Acumulación sin valorización",
+                                 "Residuo mixto", round(cant_mc * 0.5, 1)),
+                            "🧹 Residuos orgánicos":
+                                ("🟡 Punto amarillo — Residuos mixtos",
+                                 "Orgánico", round(cant_mc * 0.3, 1)),
+                            "⚠️ Mezcla de varios tipos":
+                                ("🔴 Punto crítico — Acumulación sin valorización",
+                                 "Mixto", round(cant_mc * 1.0, 1)),
+                        }
+                        nivel2, tipo2, peso2 = MAP_MC[tipo_mc]
+                        total2 = cant_mc
+                        res2_r  = 0
+
                     metricas(res2_r, peso2, nivel2)
 
                     if st.button("🚨 REGISTRAR ALERTA EN EL MAPA", type="primary",
