@@ -79,7 +79,7 @@ st.markdown("""
 #   Este:  antes de Popular/ladera  (lon ≈ -75.550 a -75.553)
 #          Santo Domingo y Popular  quedan FUERA (son otra comuna)
 # ============================================================
-POLIGONO_COMUNA2 = Polygon(
+POLIGONO_COMUNA2 = Polygon( [
 
     # Sur-occidente
     (-75.5605, 6.2950),
