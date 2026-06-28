@@ -78,8 +78,8 @@ st.markdown("""
 #   Oeste: Carrera 52               (lon ≈ -75.560 a -75.562)
 #   Este:  antes de Popular/ladera  (lon ≈ -75.550 a -75.553)
 #          Santo Domingo y Popular  quedan FUERA (son otra comuna)
-# ============================================================
- POLIGONO_COMUNA2 = Polygon([
+# ===========================================================
+POLIGONO_COMUNA2 = Polygon([
 
     # Suroccidente (Autopista Norte)
     (-75.5608, 6.2948),
