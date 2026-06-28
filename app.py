@@ -471,25 +471,25 @@ if menu == "🏠 Inicio y Mapa":
     lat_c = st.session_state.get("lat") or LAT_C
     lon_c = st.session_state.get("lon") or LON_C
 
-    mapa = folium.Map(location=[lat_c, lon_c], zoom_start=14, tiles="CartoDB dark_matter")
+   mapa = folium.Map(location=[lat_c, lon_c], zoom_start=14, tiles="CartoDB dark_matter")
 
-    # Polígono oficial
- coords_p = [(y, x) for x, y in POLIGONO_COMUNA2.exterior.coords]
-    folium.Polygon(
-        locations=coords_p, color="#4ade80", weight=2,
-        fill=True, fill_color="#4ade80", fill_opacity=0.07,
-        tooltip="📍 Área piloto — Comuna 2 Santa Cruz (Acevedo → Villa del Socorro)"
+# Polígono oficial
+coords_p = [(y, x) for x, y in POLIGONO_COMUNA2.exterior.coords]
+folium.Polygon(
+    locations=coords_p, color="#4ade80", weight=2,
+    fill=True, fill_color="#4ade80", fill_opacity=0.07,
+    tooltip="📍 Área piloto — Comuna 2 Santa Cruz (Acevedo → Villa del Socorro)"
+).add_to(mapa)
+
+# Pin hogar
+if st.session_state.get("validado") and st.session_state.get("lat"):
+    col_pin = "blue" if not st.session_state.fuera else "gray"
+    folium.Marker(
+        location=[st.session_state.lat, st.session_state.lon],
+        popup=f"🏠 {st.session_state.direccion}",
+        tooltip="🏠 Tu dirección verificada",
+        icon=folium.Icon(color=col_pin, icon="home", prefix="fa")
     ).add_to(mapa)
-
-    # Pin hogar
-    if st.session_state.get("validado") and st.session_state.get("lat"):
-        col_pin = "blue" if not st.session_state.fuera else "gray"
-        folium.Marker(
-            location=[st.session_state.lat, st.session_state.lon],
-            popup=f"🏠 {st.session_state.direccion}",
-            tooltip="🏠 Tu dirección verificada",
-            icon=folium.Icon(color=col_pin, icon="home", prefix="fa")
-        ).add_to(mapa)
 
     # Pin punto seleccionado
     if st.session_state.get("click_lat"):
