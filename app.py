@@ -74,25 +74,29 @@ st.markdown("""
 #   Este:  Trama urbana antes de Popular/ladera (lon ≈ -75.553)
 # ====================================================================
 POLIGONO_COMUNA2 = Polygon([
-    # SW — Acevedo metro junto al río Medellín
+    # Sur - La Rosa / Acevedo (lat ≈ 6.296)
     (-75.5620, 6.2960),
-    # Borde OESTE — Carrera 52 subiendo
+    # Oeste - Carrera 52 subiendo
     (-75.5618, 6.3012),
     (-75.5605, 6.3060),
     (-75.5600, 6.3100),
     (-75.5600, 6.3150),
-    (-75.5600, 6.3170),  # límite norte ajustado
-    # NORTE — límite antes de Bello/Zamora
-    (-75.5530, 6.3170),
-    (-75.5515, 6.3165),
-    # ESTE — antes de Popular/ladera
-    (-75.5530, 6.3100),
-    (-75.5525, 6.3050),
-    (-75.5520, 6.3000),
-    (-75.5510, 6.2965),
-    # Sur — límite La Rosa
+    (-75.5600, 6.3170),
+    # Norte - Zamora (lat ≈ 6.317), incluye zona de Zamora y Villa del Socorro
+    (-75.5560, 6.3170),
+    (-75.5540, 6.3165),
+    (-75.5520, 6.3160),
+    (-75.5500, 6.3155),
+    (-75.5480, 6.3150),
+    # Este - Trama urbana antes de Popular/ladera (lon ≈ -75.553)
+    (-75.5480, 6.3130),
+    (-75.5485, 6.3100),
+    (-75.5490, 6.3080),
+    (-75.5495, 6.3050),
+    (-75.5500, 6.3000),
+    (-75.5505, 6.2965),
+    # Sur - límite La Rosa / cierre
     (-75.5550, 6.2960),
-    # Cierre SW — vuelve a Acevedo
     (-75.5620, 6.2960),
 ])
 
