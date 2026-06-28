@@ -81,33 +81,36 @@ st.markdown("""
 # ===========================================================
 POLIGONO_COMUNA2 = Polygon([
 
-    # Sur-occidente (La Rosa)
-    (-75.5598, 6.2895),
+    # Suroccidente (La Rosa)
+    (-75.5613, 6.2934),
 
     # Carrera 52 (límite Castilla)
-    (-75.5585, 6.2950),
-    (-75.5578, 6.3000),
-    (-75.5572, 6.3050),
+    (-75.5608, 6.2970),
+    (-75.5598, 6.3010),
+    (-75.5585, 6.3055),
 
     # Norte
     (-75.5565, 6.3098),
+    (-75.5540, 6.3100),
 
-    # Oriente superior
-    (-75.5535, 6.3098),
+    # Oriente norte (La Isla)
+    (-75.5500, 6.3032),
 
-    # Moscú y ladera oriental
-    (-75.5525, 6.3050),
-    (-75.5525, 6.3000),
-    (-75.5530, 6.2950),
+    # Oriente medio
+    (-75.5498, 6.2980),
+
+    # Moscú
+    (-75.5500, 6.2935),
 
     # Suroriente
-    (-75.5538, 6.2910),
+    (-75.5500, 6.2895),
 
     # Sur
-    (-75.5565, 6.2895),
+    (-75.5555, 6.2890),
+    (-75.5595, 6.2895),
 
     # Cierre
-    (-75.5598, 6.2895)
+    (-75.5613, 6.2934)
 
 ])
 BARRIOS = [
@@ -252,19 +255,21 @@ def geocodificar_inversa(lat: float, lon: float) -> str:
         return f"{lat:.5f}, {lon:.5f}"
 
 
-def es_residente():
-    return st.session_state.validado and not st.session_state.fuera
-
-
 def set_ubicacion(lat, lon, direccion=""):
+
     st.session_state.lat = lat
     st.session_state.lon = lon
+    st.session_state.validado = True
 
-    # Mostrar coordenadas para depuración
+    # DEPURACIÓN DEL POLÍGONO
     st.write("Latitud:", lat)
     st.write("Longitud:", lon)
 
-    st.session_state.validado = True
+    if POLIGONO_COMUNA2.contains(Point(lon, lat)):
+        st.success("✅ Dentro del polígono")
+    else:
+        st.error("❌ Fuera del polígono")
+
     st.session_state.fuera = not POLIGONO_COMUNA2.contains(
         Point(lon, lat)
     )
