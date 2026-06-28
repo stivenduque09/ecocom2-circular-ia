@@ -3,9 +3,10 @@ ultralytics
 torch
 torchvision
 pillow
-opencv-python-headless==4.10.0.84
+opencv-python-headless
 numpy
 matplotlib
+streamlit-js-eval
 geopy
 folium
 streamlit-folium
