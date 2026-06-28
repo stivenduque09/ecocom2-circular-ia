@@ -112,7 +112,6 @@ POLIGONO_COMUNA2 = Polygon([
     # Cierre
     (-75.5613, 6.2933)
 
-])2962),
 ])
 
 BARRIOS = [
