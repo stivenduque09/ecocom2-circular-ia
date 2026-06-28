@@ -9,6 +9,8 @@ import pandas as pd
 from shapely.geometry import Point, Polygon
 import json, os
 from datetime import datetime
+import base64
+from io import BytesIO
 
 # ====================================================================
 # PERSISTENCIA
@@ -80,53 +82,37 @@ st.markdown("""
 #          Santo Domingo y Popular  quedan FUERA (son otra comuna)
 # ============================================================
 POLIGONO_COMUNA2 = Polygon([
-
-    # Sur-occidente (Carrera 52 - Santa Cruz)
-
-    (-75.5613, 6.2933),
-
-    # Subiendo por el límite con Castilla
-
-    (-75.5608, 6.2965),
-
-    (-75.5598, 6.3005),
-
-    (-75.5585, 6.3055),
-
-    # Norte
-
-    (-75.5560, 6.3098),
-
-    (-75.5540, 6.3100),
-
-    # Oriente norte
-
-    (-75.5500, 6.3032),
-
-    # Oriente medio
-
-    (-75.5498, 6.2980),
-
-    # Moscú
-
-    (-75.5500, 6.2935),
-
-    # Suroriente
-
-    (-75.5500, 6.2895),
-
-    # Sur
-
-    (-75.5555, 6.2890),
-
-    (-75.5590, 6.2895),
-
-    # Cierre
-
-    (-75.5613, 6.2933)
-
+    # SW — La Rosa, sur-oeste (Carrera 52, sur)
+    (-75.5618, 6.2962),
+    # OESTE — Carrera 52 subiendo hacia el norte
+    (-75.5616, 6.3008),
+    (-75.5613, 6.3055),
+    (-75.5608, 6.3100),
+    (-75.5602, 6.3145),
+    # NW — curva noroeste hacia Playón de los Comuneros
+    (-75.5590, 6.3182),
+    (-75.5568, 6.3205),
+    (-75.5540, 6.3215),   # ← extremo norte (Playón, antes de Bello/Zamora)
+    # Norte — tope norte de Playón de los Comuneros
+    (-75.5512, 6.3210),
+    # NE — La Frontera (límite norte-este, ANTES de Popular)
+    # Santo Domingo cable (Popular) está en lon=-75.5490 → excluido
+    (-75.5508, 6.3190),
+    (-75.5498, 6.3162),
+    # ESTE — límite urbano antes de Popular / Santo Domingo
+    # (Carrera 44-48, NO sube a la ladera de Popular)
+    (-75.5492, 6.3115),
+    (-75.5488, 6.3065),
+    (-75.5490, 6.3015),
+    (-75.5492, 6.2972),
+    # SE — La Rosa / límite con Aranjuez
+    (-75.5475, 6.2950),
+    (-75.5520, 6.2942),
+    (-75.5568, 6.2945),
+    (-75.5608, 6.2950),
+    # Cierre SW
+    (-75.5618, 6.2962),
 ])
-
 
 BARRIOS = [
     "La Isla", "Playón de los Comuneros", "Pablo VI", "La Frontera",
@@ -270,6 +256,18 @@ def geocodificar_inversa(lat: float, lon: float) -> str:
         return f"{lat:.5f}, {lon:.5f}"
 
 
+def img_a_b64(img_pil, max_px=200) -> str:
+    """Convierte una imagen PIL a base64 JPEG thumbnail para el popup del mapa."""
+    try:
+        thumb = img_pil.copy()
+        thumb.thumbnail((max_px, max_px))
+        buf = BytesIO()
+        thumb.save(buf, format="JPEG", quality=60)
+        return base64.b64encode(buf.getvalue()).decode("utf-8")
+    except Exception:
+        return ""
+
+
 def es_residente():
     return st.session_state.validado and not st.session_state.fuera
 
@@ -411,30 +409,36 @@ else:
         unsafe_allow_html=True)
 
 st.sidebar.markdown("---")
-PAGINAS_BASE = ["🏠 Inicio y Mapa", "ℹ️ Información"]
-PAGINAS_ADMIN = ["🏠 Inicio y Mapa", "🛡️ Panel Admin", "ℹ️ Información"]
-es_admin = st.session_state.get("admin_ok", False)
-menu = st.sidebar.radio("Menú", PAGINAS_ADMIN if es_admin else PAGINAS_BASE,
-                        key="menu_principal")
+
+# SOLUCIÓN Python 3.10: menú SIEMPRE con las mismas 3 opciones (no cambiar dinámicamente)
+# El contenido del panel admin está protegido por contraseña dentro de la página
+PAGINAS = ["🏠 Inicio y Mapa", "🛡️ Panel Admin", "ℹ️ Información"]
+menu = st.sidebar.radio("Menú", PAGINAS)   # sin key → sin conflicto de estado
 
 st.sidebar.markdown("---")
+es_admin = st.session_state.get("admin_ok", False)
 
-# ── Login de administrador ────────────────────────────────────────
+# ── Login / logout de administrador ──────────────────────────────
 if not es_admin:
     with st.sidebar.expander("🔐 Acceso Administrador"):
-        pwd = st.text_input("Contraseña:", type="password", key="adm_pwd")
-        if st.button("Ingresar", key="adm_login"):
-            if pwd == "ecocom2admin2026":   # ← cambia esta contraseña
+        pwd = st.text_input("Contraseña:", type="password", key="adm_pwd",
+                            placeholder="Ingresa la contraseña")
+        if st.button("Ingresar", key="adm_login", type="primary",
+                     use_container_width=True):
+            if pwd == "ecocom2admin2026":          # ← cambia esta contraseña
                 st.session_state.admin_ok = True
+                st.success("✅ Sesión iniciada")
                 st.rerun()
             else:
-                st.error("Contraseña incorrecta")
+                st.error("❌ Contraseña incorrecta")
 else:
     st.sidebar.markdown(
-        '<div class="badge-ok" style="font-size:12px;">🛡️ Admin activo<br>'
+        '<div class="badge-ok" style="font-size:12px;margin-bottom:6px;">'
+        '🛡️ Admin activo<br>'
         '<span style="font-weight:normal">Brandon Duque · ITM</span></div>',
         unsafe_allow_html=True)
-    if st.sidebar.button("🔓 Cerrar sesión admin", key="adm_logout"):
+    if st.sidebar.button("🔓 Cerrar sesión", key="adm_logout",
+                         use_container_width=True):
         st.session_state.admin_ok = False
         st.rerun()
 
@@ -535,14 +539,26 @@ if menu == "🏠 Inicio y Mapa":
     for rep in st.session_state.reportes:
         niv = rep.get("Clasificación", "🟢")
         col = "red" if "🔴" in niv else ("orange" if "🟡" in niv else "green")
+        # Construir popup con foto si está disponible
+        foto_b64 = rep.get("FotoB64", "")
+        img_html = (f'<br><img src="data:image/jpeg;base64,{foto_b64}" '
+                    f'style="width:180px;border-radius:6px;margin-top:6px;">'
+                    if foto_b64 else "")
+        popup_html = (
+            f"<div style='font-family:sans-serif;min-width:190px;'>"
+            f"<b style='color:{col}'>{niv}</b><br>"
+            f"<b>{rep['Código']}</b><br>"
+            f"📍 {rep['Sector']}<br>"
+            f"📌 {rep.get('Referencia','')[:40]}<br>"
+            f"♻️ {rep['Objetos']} obj | ⚖️ {rep['Peso (Kg)']} kg<br>"
+            f"🕐 {rep.get('Fecha','')}<br>"
+            f"🔖 {rep.get('Estado','')}"
+            f"{img_html}</div>"
+        )
         folium.CircleMarker(
             location=[rep["Lat"], rep["Lon"]], radius=12,
             color=col, fill=True, fill_color=col, fill_opacity=0.85,
-            popup=folium.Popup(
-                f"<b>{rep['Código']}</b><br>📍 {rep['Sector']}<br>"
-                f"📌 {rep['Referencia']}<br>♻️ {rep['Objetos']} obj "
-                f"| ⚖️ {rep['Peso (Kg)']} kg<br><b>{niv}</b>",
-                max_width=210),
+            popup=folium.Popup(popup_html, max_width=220),
             tooltip=f"{rep['Código']} — {niv}"
         ).add_to(mapa)
 
@@ -740,6 +756,7 @@ if menu == "🏠 Inicio y Mapa":
                         "Lat": plat, "Lon": plon,
                         "Fecha": datetime.now().strftime("%Y-%m-%d %H:%M"),
                         "Estado": "🔴 Pendiente",
+                        "FotoB64": img_a_b64(img),   # ← miniatura para popup del mapa
                     }
 
             if st.session_state.get("cache"):
@@ -790,6 +807,7 @@ if menu == "🏠 Inicio y Mapa":
                              use_container_width=True, key="cr_analizar"):
                     with st.spinner("Analizando con YOLOv8..."):
                         res2 = analizar(img2)
+                    st.session_state.cache_foto_b64 = img_a_b64(img2)
 
                     co2, cd2 = st.columns(2)
                     with co2:
@@ -887,6 +905,7 @@ if menu == "🏠 Inicio y Mapa":
                                 "Lon":           cc["Lon"],
                                 "Fecha":         datetime.now().strftime("%Y-%m-%d %H:%M"),
                                 "Estado":        "🔴 Pendiente",
+                                "FotoB64": st.session_state.get("cache_foto_b64", ""),
                             }
                             st.session_state.reportes.append(nuevo)
                             guardar_reportes_disco(st.session_state.reportes)
