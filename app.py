@@ -474,7 +474,7 @@ if menu == "🏠 Inicio y Mapa":
     mapa = folium.Map(location=[lat_c, lon_c], zoom_start=14, tiles="CartoDB dark_matter")
 
     # Polígono oficial
-  coords_p = [(y, x) for x, y in POLIGONO_COMUNA2.exterior.coords]
+ coords_p = [(y, x) for x, y in POLIGONO_COMUNA2.exterior.coords]
     folium.Polygon(
         locations=coords_p, color="#4ade80", weight=2,
         fill=True, fill_color="#4ade80", fill_opacity=0.07,
