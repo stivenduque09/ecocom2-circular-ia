@@ -79,41 +79,7 @@ st.markdown("""
 #   Este:  antes de Popular/ladera  (lon ≈ -75.550 a -75.553)
 #          Santo Domingo y Popular  quedan FUERA (son otra comuna)
 # ============================================================
-POLIGONO_COMUNA2 = Polygon( [
-
-    # Sur-occidente
-    (-75.5605, 6.2950),
-
-    # Oeste (Autopista)
-    (-75.5600, 6.2990),
-    (-75.5595, 6.3040),
-
-    # Centro-norte
-    (-75.5575, 6.3090),
-    (-75.5550, 6.3130),
-
-    # Norte
-    (-75.5535, 6.3155),
-
-    # Nororiente
-    (-75.5515, 6.3145),
-
-    # Oriente
-    (-75.5505, 6.3110),
-    (-75.5500, 6.3060),
-    (-75.5498, 6.3010),
-
-    # Suroriente
-    (-75.5505, 6.2965),
-
-    # Sur
-    (-75.5545, 6.2945),
-    (-75.5580, 6.2945),
-
-    # Cierre
-    (-75.5605, 6.2950)
-
-])
+ [
 BARRIOS = [
     "La Isla", "Playón de los Comuneros", "Pablo VI", "La Frontera",
     "La Francia", "Andalucía", "Villa del Socorro", "Villa Niza",
