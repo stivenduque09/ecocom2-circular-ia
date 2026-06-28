@@ -584,6 +584,7 @@ if menu == "🏠 Inicio y Mapa":
 
 # ── BOTONES DE ACCIÓN — redirigen al menú lateral ───────────
 if dentro_clk:
+
     st.markdown("")
 
     st.session_state.punto_para_reporte = {
@@ -591,31 +592,61 @@ if dentro_clk:
         "lon": clon,
         "dir": cdir
     }
-            bc1, bc2, bc3 = st.columns([2, 2, 1])
-            with bc1:
-                if st.button("📸 Reportar Residuo",
-                             type="primary", use_container_width=True, key="btn_ir_rep"):
-                    st.session_state.seccion = "residuo"
-                    st.rerun()
-            with bc2:
-                if st.button("🚨 Punto Crítico",
-                             use_container_width=True, key="btn_ir_crit"):
-                    st.session_state.seccion = "critico"
-                    st.rerun()
-            with bc3:
-                if st.button("✖", use_container_width=True, key="btn_quit",
-                             help="Quitar punto seleccionado"):
-                    for k in ["click_lat","click_lon","click_dir",
-                               "cache","punto_para_reporte"]:
-                        st.session_state.pop(k, None)
-                    st.rerun()
-        elif clat and not es_residente():
-            badge("⚠️ Verifica tu dirección arriba para reportar en este punto.", "warn")
 
-    st.markdown("")
+    bc1, bc2, bc3 = st.columns([2, 2, 1])
 
-    st.markdown("")
-    seccion = st.session_state.get("seccion", "info")
+    with bc1:
+        if st.button(
+            "📸 Reportar Residuo",
+            type="primary",
+            use_container_width=True,
+            key="btn_ir_rep"
+        ):
+            st.session_state.seccion = "residuo"
+            st.rerun()
+
+    with bc2:
+        if st.button(
+            "🚨 Punto Crítico",
+            use_container_width=True,
+            key="btn_ir_crit"
+        ):
+            st.session_state.seccion = "critico"
+            st.rerun()
+
+    with bc3:
+        if st.button(
+            "✖",
+            use_container_width=True,
+            key="btn_quit",
+            help="Quitar punto seleccionado"
+        ):
+            for k in [
+                "click_lat",
+                "click_lon",
+                "click_dir",
+                "cache",
+                "punto_para_reporte"
+            ]:
+                st.session_state.pop(k, None)
+
+            st.rerun()
+
+elif clat:
+
+    badge(
+        "⚠️ Verifica tu dirección arriba para reportar en este punto.",
+        "warn"
+    )
+
+st.markdown("")
+
+st.markdown("")
+
+seccion = st.session_state.get(
+    "seccion",
+    "info"
+)
 
     # ── Indicador de sección activa (compacto, sin duplicar botones) ──
     if seccion != "info":
