@@ -6,7 +6,6 @@ pillow
 opencv-python-headless
 numpy
 matplotlib
-streamlit-js-eval
 geopy
 folium
 streamlit-folium
