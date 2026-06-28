@@ -80,36 +80,51 @@ st.markdown("""
 #          Santo Domingo y Popular  quedan FUERA (son otra comuna)
 # ============================================================
 POLIGONO_COMUNA2 = Polygon([
-    # SW — La Rosa, sur-oeste (Carrera 52, sur)
-    (-75.5618, 6.2962),
-    # OESTE — Carrera 52 subiendo hacia el norte
-    (-75.5616, 6.3008),
-    (-75.5613, 6.3055),
-    (-75.5608, 6.3100),
-    (-75.5602, 6.3145),
-    # NW — curva noroeste hacia Playón de los Comuneros
-    (-75.5590, 6.3182),
-    (-75.5568, 6.3205),
-    (-75.5540, 6.3215),   # ← extremo norte (Playón, antes de Bello/Zamora)
-    # Norte — tope norte de Playón de los Comuneros
-    (-75.5512, 6.3210),
-    # NE — La Frontera (límite norte-este, ANTES de Popular)
-    # Santo Domingo cable (Popular) está en lon=-75.5490 → excluido
-    (-75.5508, 6.3190),
-    (-75.5498, 6.3162),
-    # ESTE — límite urbano antes de Popular / Santo Domingo
-    # (Carrera 44-48, NO sube a la ladera de Popular)
-    (-75.5492, 6.3115),
-    (-75.5488, 6.3065),
-    (-75.5490, 6.3015),
-    (-75.5492, 6.2972),
-    # SE — La Rosa / límite con Aranjuez
-    (-75.5475, 6.2950),
-    (-75.5520, 6.2942),
-    (-75.5568, 6.2945),
-    (-75.5608, 6.2950),
-    # Cierre SW
-    (-75.5618, 6.2962),
+
+    # Sur-occidente (Carrera 52 - Santa Cruz)
+
+    (-75.5613, 6.2933),
+
+    # Subiendo por el límite con Castilla
+
+    (-75.5608, 6.2965),
+
+    (-75.5598, 6.3005),
+
+    (-75.5585, 6.3055),
+
+    # Norte
+
+    (-75.5560, 6.3098),
+
+    (-75.5540, 6.3100),
+
+    # Oriente norte
+
+    (-75.5500, 6.3032),
+
+    # Oriente medio
+
+    (-75.5498, 6.2980),
+
+    # Moscú
+
+    (-75.5500, 6.2935),
+
+    # Suroriente
+
+    (-75.5500, 6.2895),
+
+    # Sur
+
+    (-75.5555, 6.2890),
+
+    (-75.5590, 6.2895),
+
+    # Cierre
+
+    (-75.5613, 6.2933)
+
 ])
 
 BARRIOS = [
@@ -1217,4 +1232,3 @@ border-radius:10px;padding:16px;text-align:center;color:#9ca3af;font-size:13px;"
 Proyecto <b style="color:#4ade80">Territorio INN 2026</b> · Instituto Tecnológico Metropolitano (ITM) · Medellín<br>
 Desarrollado por: <b style="color:#4ade80">Brandon Duque</b> · Comuna 2 Santa Cruz
 </div>
-""", unsafe_allow_html=True)
