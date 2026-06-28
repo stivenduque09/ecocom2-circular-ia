@@ -652,7 +652,7 @@ seccion = st.session_state.get(
 if seccion != "info":
  iconos = {"residuo": "📸 Reportar Residuo", "critico": "🚨 Punto Crítico",
                   "historial": "📋 Historial"}
-st.markdown(
+ st.markdown(
             f'<div style="border-bottom:2px solid #4ade80;padding:6px 0 4px 0;'
             f'color:#4ade80;font-weight:bold;font-size:15px;margin-bottom:12px;">'
             f'{iconos.get(seccion,"")}</div>',
