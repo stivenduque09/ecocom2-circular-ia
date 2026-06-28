@@ -59,58 +59,44 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ====================================================================
-# 2. POLÍGONO COMUNA 2 — SANTA CRUZ, MEDELLÍN
-#    Desde Estación Acevedo (sur) → Andalucía → Comuneros → Santa Cruz
-#    → Villa del Socorro (norte). Límite oeste = Autopista Norte.
 # ====================================================================
-# ============================================================
-# Polígono COMUNA 2 — SANTA CRUZ, Medellín
-# Calibrado con fotos reales del proyecto EcoCom2
-#
+# 2. POLÍGONO COMUNA 2 — SANTA CRUZ, MEDELLÍN (ajustado)
+# ====================================================================
 # Barrios incluidos (11 oficiales):
 #   La Rosa, Santa Cruz, Moscú 1, Andalucía, Villa del Socorro,
 #   Villa Niza, La Francia, La Frontera, Playón de los Comuneros,
 #   Pablo VI, La Isla
 #
-# Límites:
+# Límites ajustados:
 #   Sur:   La Rosa / Acevedo  (lat ≈ 6.296)
-#   Norte: Calle 20F / Zamora (lat ≈ 6.325) — límite Bello
-#   Oeste: Autopista Norte / Cra 52-55 (lon ≈ -75.563 a -75.568)
-#   Este:  Trama urbana — Carrera 42-46 (lon ≈ -75.544 a -75.550)
-#          NO incluye ladera de Popular (otra comuna)
-# ============================================================
+#   Norte: límite antes de Bello/Zamora (lat ≈ 6.317)
+#   Oeste: Carrera 52 (lon ≈ -75.560 a -75.562)
+#   Este:  Trama urbana antes de Popular/ladera (lon ≈ -75.553)
+# ====================================================================
 POLIGONO_COMUNA2 = Polygon([
     # SW — Acevedo metro junto al río Medellín
-    (-75.5695, 6.2968),
-    # Borde OESTE — Autopista Norte / Carrera 52-55 subiendo
-    (-75.5688, 6.3012),
-    (-75.5675, 6.3060),
-    (-75.5658, 6.3108),
-    (-75.5640, 6.3155),
-    (-75.5618, 6.3200),
-    # NW — Calle 20F / límite con Bello (Zamora)
-    (-75.5578, 6.3232),
-    (-75.5542, 6.3248),
-    # Norte — Playón de los Comuneros extremo norte
-    (-75.5505, 6.3242),
-    # NE — La Frontera, noreste
-    (-75.5472, 6.3218),
-    (-75.5450, 6.3188),
-    # Borde ESTE — trama urbana (Cra 42-46), NO entra en Popular
-    (-75.5438, 6.3142),
-    (-75.5432, 6.3090),
-    (-75.5435, 6.3038),
-    (-75.5440, 6.2988),
-    (-75.5450, 6.2960),
-    # SE — La Rosa / límite con Aranjuez
-    (-75.5478, 6.2945),
-    (-75.5525, 6.2940),
-    (-75.5580, 6.2943),
-    (-75.5648, 6.2952),
+    (-75.5620, 6.2960),
+    # Borde OESTE — Carrera 52 subiendo
+    (-75.5618, 6.3012),
+    (-75.5605, 6.3060),
+    (-75.5600, 6.3100),
+    (-75.5600, 6.3150),
+    (-75.5600, 6.3170),  # límite norte ajustado
+    # NORTE — límite antes de Bello/Zamora
+    (-75.5530, 6.3170),
+    (-75.5515, 6.3165),
+    # ESTE — antes de Popular/ladera
+    (-75.5530, 6.3100),
+    (-75.5525, 6.3050),
+    (-75.5520, 6.3000),
+    (-75.5510, 6.2965),
+    # Sur — límite La Rosa
+    (-75.5550, 6.2960),
     # Cierre SW — vuelve a Acevedo
-    (-75.5695, 6.2968),
+    (-75.5620, 6.2960),
 ])
 
+# Barrios oficiales
 BARRIOS = [
     "La Isla", "Playón de los Comuneros", "Pablo VI", "La Frontera",
     "La Francia", "Andalucía", "Villa del Socorro", "Villa Niza",
