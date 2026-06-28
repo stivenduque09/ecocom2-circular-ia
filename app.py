@@ -65,39 +65,50 @@ st.markdown("""
 # ====================================================================
 # ============================================================
 # Polígono COMUNA 2 — SANTA CRUZ, Medellín
-# Ajustado exactamente al área piloto visible en el mapa:
-#   Sur:   Calle 107  (lat ≈ 6.297)
-#   Norte: Calle 123  (lat ≈ 6.314)
-#   Oeste: Carrera 52 (lon ≈ -75.563)
-#   Este:  Ladera / Carrera 42B (lon ≈ -75.549)
+# Calibrado con fotos reales del proyecto EcoCom2
+#
+# Barrios incluidos (11 oficiales):
+#   La Rosa, Santa Cruz, Moscú 1, Andalucía, Villa del Socorro,
+#   Villa Niza, La Francia, La Frontera, Playón de los Comuneros,
+#   Pablo VI, La Isla
+#
+# Límites:
+#   Sur:   La Rosa / Acevedo  (lat ≈ 6.296)
+#   Norte: Calle 20F / Zamora (lat ≈ 6.325) — límite Bello
+#   Oeste: Autopista Norte / Cra 52-55 (lon ≈ -75.563 a -75.568)
+#   Este:  Trama urbana — Carrera 42-46 (lon ≈ -75.544 a -75.550)
+#          NO incluye ladera de Popular (otra comuna)
 # ============================================================
 POLIGONO_COMUNA2 = Polygon([
-    # SW — Calle 107 × Carrera 52  (inicio sur-oeste)
-    (-75.5640, 6.2972),
-    # Oeste — subiendo Carrera 52 hacia el norte
-    (-75.5638, 6.3010),
-    (-75.5635, 6.3055),
-    (-75.5630, 6.3095),
-    # NW — esquina nor-oeste (Calle 123 × Cra 52)
-    (-75.5622, 6.3130),
-    # Norte — Calle 123 hacia el este
-    (-75.5580, 6.3145),
-    (-75.5535, 6.3148),
-    (-75.5500, 6.3142),
-    # NE — inicio ladera / Carrera 42B
-    (-75.5478, 6.3125),
-    # Este — ladera bajando hacia el sur
-    (-75.5465, 6.3080),
-    (-75.5460, 6.3030),
-    (-75.5465, 6.2985),
-    (-75.5480, 6.2958),
-    # SE — Calle 107 × Carrera 46
-    (-75.5510, 6.2948),
-    # Sur — Calle 107 hacia el oeste
-    (-75.5560, 6.2950),
-    (-75.5608, 6.2953),
-    (-75.5640, 6.2960),
-    (-75.5640, 6.2972),   # cierre
+    # SW — Acevedo metro junto al río Medellín
+    (-75.5695, 6.2968),
+    # Borde OESTE — Autopista Norte / Carrera 52-55 subiendo
+    (-75.5688, 6.3012),
+    (-75.5675, 6.3060),
+    (-75.5658, 6.3108),
+    (-75.5640, 6.3155),
+    (-75.5618, 6.3200),
+    # NW — Calle 20F / límite con Bello (Zamora)
+    (-75.5578, 6.3232),
+    (-75.5542, 6.3248),
+    # Norte — Playón de los Comuneros extremo norte
+    (-75.5505, 6.3242),
+    # NE — La Frontera, noreste
+    (-75.5472, 6.3218),
+    (-75.5450, 6.3188),
+    # Borde ESTE — trama urbana (Cra 42-46), NO entra en Popular
+    (-75.5438, 6.3142),
+    (-75.5432, 6.3090),
+    (-75.5435, 6.3038),
+    (-75.5440, 6.2988),
+    (-75.5450, 6.2960),
+    # SE — La Rosa / límite con Aranjuez
+    (-75.5478, 6.2945),
+    (-75.5525, 6.2940),
+    (-75.5580, 6.2943),
+    (-75.5648, 6.2952),
+    # Cierre SW — vuelve a Acevedo
+    (-75.5695, 6.2968),
 ])
 
 BARRIOS = [
@@ -107,8 +118,8 @@ BARRIOS = [
 ]
 
 # Centro de la Comuna 2
-LAT_C = 6.3055
-LON_C = -75.5555
+LAT_C = 6.3104
+LON_C = -75.5552
 
 # ====================================================================
 # 3. SESIÓN
@@ -474,7 +485,7 @@ if menu == "🏠 Inicio y Mapa":
     lat_c = st.session_state.get("lat") or LAT_C
     lon_c = st.session_state.get("lon") or LON_C
 
-    mapa = folium.Map(location=[lat_c, lon_c], zoom_start=15, tiles="CartoDB dark_matter")
+    mapa = folium.Map(location=[lat_c, lon_c], zoom_start=14, tiles="CartoDB dark_matter")
 
     # Polígono oficial
     coords_p = [(la, lo) for lo, la in POLIGONO_COMUNA2.exterior.coords]
