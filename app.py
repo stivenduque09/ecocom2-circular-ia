@@ -649,27 +649,37 @@ seccion = st.session_state.get(
 )
 
     # ── Indicador de sección activa (compacto, sin duplicar botones) ──
- if seccion != "info":
- iconos = {"residuo": "📸 Reportar Residuo", "critico": "🚨 Punto Crítico",
-                  "historial": "📋 Historial"}
-        st.markdown(
-            f'<div style="border-bottom:2px solid #4ade80;padding:6px 0 4px 0;'
-            f'color:#4ade80;font-weight:bold;font-size:15px;margin-bottom:12px;">'
-            f'{iconos.get(seccion,"")}</div>',
-            unsafe_allow_html=True)
+if seccion != "info":
 
-    # ── SECCIÓN: Punto en el mapa ──────────────────────────────────────
-    if seccion == "info":
-        if not clat:
-            st.info("👆 Toca cualquier punto del mapa y usa los botones que aparecen para reportar.")
+    iconos = {
+        "residuo": "📸 Reportar Residuo",
+        "critico": "🚨 Punto Crítico",
+        "historial": "📋 Historial"
+    }
+
+    st.markdown(
+        f'<div style="border-bottom:2px solid #4ade80;'
+        f'padding:6px 0 4px 0;'
+        f'color:#4ade80;'
+        f'font-weight:bold;'
+        f'font-size:15px;'
+        f'margin-bottom:12px;">'
+        f'{iconos.get(seccion,"")}</div>',
+        unsafe_allow_html=True
+    )
+
+if seccion == "info":
+
+    if not clat:
+        st.info(
+            "👆 Toca cualquier punto del mapa y usa los botones para reportar."
+        )
 
     # ── SECCIÓN: Reportar Residuo ──────────────────────────────────────
     elif seccion == "residuo":
         st.markdown("### 📸 Reportar Residuo")
 
-        if not es_residente():
-            badge("⚠️ Verifica tu dirección para reportar.", "warn")
-        elif not clat or not dentro_clk:
+        if not clat or not dentro_clk:
             badge("⚠️ Selecciona un punto dentro de la Comuna 2 en el mapa.", "warn")
         else:
             plat = clat; plon = clon; pdir = cdir
