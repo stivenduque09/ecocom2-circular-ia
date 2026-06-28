@@ -462,16 +462,16 @@ if menu == "🏠 Inicio y Mapa":
                       "click_lat","click_lon","click_dir",
                       "punto_lat","punto_lon","cache"]:
                 st.session_state.pop(k, None)
-            st.rerun()
+          st.rerun()
 
-    st.markdown("---")
-    st.markdown("### 🗺️ Toca el punto exacto del residuo en el mapa")
-    st.caption("Al tocar, la dirección aparece automáticamente arriba y puedes reportar directo.")
+st.markdown("---")
+st.markdown("### 🗺️ Toca el punto exacto del residuo en el mapa")
+st.caption("Al tocar, la dirección aparece automáticamente arriba y puedes reportar directo.")
 
-    lat_c = st.session_state.get("lat") or LAT_C
-    lon_c = st.session_state.get("lon") or LON_C
+lat_c = st.session_state.get("lat") or LAT_C
+lon_c = st.session_state.get("lon") or LON_C
 
-   mapa = folium.Map(location=[lat_c, lon_c], zoom_start=14, tiles="CartoDB dark_matter")
+mapa = folium.Map(location=[lat_c, lon_c], zoom_start=14, tiles="CartoDB dark_matter")
 
 # Polígono oficial
 coords_p = [(y, x) for x, y in POLIGONO_COMUNA2.exterior.coords]
@@ -499,7 +499,6 @@ if st.session_state.get("validado") and st.session_state.get("lat"):
             tooltip="📌 Punto seleccionado",
             icon=folium.Icon(color="red", icon="map-marker", prefix="fa")
         ).add_to(mapa)
-
     # Reportes guardados
     for rep in st.session_state.reportes:
         niv = rep.get("Clasificación", "🟢")
