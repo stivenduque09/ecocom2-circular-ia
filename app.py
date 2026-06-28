@@ -270,6 +270,17 @@ def geocodificar_inversa(lat: float, lon: float) -> str:
         return f"{lat:.5f}, {lon:.5f}"
 
 
+def dias_desde(fecha_str):
+    """Días transcurridos desde la fecha del reporte (None si no se puede leer)."""
+    if not fecha_str:
+        return None
+    try:
+        f = datetime.strptime(fecha_str, "%Y-%m-%d %H:%M")
+        return (datetime.now() - f).days
+    except Exception:
+        return None
+
+
 def img_a_b64(img_pil, max_px=200) -> str:
     """Convierte una imagen PIL a base64 JPEG thumbnail para el popup del mapa."""
     try:
@@ -993,26 +1004,110 @@ elif menu == "🛡️ Panel Admin":
     else:
         df_a = pd.DataFrame(reportes)
 
-        # ── Métricas admin ────────────────────────────────────────────
+        # ── Métricas globales del territorio (siempre sobre TODOS los reportes) ──
         st.markdown("### 📊 Resumen del territorio")
-        a1, a2, a3, a4, a5 = st.columns(5)
-        total   = len(df_a)
-        criticos= df_a["Clasificación"].str.contains("crítico", case=False, na=False).sum()
-        amarillo= df_a["Clasificación"].str.contains("amarillo", case=False, na=False).sum()
-        verde   = df_a["Clasificación"].str.contains("verde", case=False, na=False).sum()
-        peso_t  = df_a["Peso (Kg)"].sum()
+        a1, a2, a3, a4, a5, a6 = st.columns(6)
+        total    = len(df_a)
+        criticos = df_a["Clasificación"].str.contains("crítico", case=False, na=False).sum()
+        amarillo = df_a["Clasificación"].str.contains("amarillo", case=False, na=False).sum()
+        verde    = df_a["Clasificación"].str.contains("verde", case=False, na=False).sum()
+        peso_t   = df_a["Peso (Kg)"].sum()
+        viejos   = sum(
+            1 for r in reportes
+            if r.get("Estado") != "✅ Resuelto"
+            and (dias_desde(r.get("Fecha")) or 0) > 7
+        )
         for col, val, label, color in [
             (a1, total,    "Total reportes",  "#4ade80"),
             (a2, criticos, "🔴 Críticos",     "#f87171"),
             (a3, amarillo, "🟡 Mixtos",       "#fbbf24"),
             (a4, verde,    "🟢 Reciclables",  "#4ade80"),
             (a5, f"{peso_t:.0f} kg", "Carga total", "#a78bfa"),
+            (a6, viejos,   "⏰ >7 días sin resolver", "#f87171" if viejos else "#4ade80"),
         ]:
             with col:
                 st.markdown(
                     f'<div class="metric-card"><h2 style="color:{color}">{val}</h2>'
                     f'<p style="font-size:12px">{label}</p></div>',
                     unsafe_allow_html=True)
+
+        # ── Gráfico por barrio ─────────────────────────────────────────
+        with st.expander("📈 Ver reportes por barrio", expanded=False):
+            def _bucket(niv):
+                niv = (niv or "").lower()
+                if "crítico" in niv: return "🔴 Crítico"
+                if "amarillo" in niv: return "🟡 Mixto"
+                return "🟢 Reciclable"
+            df_g = df_a.copy()
+            df_g["_bucket"] = df_g["Clasificación"].apply(_bucket)
+            pivot = df_g.pivot_table(index="Sector", columns="_bucket",
+                                      values="Código", aggfunc="count", fill_value=0)
+            st.bar_chart(pivot)
+
+        st.markdown("---")
+
+        # ── Filtrar y priorizar ────────────────────────────────────────
+        st.markdown("### 🔍 Filtrar y priorizar")
+        f1, f2, f3, f4 = st.columns(4)
+        with f1:
+            barrios_disp = ["Todos"] + sorted(df_a["Sector"].dropna().unique().tolist())
+            f_barrio = st.selectbox("Barrio:", barrios_disp, key="adm_f_barrio")
+        with f2:
+            f_estado = st.multiselect(
+                "Estado:",
+                ["🔴 Pendiente", "🟡 En proceso de recolección", "✅ Resuelto"],
+                default=["🔴 Pendiente", "🟡 En proceso de recolección", "✅ Resuelto"],
+                key="adm_f_estado")
+        with f3:
+            f_clasif = st.selectbox(
+                "Clasificación:",
+                ["Todas", "🔴 Crítico", "🟡 Mixto", "🟢 Reciclable"],
+                key="adm_f_clasif")
+        with f4:
+            f_orden = st.selectbox(
+                "Ordenar por:",
+                ["⏰ Más urgente primero", "🕐 Más reciente primero",
+                 "📆 Más antiguo primero", "⚖️ Mayor peso primero"],
+                key="adm_f_orden")
+        f_busq = st.text_input("🔎 Buscar por código o referencia:", key="adm_f_busqueda")
+
+        def _pasa_filtro(rep):
+            if f_barrio != "Todos" and rep.get("Sector") != f_barrio:
+                return False
+            if rep.get("Estado", "🔴 Pendiente") not in f_estado:
+                return False
+            niv = (rep.get("Clasificación") or "").lower()
+            if f_clasif == "🔴 Crítico" and "crítico" not in niv:
+                return False
+            if f_clasif == "🟡 Mixto" and "amarillo" not in niv:
+                return False
+            if f_clasif == "🟢 Reciclable" and "verde" not in niv and "puntual" not in niv:
+                return False
+            if f_busq:
+                texto = (rep.get("Código", "") + " " + rep.get("Referencia", "")).lower()
+                if f_busq.lower() not in texto:
+                    return False
+            return True
+
+        reportes_vista = [r for r in st.session_state.reportes if _pasa_filtro(r)]
+
+        def _clave_orden(r):
+            dias = dias_desde(r.get("Fecha")) or 0
+            if f_orden == "⏰ Más urgente primero":
+                niv = (r.get("Clasificación") or "").lower()
+                urgencia = 0 if "crítico" in niv else (1 if "amarillo" in niv else 2)
+                resuelto = 1 if r.get("Estado") == "✅ Resuelto" else 0
+                return (resuelto, urgencia, -dias)
+            if f_orden == "🕐 Más reciente primero":
+                return (-dias,)
+            if f_orden == "📆 Más antiguo primero":
+                return (dias,)
+            if f_orden == "⚖️ Mayor peso primero":
+                return (-(r.get("Peso (Kg)") or 0),)
+            return (0,)
+
+        reportes_vista.sort(key=_clave_orden)
+        st.caption(f"Mostrando **{len(reportes_vista)}** de **{len(st.session_state.reportes)}** reportes.")
 
         st.markdown("---")
 
@@ -1025,98 +1120,150 @@ elif menu == "🛡️ Panel Admin":
         # (evita mutar la lista mientras se itera)
         accion = st.session_state.pop("adm_accion_pendiente", None)
         if accion:
-            cod_obj  = accion["codigo"]
             tipo_acc = accion["tipo"]
-            if tipo_acc == "estado":
+            codigos  = accion.get("codigos") or [accion.get("codigo")]
+            if tipo_acc == "eliminar":
+                st.session_state.reportes = [
+                    r for r in st.session_state.reportes if r["Código"] not in codigos
+                ]
+            else:
                 for r in st.session_state.reportes:
-                    if r["Código"] == cod_obj:
-                        r["Estado"] = accion["valor"]
-                        break
-                guardar_reportes_disco(st.session_state.reportes)
-            elif tipo_acc in ("resuelto", "eliminar"):
-                if tipo_acc == "resuelto":
-                    for r in st.session_state.reportes:
-                        if r["Código"] == cod_obj:
+                    if r["Código"] in codigos:
+                        if tipo_acc == "actualizar":
+                            r["Estado"]    = accion.get("estado", r.get("Estado"))
+                            r["NotaAdmin"] = accion.get("nota", r.get("NotaAdmin", ""))
+                        elif tipo_acc == "resuelto":
                             r["Estado"] = "✅ Resuelto"
-                            break
-                    guardar_reportes_disco(st.session_state.reportes)
-                else:
-                    st.session_state.reportes = [
-                        r for r in st.session_state.reportes
-                        if r["Código"] != cod_obj
-                    ]
-                    guardar_reportes_disco(st.session_state.reportes)
+            guardar_reportes_disco(st.session_state.reportes)
             st.rerun()
 
         ESTADOS = ["🔴 Pendiente", "🟡 En proceso de recolección", "✅ Resuelto"]
+        seleccionados = []
 
-        for rep in list(st.session_state.reportes):   # list() → copia estable
+        if not reportes_vista:
+            st.info("Ningún reporte coincide con los filtros seleccionados.")
+
+        for rep in reportes_vista:
             codigo = rep["Código"]
             # Sanear el código para usarlo como key (solo alfanumérico + guión)
             key_safe = codigo.replace(" ", "_").replace("/", "_")
             estado = rep.get("Estado", "🔴 Pendiente")
             nivel  = rep.get("Clasificación", "")
             icono  = "🔴" if "crítico" in nivel.lower() else ("🟡" if "amarillo" in nivel.lower() else "🟢")
+            dias_t = dias_desde(rep.get("Fecha"))
+            tag_urgente = " ⏰" if (dias_t is not None and dias_t > 7 and estado != "✅ Resuelto") else ""
 
-            with st.expander(
-                f"{icono} {codigo} — {rep.get('Sector','?')} — "
-                f"{rep.get('Referencia','?')[:35]} | {estado}",
-                expanded=False
-            ):
-                dc1, dc2 = st.columns(2)
-                with dc1:
-                    st.markdown(
-                        f"**Código:** {codigo}  \n"
-                        f"**Sector:** {rep.get('Sector','—')}  \n"
-                        f"**Referencia:** {rep.get('Referencia','—')}  \n"
-                        f"**Registrado:** {rep.get('Fecha','Sin fecha')}"
-                    )
-                with dc2:
-                    st.markdown(
-                        f"**Clasificación:** {nivel}  \n"
-                        f"**Objetos:** {rep.get('Objetos','—')}  \n"
-                        f"**Peso:** {rep.get('Peso (Kg)','—')} kg  \n"
-                        f"**Material:** {rep.get('Predominante','—')}"
-                    )
+            chk_col, exp_col = st.columns([1, 14])
+            with chk_col:
+                marcado = st.checkbox(" ", key=f"chk_{key_safe}", label_visibility="collapsed")
+            if marcado:
+                seleccionados.append(codigo)
+            with exp_col:
+                with st.expander(
+                    f"{icono} {codigo} — {rep.get('Sector','?')} — "
+                    f"{rep.get('Referencia','?')[:35]} | {estado}{tag_urgente}",
+                    expanded=False
+                ):
+                    dc1, dc2 = st.columns(2)
+                    with dc1:
+                        antig_txt = f"  \n**Antigüedad:** {dias_t} día(s)" if dias_t is not None else ""
+                        st.markdown(
+                            f"**Código:** {codigo}  \n"
+                            f"**Sector:** {rep.get('Sector','—')}  \n"
+                            f"**Referencia:** {rep.get('Referencia','—')}  \n"
+                            f"**Registrado:** {rep.get('Fecha','Sin fecha')}"
+                            f"{antig_txt}"
+                        )
+                    with dc2:
+                        st.markdown(
+                            f"**Clasificación:** {nivel}  \n"
+                            f"**Objetos:** {rep.get('Objetos','—')}  \n"
+                            f"**Peso:** {rep.get('Peso (Kg)','—')} kg  \n"
+                            f"**Material:** {rep.get('Predominante','—')}"
+                        )
 
-                # Selectbox de estado — key estable basada en Código
-                idx_est = ESTADOS.index(estado) if estado in ESTADOS else 0
-                nuevo_estado = st.selectbox(
-                    "Estado:", ESTADOS, index=idx_est,
-                    key=f"sel_{key_safe}")
+                    foto_b64 = rep.get("FotoB64", "")
+                    if foto_b64:
+                        try:
+                            st.image(BytesIO(base64.b64decode(foto_b64)),
+                                     caption="📷 Foto del reporte", width=220)
+                        except Exception:
+                            pass
 
-                ac1, ac2, ac3 = st.columns(3)
-                with ac1:
-                    if st.button("💾 Guardar", key=f"grd_{key_safe}",
-                                 use_container_width=True):
-                        st.session_state.adm_accion_pendiente = {
-                            "codigo": codigo, "tipo": "estado",
-                            "valor": nuevo_estado}
-                        st.rerun()
-                with ac2:
-                    if st.button("✅ Resuelto", key=f"res_{key_safe}",
-                                 type="primary", use_container_width=True):
-                        st.session_state.adm_accion_pendiente = {
-                            "codigo": codigo, "tipo": "resuelto"}
-                        st.rerun()
-                with ac3:
-                    if st.button("🗑️ Eliminar", key=f"del_{key_safe}",
-                                 use_container_width=True):
-                        st.session_state.adm_accion_pendiente = {
-                            "codigo": codigo, "tipo": "eliminar"}
-                        st.rerun()
+                    # Selectbox de estado — key estable basada en Código
+                    idx_est = ESTADOS.index(estado) if estado in ESTADOS else 0
+                    nuevo_estado = st.selectbox(
+                        "Estado:", ESTADOS, index=idx_est,
+                        key=f"sel_{key_safe}")
+                    nueva_nota = st.text_area(
+                        "📝 Nota interna (solo visible aquí, no en el mapa público):",
+                        value=rep.get("NotaAdmin", ""), key=f"nota_{key_safe}",
+                        height=70, placeholder="Ej: cuadrilla asignada, fecha de recolección...")
+
+                    ac1, ac2, ac3 = st.columns(3)
+                    with ac1:
+                        if st.button("💾 Guardar", key=f"grd_{key_safe}",
+                                     use_container_width=True):
+                            st.session_state.adm_accion_pendiente = {
+                                "codigos": [codigo], "tipo": "actualizar",
+                                "estado": nuevo_estado, "nota": nueva_nota}
+                            st.rerun()
+                    with ac2:
+                        if st.button("✅ Resuelto", key=f"res_{key_safe}",
+                                     type="primary", use_container_width=True):
+                            st.session_state.adm_accion_pendiente = {
+                                "codigos": [codigo], "tipo": "resuelto"}
+                            st.rerun()
+                    with ac3:
+                        if st.button("🗑️ Eliminar", key=f"del_{key_safe}",
+                                     use_container_width=True):
+                            st.session_state.adm_accion_pendiente = {
+                                "codigos": [codigo], "tipo": "eliminar"}
+                            st.rerun()
+
+        # ── Acciones en lote sobre los seleccionados ──────────────────
+        if seleccionados:
+            st.markdown("---")
+            st.markdown(f"### ☑️ {len(seleccionados)} reporte(s) seleccionado(s)")
+            bl1, bl2 = st.columns(2)
+            with bl1:
+                if st.button(f"✅ Marcar {len(seleccionados)} como Resuelto",
+                             type="primary", use_container_width=True, key="adm_lote_resuelto"):
+                    st.session_state.adm_accion_pendiente = {
+                        "codigos": seleccionados, "tipo": "resuelto"}
+                    st.rerun()
+            with bl2:
+                if st.button(f"🗑️ Eliminar {len(seleccionados)} seleccionado(s)",
+                             use_container_width=True, key="adm_lote_eliminar"):
+                    st.session_state.adm_accion_pendiente = {
+                        "codigos": seleccionados, "tipo": "eliminar"}
+                    st.rerun()
 
         st.markdown("---")
         st.markdown("### 📥 Exportar datos")
-        df_exp = pd.DataFrame(st.session_state.reportes)
-        csv_exp = df_exp.to_csv(index=False).encode("utf-8")
-        st.download_button(
-            "📥 Descargar todos los reportes en CSV",
-            data=csv_exp,
-            file_name=f"ecocom2_admin_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
-            mime="text/csv",
-            use_container_width=True,
-        )
+        ex1, ex2 = st.columns(2)
+        with ex1:
+            df_exp = pd.DataFrame(st.session_state.reportes)
+            csv_exp = df_exp.to_csv(index=False).encode("utf-8")
+            st.download_button(
+                "📥 Descargar TODOS los reportes (CSV)",
+                data=csv_exp,
+                file_name=f"ecocom2_admin_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                mime="text/csv",
+                use_container_width=True,
+            )
+        with ex2:
+            df_exp_f = pd.DataFrame(reportes_vista)
+            tiene_filtrados = not df_exp_f.empty
+            csv_exp_f = df_exp_f.to_csv(index=False).encode("utf-8") if tiene_filtrados else b""
+            st.download_button(
+                "📥 Descargar reportes FILTRADOS (CSV)",
+                data=csv_exp_f,
+                file_name=f"ecocom2_filtrado_{datetime.now().strftime('%Y%m%d_%H%M')}.csv",
+                mime="text/csv",
+                use_container_width=True,
+                disabled=not tiene_filtrados,
+            )
 
         st.markdown("---")
         st.markdown("### ⚠️ Zona de riesgo")
