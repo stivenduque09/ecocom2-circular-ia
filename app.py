@@ -649,7 +649,7 @@ seccion = st.session_state.get(
 )
 
     # ── Indicador de sección activa (compacto, sin duplicar botones) ──
- if seccion != "info":
+if seccion != "info":
  iconos = {"residuo": "📸 Reportar Residuo", "critico": "🚨 Punto Crítico",
                   "historial": "📋 Historial"}
         st.markdown(
