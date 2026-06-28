@@ -11,5 +11,3 @@ folium
 streamlit-folium
 shapely
 pandas
-gspread
-oauth2client
