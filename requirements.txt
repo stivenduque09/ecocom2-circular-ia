@@ -3,7 +3,7 @@ ultralytics
 torch
 torchvision
 pillow
-opencv-python-headless
+opencv-python-headless==4.10.0.84
 numpy
 matplotlib
 geopy
@@ -11,3 +11,5 @@ folium
 streamlit-folium
 shapely
 pandas
+gspread
+oauth2client
