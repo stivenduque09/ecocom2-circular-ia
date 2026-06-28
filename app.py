@@ -81,22 +81,22 @@ st.markdown("""
 # ============================================================
  POLIGONO_COMUNA2 = Polygon([
 
-    # Sur-occidente (Autopista)
+    # Suroccidente (Autopista Norte)
     (-75.5608, 6.2948),
 
-    # Occidente
+    # Lado occidental
     (-75.5605, 6.2990),
     (-75.5600, 6.3040),
     (-75.5595, 6.3090),
 
-    # Norte
+    # Parte norte
     (-75.5575, 6.3145),
     (-75.5550, 6.3165),
 
-    # Moscú norte
+    # Zona de Moscú
     (-75.5520, 6.3160),
 
-    # Oriente (sube hacia Moscú)
+    # Lado oriental
     (-75.5505, 6.3130),
     (-75.5495, 6.3090),
     (-75.5490, 6.3040),
@@ -105,7 +105,7 @@ st.markdown("""
     # Suroriente
     (-75.5500, 6.2950),
 
-    # Sur
+    # Parte sur
     (-75.5540, 6.2940),
     (-75.5580, 6.2940),
 
