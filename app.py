@@ -1225,7 +1225,7 @@ en tiempo real para detectar y clasificar objetos. El sistema:
             st.markdown(f"- 📍 **{b}**")
 
     st.markdown("---")
-    st.markdown("""
+    st.markdown(""")
 <div style="background:rgba(16,185,129,0.06);border:1px solid rgba(74,222,128,0.2);
 border-radius:10px;padding:16px;text-align:center;color:#9ca3af;font-size:13px;">
 ⚙️ <b style="color:#4ade80">EcoCom2 Circular IA v4.0</b><br>
