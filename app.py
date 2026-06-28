@@ -81,36 +81,36 @@ st.markdown("""
 # ===========================================================
 POLIGONO_COMUNA2 = Polygon([
 
-    # Suroccidente (Autopista Norte)
-    (-75.5608, 6.2948),
+    # Suroccidente (La Rosa)
+    (-75.5608, 6.2950),
 
-    # Lado occidental
-    (-75.5605, 6.2990),
-    (-75.5600, 6.3040),
-    (-75.5595, 6.3090),
+    # Autopista Norte
+    (-75.5605, 6.3000),
+    (-75.5600, 6.3050),
+    (-75.5595, 6.3100),
+    (-75.5590, 6.3150),
 
-    # Parte norte
-    (-75.5575, 6.3145),
-    (-75.5550, 6.3165),
+    # Norte
+    (-75.5560, 6.3175),
 
-    # Zona de Moscú
-    (-75.5520, 6.3160),
+    # Moscú norte
+    (-75.5525, 6.3170),
 
-    # Lado oriental
-    (-75.5505, 6.3130),
-    (-75.5495, 6.3090),
-    (-75.5490, 6.3040),
-    (-75.5495, 6.2990),
+    # Ladera oriental (Medellín-Bogotá)
+    (-75.5485, 6.3145),
+    (-75.5475, 6.3100),
+    (-75.5470, 6.3050),
+    (-75.5472, 6.3000),
 
     # Suroriente
-    (-75.5500, 6.2950),
+    (-75.5485, 6.2960),
 
-    # Parte sur
-    (-75.5540, 6.2940),
-    (-75.5580, 6.2940),
+    # Sur
+    (-75.5535, 6.2950),
+    (-75.5575, 6.2948),
 
     # Cierre
-    (-75.5608, 6.2948)
+    (-75.5608, 6.2950)
 
 ])
 BARRIOS = [
@@ -262,8 +262,16 @@ def es_residente():
 def set_ubicacion(lat, lon, direccion=""):
     st.session_state.lat = lat
     st.session_state.lon = lon
+
+    # Mostrar coordenadas para depuración
+    st.write("Latitud:", lat)
+    st.write("Longitud:", lon)
+
     st.session_state.validado = True
-    st.session_state.fuera = not POLIGONO_COMUNA2.contains(Point(lon, lat))
+    st.session_state.fuera = not POLIGONO_COMUNA2.contains(
+        Point(lon, lat)
+    )
+
     st.session_state.direccion = direccion
 
 
