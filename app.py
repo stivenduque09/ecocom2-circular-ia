@@ -78,7 +78,7 @@ st.markdown("""
 #   Oeste: Carrera 52               (lon ≈ -75.560 a -75.562)
 #   Este:  antes de Popular/ladera  (lon ≈ -75.550 a -75.553)
 #          Santo Domingo y Popular  quedan FUERA (son otra comuna)
-# ===========================================================
+# ============================================================
 POLIGONO_COMUNA2 = Polygon([
 
     # Sur-occidente (Carrera 52 - Santa Cruz)
@@ -113,6 +113,7 @@ POLIGONO_COMUNA2 = Polygon([
     (-75.5613, 6.2933)
 
 ])
+
 BARRIOS = [
     "La Isla", "Playón de los Comuneros", "Pablo VI", "La Frontera",
     "La Francia", "Andalucía", "Villa del Socorro", "Villa Niza",
@@ -255,25 +256,15 @@ def geocodificar_inversa(lat: float, lon: float) -> str:
         return f"{lat:.5f}, {lon:.5f}"
 
 
-def set_ubicacion(lat, lon, direccion=""):
+def es_residente():
+    return st.session_state.validado and not st.session_state.fuera
 
+
+def set_ubicacion(lat, lon, direccion=""):
     st.session_state.lat = lat
     st.session_state.lon = lon
     st.session_state.validado = True
-
-    # DEPURACIÓN DEL POLÍGONO
-    st.write("Latitud:", lat)
-    st.write("Longitud:", lon)
-
-    if POLIGONO_COMUNA2.contains(Point(lon, lat)):
-        st.success("✅ Dentro del polígono")
-    else:
-        st.error("❌ Fuera del polígono")
-
-    st.session_state.fuera = not POLIGONO_COMUNA2.contains(
-        Point(lon, lat)
-    )
-
+    st.session_state.fuera = not POLIGONO_COMUNA2.contains(Point(lon, lat))
     st.session_state.direccion = direccion
 
 
@@ -582,77 +573,44 @@ if menu == "🏠 Inicio y Mapa":
             f'</div>',
             unsafe_allow_html=True)
 
-# ── BOTONES DE ACCIÓN — redirigen al menú lateral ───────────
-if dentro_clk:
+        # ── BOTONES DE ACCIÓN — redirigen al menú lateral ───────────
+        if dentro_clk and es_residente():
+            st.markdown("")
+            # Guardar el punto seleccionado para que lo use la página de reporte
+            st.session_state.punto_para_reporte = {
+                "lat": clat, "lon": clon, "dir": cdir
+            }
+            bc1, bc2, bc3 = st.columns([2, 2, 1])
+            with bc1:
+                if st.button("📸 Reportar Residuo",
+                             type="primary", use_container_width=True, key="btn_ir_rep"):
+                    st.session_state.seccion = "residuo"
+                    st.rerun()
+            with bc2:
+                if st.button("🚨 Punto Crítico",
+                             use_container_width=True, key="btn_ir_crit"):
+                    st.session_state.seccion = "critico"
+                    st.rerun()
+            with bc3:
+                if st.button("✖", use_container_width=True, key="btn_quit",
+                             help="Quitar punto seleccionado"):
+                    for k in ["click_lat","click_lon","click_dir",
+                               "cache","punto_para_reporte"]:
+                        st.session_state.pop(k, None)
+                    st.rerun()
+        elif clat and not es_residente():
+            badge("⚠️ Verifica tu dirección arriba para reportar en este punto.", "warn")
 
     st.markdown("")
 
-    st.session_state.punto_para_reporte = {
-        "lat": clat,
-        "lon": clon,
-        "dir": cdir
-    }
-
-    bc1, bc2, bc3 = st.columns([2, 2, 1])
-
-    with bc1:
-        if st.button(
-            "📸 Reportar Residuo",
-            type="primary",
-            use_container_width=True,
-            key="btn_ir_rep"
-        ):
-            st.session_state.seccion = "residuo"
-            st.rerun()
-
-    with bc2:
-        if st.button(
-            "🚨 Punto Crítico",
-            use_container_width=True,
-            key="btn_ir_crit"
-        ):
-            st.session_state.seccion = "critico"
-            st.rerun()
-
-    with bc3:
-        if st.button(
-            "✖",
-            use_container_width=True,
-            key="btn_quit",
-            help="Quitar punto seleccionado"
-        ):
-            for k in [
-                "click_lat",
-                "click_lon",
-                "click_dir",
-                "cache",
-                "punto_para_reporte"
-            ]:
-                st.session_state.pop(k, None)
-
-            st.rerun()
-
-elif clat:
-
-    badge(
-        "⚠️ Verifica tu dirección arriba para reportar en este punto.",
-        "warn"
-    )
-
-st.markdown("")
-
-st.markdown("")
-
-seccion = st.session_state.get(
-    "seccion",
-    "info"
-)
+    st.markdown("")
+    seccion = st.session_state.get("seccion", "info")
 
     # ── Indicador de sección activa (compacto, sin duplicar botones) ──
-if seccion != "info":
- iconos = {"residuo": "📸 Reportar Residuo", "critico": "🚨 Punto Crítico",
+    if seccion != "info":
+        iconos = {"residuo": "📸 Reportar Residuo", "critico": "🚨 Punto Crítico",
                   "historial": "📋 Historial"}
- st.markdown(
+        st.markdown(
             f'<div style="border-bottom:2px solid #4ade80;padding:6px 0 4px 0;'
             f'color:#4ade80;font-weight:bold;font-size:15px;margin-bottom:12px;">'
             f'{iconos.get(seccion,"")}</div>',
