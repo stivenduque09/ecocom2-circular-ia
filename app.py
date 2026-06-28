@@ -582,13 +582,15 @@ if menu == "🏠 Inicio y Mapa":
             f'</div>',
             unsafe_allow_html=True)
 
-        # ── BOTONES DE ACCIÓN — redirigen al menú lateral ───────────
-        if dentro_clk and es_residente():
-            st.markdown("")
-            # Guardar el punto seleccionado para que lo use la página de reporte
-            st.session_state.punto_para_reporte = {
-                "lat": clat, "lon": clon, "dir": cdir
-            }
+# ── BOTONES DE ACCIÓN — redirigen al menú lateral ───────────
+if dentro_clk:
+    st.markdown("")
+
+    st.session_state.punto_para_reporte = {
+        "lat": clat,
+        "lon": clon,
+        "dir": cdir
+    }
             bc1, bc2, bc3 = st.columns([2, 2, 1])
             with bc1:
                 if st.button("📸 Reportar Residuo",
