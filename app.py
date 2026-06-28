@@ -9,7 +9,6 @@ import pandas as pd
 from shapely.geometry import Point, Polygon
 import json, os
 from datetime import datetime
-from shapely.geometry import Polygon
 
 # ====================================================================
 # PERSISTENCIA
@@ -60,43 +59,59 @@ st.markdown("""
 """, unsafe_allow_html=True)
 
 # ====================================================================
+# 2. POLÍGONO COMUNA 2 — SANTA CRUZ, MEDELLÍN
+#    Desde Estación Acevedo (sur) → Andalucía → Comuneros → Santa Cruz
+#    → Villa del Socorro (norte). Límite oeste = Autopista Norte.
 # ====================================================================
-# 2. POLÍGONO COMUNA 2 — SANTA CRUZ, MEDELLÍN (ajustado)
-# ====================================================================
-# Barrios incluidos (11 oficiales):
-#   La Rosa, Santa Cruz, Moscú 1, Andalucía, Villa del Socorro,
-#   Villa Niza, La Francia, La Frontera, Playón de los Comuneros,
-#   Pablo VI, La Isla
+# ============================================================
+# Polígono COMUNA 2 — SANTA CRUZ, Medellín
+# Verificado con calles reales (imágenes del proyecto)
 #
-# Límites ajustados:
-#   Sur:   La Rosa / Acevedo  (lat ≈ 6.296)
-#   Norte: límite antes de Bello/Zamora (lat ≈ 6.317)
-#   Oeste: Carrera 52 (lon ≈ -75.560 a -75.562)
-#   Este:  Trama urbana antes de Popular/ladera (lon ≈ -75.553)
-# ====================================================================
-POLIGONO_COMUNA2_AJUSTADO = Polygon([
-    # Sur - bajamos latitud para abarcar más al sur
-    (-75.5620, 6.2900),  # antes 6.2960
-    (-75.5618, 6.2950),  # antes 6.3012
-    (-75.5605, 6.3000),  # antes 6.3060
-    (-75.5600, 6.3040),  # antes 6.3100
-    (-75.5600, 6.3100),  # antes 6.3150
-    (-75.5600, 6.3120),  # antes 6.3170
-    (-75.5555, 6.3120),
-    (-75.5540, 6.3115),
-    (-75.5525, 6.3110),
-    (-75.5510, 6.3105),
-    (-75.5495, 6.3100),
-    (-75.5485, 6.3090),
-    (-75.5480, 6.3050),
-    (-75.5480, 6.3020),
-    (-75.5480, 6.2980),
-    (-75.5500, 6.2950),
-    # Sur - cierre bajado
-    (-75.5550, 6.2900),
-    (-75.5620, 6.2900),
+# Barrios incluidos (11 oficiales):
+#   La Rosa · Santa Cruz · Moscú No.1 · Villa Niza · Andalucía
+#   Villa del Socorro · La Francia · La Frontera
+#   Playón de los Comuneros · Pablo VI · La Isla
+#
+# Límites reales:
+#   Sur:   La Rosa / Calle 92-95    (lat ≈ 6.296)
+#   Norte: Playón — antes de Bello  (lat ≈ 6.317, NO incluye Zamora)
+#   Oeste: Carrera 52               (lon ≈ -75.560 a -75.562)
+#   Este:  antes de Popular/ladera  (lon ≈ -75.550 a -75.553)
+#          Santo Domingo y Popular  quedan FUERA (son otra comuna)
+# ============================================================
+POLIGONO_COMUNA2 = Polygon([
+    # SW — La Rosa, sur-oeste (Carrera 52, sur)
+    (-75.5618, 6.2962),
+    # OESTE — Carrera 52 subiendo hacia el norte
+    (-75.5616, 6.3008),
+    (-75.5613, 6.3055),
+    (-75.5608, 6.3100),
+    (-75.5602, 6.3145),
+    # NW — curva noroeste hacia Playón de los Comuneros
+    (-75.5590, 6.3182),
+    (-75.5568, 6.3205),
+    (-75.5540, 6.3215),   # ← extremo norte (Playón, antes de Bello/Zamora)
+    # Norte — tope norte de Playón de los Comuneros
+    (-75.5512, 6.3210),
+    # NE — La Frontera (límite norte-este, ANTES de Popular)
+    # Santo Domingo cable (Popular) está en lon=-75.5490 → excluido
+    (-75.5508, 6.3190),
+    (-75.5498, 6.3162),
+    # ESTE — límite urbano antes de Popular / Santo Domingo
+    # (Carrera 44-48, NO sube a la ladera de Popular)
+    (-75.5492, 6.3115),
+    (-75.5488, 6.3065),
+    (-75.5490, 6.3015),
+    (-75.5492, 6.2972),
+    # SE — La Rosa / límite con Aranjuez
+    (-75.5475, 6.2950),
+    (-75.5520, 6.2942),
+    (-75.5568, 6.2945),
+    (-75.5608, 6.2950),
+    # Cierre SW
+    (-75.5618, 6.2962),
 ])
-# Barrios oficiales
+
 BARRIOS = [
     "La Isla", "Playón de los Comuneros", "Pablo VI", "La Frontera",
     "La Francia", "Andalucía", "Villa del Socorro", "Villa Niza",
@@ -462,34 +477,34 @@ if menu == "🏠 Inicio y Mapa":
                       "click_lat","click_lon","click_dir",
                       "punto_lat","punto_lon","cache"]:
                 st.session_state.pop(k, None)
-          st.rerun()
+            st.rerun()
 
-st.markdown("---")
-st.markdown("### 🗺️ Toca el punto exacto del residuo en el mapa")
-st.caption("Al tocar, la dirección aparece automáticamente arriba y puedes reportar directo.")
+    st.markdown("---")
+    st.markdown("### 🗺️ Toca el punto exacto del residuo en el mapa")
+    st.caption("Al tocar, la dirección aparece automáticamente arriba y puedes reportar directo.")
 
-lat_c = st.session_state.get("lat") or LAT_C
-lon_c = st.session_state.get("lon") or LON_C
+    lat_c = st.session_state.get("lat") or LAT_C
+    lon_c = st.session_state.get("lon") or LON_C
 
-mapa = folium.Map(location=[lat_c, lon_c], zoom_start=14, tiles="CartoDB dark_matter")
+    mapa = folium.Map(location=[lat_c, lon_c], zoom_start=14, tiles="CartoDB dark_matter")
 
-# Polígono oficial
-coords_p = [(y, x) for x, y in POLIGONO_COMUNA2.exterior.coords]
-folium.Polygon(
-    locations=coords_p, color="#4ade80", weight=2,
-    fill=True, fill_color="#4ade80", fill_opacity=0.07,
-    tooltip="📍 Área piloto — Comuna 2 Santa Cruz (Acevedo → Villa del Socorro)"
-).add_to(mapa)
-
-# Pin hogar
-if st.session_state.get("validado") and st.session_state.get("lat"):
-    col_pin = "blue" if not st.session_state.fuera else "gray"
-    folium.Marker(
-        location=[st.session_state.lat, st.session_state.lon],
-        popup=f"🏠 {st.session_state.direccion}",
-        tooltip="🏠 Tu dirección verificada",
-        icon=folium.Icon(color=col_pin, icon="home", prefix="fa")
+    # Polígono oficial
+    coords_p = [(la, lo) for lo, la in POLIGONO_COMUNA2.exterior.coords]
+    folium.Polygon(
+        locations=coords_p, color="#4ade80", weight=2,
+        fill=True, fill_color="#4ade80", fill_opacity=0.07,
+        tooltip="📍 Área piloto — Comuna 2 Santa Cruz (Acevedo → Villa del Socorro)"
     ).add_to(mapa)
+
+    # Pin hogar
+    if st.session_state.get("validado") and st.session_state.get("lat"):
+        col_pin = "blue" if not st.session_state.fuera else "gray"
+        folium.Marker(
+            location=[st.session_state.lat, st.session_state.lon],
+            popup=f"🏠 {st.session_state.direccion}",
+            tooltip="🏠 Tu dirección verificada",
+            icon=folium.Icon(color=col_pin, icon="home", prefix="fa")
+        ).add_to(mapa)
 
     # Pin punto seleccionado
     if st.session_state.get("click_lat"):
@@ -499,6 +514,7 @@ if st.session_state.get("validado") and st.session_state.get("lat"):
             tooltip="📌 Punto seleccionado",
             icon=folium.Icon(color="red", icon="map-marker", prefix="fa")
         ).add_to(mapa)
+
     # Reportes guardados
     for rep in st.session_state.reportes:
         niv = rep.get("Clasificación", "🟢")
