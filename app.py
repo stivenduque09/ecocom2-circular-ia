@@ -80,36 +80,42 @@ st.markdown("""
 #          Santo Domingo y Popular  quedan FUERA (son otra comuna)
 # ============================================================
 POLIGONO_COMUNA2 = Polygon([
-    # SW — La Rosa, sur-oeste (Carrera 52, sur)
-    (-75.5618, 6.2962),
-    # OESTE — Carrera 52 subiendo hacia el norte
-    (-75.5616, 6.3008),
-    (-75.5613, 6.3055),
-    (-75.5608, 6.3100),
-    (-75.5602, 6.3145),
-    # NW — curva noroeste hacia Playón de los Comuneros
-    (-75.5590, 6.3182),
-    (-75.5568, 6.3205),
-    (-75.5540, 6.3215),   # ← extremo norte (Playón, antes de Bello/Zamora)
-    # Norte — tope norte de Playón de los Comuneros
-    (-75.5512, 6.3210),
-    # NE — La Frontera (límite norte-este, ANTES de Popular)
-    # Santo Domingo cable (Popular) está en lon=-75.5490 → excluido
-    (-75.5508, 6.3190),
-    (-75.5498, 6.3162),
-    # ESTE — límite urbano antes de Popular / Santo Domingo
-    # (Carrera 44-48, NO sube a la ladera de Popular)
-    (-75.5492, 6.3115),
-    (-75.5488, 6.3065),
-    (-75.5490, 6.3015),
-    (-75.5492, 6.2972),
-    # SE — La Rosa / límite con Aranjuez
-    (-75.5475, 6.2950),
-    (-75.5520, 6.2942),
-    (-75.5568, 6.2945),
-    (-75.5608, 6.2950),
-    # Cierre SW
-    (-75.5618, 6.2962),
+
+# SUR - La Rosa
+(-75.5620, 6.2948),
+
+# OCCIDENTE - Autopista Norte / Carrera 52
+(-75.5620, 6.2990),
+(-75.5615, 6.3040),
+(-75.5610, 6.3090),
+(-75.5605, 6.3140),
+(-75.5595, 6.3180),
+
+# NOROESTE - Playón
+(-75.5575, 6.3210),
+
+# NORTE - Moscú y Villa del Socorro
+(-75.5540, 6.3225),
+(-75.5510, 6.3220),
+
+# NORORIENTE - límite antes de Bello
+(-75.5495, 6.3205),
+
+# ORIENTE - Moscú y Santa Cruz
+(-75.5485, 6.3170),
+(-75.5480, 6.3130),
+(-75.5478, 6.3090),
+(-75.5480, 6.3040),
+(-75.5485, 6.2990),
+
+# SURORIENTE - La Rosa
+(-75.5495, 6.2955),
+
+# Cierre
+(-75.5535, 6.2945),
+(-75.5585, 6.2945),
+(-75.5620, 6.2948)
+
 ])
 
 BARRIOS = [
