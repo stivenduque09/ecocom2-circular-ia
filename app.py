@@ -9,6 +9,7 @@ import pandas as pd
 from shapely.geometry import Point, Polygon
 import json, os
 from datetime import datetime
+from shapely.geometry import Polygon
 
 # ====================================================================
 # PERSISTENCIA
@@ -74,32 +75,31 @@ st.markdown("""
 #   Este:  Trama urbana antes de Popular/ladera (lon ≈ -75.553)
 # ====================================================================
 POLIGONO_COMUNA2 = Polygon([
-    # Sur - La Rosa / Acevedo (lat ≈ 6.296)
+    # Sur - La Rosa / Acevedo
     (-75.5620, 6.2960),
-    # Oeste - Carrera 52 subiendo
+    # Oeste - Carrera 52 hacia el norte
     (-75.5618, 6.3012),
     (-75.5605, 6.3060),
     (-75.5600, 6.3100),
     (-75.5600, 6.3150),
-    (-75.5600, 6.3170),
-    # Norte - Zamora (lat ≈ 6.317), incluye zona de Zamora y Villa del Socorro
-    (-75.5560, 6.3170),
+    (-75.5600, 6.3170),  # límite norte ajustado (antes de Bello y Castilla)
+    # Norte - límite antes de Bello y Castilla
+    (-75.5555, 6.3170),
     (-75.5540, 6.3165),
-    (-75.5520, 6.3160),
-    (-75.5500, 6.3155),
-    (-75.5480, 6.3150),
-    # Este - Trama urbana antes de Popular/ladera (lon ≈ -75.553)
-    (-75.5480, 6.3130),
-    (-75.5485, 6.3100),
-    (-75.5490, 6.3080),
-    (-75.5495, 6.3050),
-    (-75.5500, 6.3000),
-    (-75.5505, 6.2965),
+    (-75.5525, 6.3160),
+    (-75.5510, 6.3155),
+    (-75.5495, 6.3150),
+    (-75.5485, 6.3140),
+    # Este - límite antes de Popular y Toscana (lon ≈ -75.553 a -75.555)
+    (-75.5480, 6.3100),
+    (-75.5480, 6.3060),
+    (-75.5480, 6.3020),
+    (-75.5485, 6.2980),
+    (-75.5500, 6.2965),
     # Sur - límite La Rosa / cierre
     (-75.5550, 6.2960),
     (-75.5620, 6.2960),
 ])
-
 # Barrios oficiales
 BARRIOS = [
     "La Isla", "Playón de los Comuneros", "Pablo VI", "La Frontera",
