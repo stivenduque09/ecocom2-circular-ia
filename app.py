@@ -72,7 +72,15 @@ st.markdown("""
     h3 { color: #16a34a !important; font-weight: 600 !important; }
 
     /* ── Header de Streamlit oculto ──────────────────────────────── */
-    header { visibility: hidden; }
+  /* ── Ocultar fondo del header pero mantener el botón visible ── */
+    header { 
+        background-color: transparent !important; 
+    }
+    
+    /* Ocultar solo el menú de los 3 puntitos de Streamlit (opcional) */
+    [data-testid="stHeader"] > div > div:nth-child(2) {
+        visibility: hidden !important;
+    }
 
     /* ── Badges de estado ────────────────────────────────────────── */
   /* Ajuste para mayor contraste en Badges */
