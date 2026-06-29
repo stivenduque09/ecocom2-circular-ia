@@ -442,7 +442,6 @@ menu = st.sidebar.radio("Menú", PAGINAS)   # sin key → sin conflicto de estad
 
 st.sidebar.markdown("---")
 es_admin = st.session_state.get("admin_ok", False)
-
 # ── Login / logout de administrador ──────────────────────────────
 if not es_admin:
     with st.sidebar.expander("🔐 Acceso Administrador"):
