@@ -395,6 +395,7 @@ def nav_tabs(seccion_actual):
         ("residuo",   "📸 Reportar Residuo"),
         ("critico",   "🚨 Punto Crítico"),
         ("historial", "📋 Historial"),
+        ("Admi","🛠️ Administrador"),
     ]
     cols = st.columns(len(SECCIONES))
     for col, (key, label) in zip(cols, SECCIONES):
