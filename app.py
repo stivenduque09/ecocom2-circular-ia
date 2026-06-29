@@ -49,9 +49,10 @@ st.markdown("""
     .block-container { padding-top: 1rem; max-width: 1200px; }
 
     /* Sidebar verde moderno */
-[data-testid="stSidebar"] * { 
-        color: #ffffff !important; 
-        text-shadow: 0px 1px 2px rgba(0,0,0,0.3) !important; /* Esto garantiza legibilidad */
+[data-testid="stSidebar"] {
+        /* Usamos un color sólido o un degradado más seguro */
+        background: linear-gradient(180deg, #166534 0%, #15803d 100%) !important;
+        border-right: 3px solid #86efac;
     }
     border-right: 3px solid #86efac;
 }
