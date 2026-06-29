@@ -143,9 +143,11 @@ st.markdown("""
     h2 { color: #15803d !important; font-weight: 700 !important; }
     h3 { color: #16a34a !important; font-weight: 600 !important; }
 
-    /* ── Header de Streamlit oculto ──────────────────────────────── */
-    header { visibility: hidden; }
-
+  /* ── Header de Streamlit oculto ──────────────────────────────── */
+  /* ── Ocultar fondo del header pero mantener el botón visible ── */
+    header { 
+        background-color: transparent !important; 
+            }
     /* ── Badges de estado ────────────────────────────────────────── */
     .badge-ok {
         background: #dcfce7; border: 2px solid #16a34a;
