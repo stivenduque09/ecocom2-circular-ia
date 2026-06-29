@@ -49,13 +49,10 @@ st.markdown("""
     .block-container { padding-top: 1rem; max-width: 1200px; }
 
     /* Sidebar verde moderno */
-[data-testid="stSidebar"] {
-    background: linear-gradient(
-        180deg,
-        #1f7a4d 0%,
-        #2d9b63 100%
-    ) !important;
-
+[data-testid="stSidebar"] * { 
+        color: #ffffff !important; 
+        text-shadow: 0px 1px 2px rgba(0,0,0,0.3) !important; /* Esto garantiza legibilidad */
+    }
     border-right: 3px solid #86efac;
 }
     [data-testid="stSidebar"] * { color: #f0fdf4 !important; }
@@ -78,11 +75,16 @@ st.markdown("""
     header { visibility: hidden; }
 
     /* ── Badges de estado ────────────────────────────────────────── */
+  /* Ajuste para mayor contraste en Badges */
     .badge-ok {
         background: #dcfce7; border: 2px solid #16a34a;
-        border-radius: 10px; padding: 12px 16px;
-        color: #14532d; font-weight: 700; font-size: 14px;
-        box-shadow: 0 2px 8px rgba(22,163,74,0.15);
+        color: #064e3b; /* Color verde bosque más oscuro */
+        font-weight: 800; /* Un poco más grueso */
+    }
+    .badge-warn {
+        background: #fefce8; border: 2px solid #ca8a04;
+        color: #854d0e; /* Color ámbar más oscuro */
+        font-weight: 800;
     }
     .badge-warn {
         background: #fefce8; border: 2px solid #ca8a04;
@@ -98,13 +100,14 @@ st.markdown("""
     }
 
     /* ── Cards de métricas ───────────────────────────────────────── */
-    .metric-card {
+.metric-card {
         background: #ffffff;
-        border: 2px solid #bbf7d0;
-        border-radius: 14px; padding: 18px;
-        text-align: center;
-        box-shadow: 0 4px 12px rgba(22,163,74,0.10);
-        transition: transform 0.2s;
+        border: 2px solid #86efac; /* Un verde un poco más marcado */
+        /* ... resto de tu código ... */
+    }
+    .metric-card h2, .metric-card h3 { 
+        color: #064e3b !important; /* Verde muy oscuro */
+        font-weight: 900 !important; 
     }
     .metric-card:hover { transform: translateY(-2px); }
     .metric-card h2, .metric-card h3 { margin: 0 0 4px 0 !important; }
