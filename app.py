@@ -36,8 +36,12 @@ def guardar_reportes_disco(reportes):
 # ====================================================================
 # 1. CONFIGURACIÓN
 # ====================================================================
-st.set_page_config(page_title="EcoCom2 Circular IA", page_icon="♻️", layout="wide")
-
+st.set_page_config(
+    page_title="EcoCom2 Circular IA",
+    page_icon="♻️",
+    layout="wide",
+    initial_sidebar_state="expanded"
+)
 st.markdown("""
 <style>
     .stApp { background-color: #0f1f17; color: #e8f5e9; }
