@@ -50,7 +50,6 @@ st.markdown("""
 
     /* Sidebar verde moderno */
 [data-testid="stSidebar"] {
-        /* Usamos un color sólido o un degradado más seguro */
         background: linear-gradient(180deg, #166534 0%, #15803d 100%) !important;
         border-right: 3px solid #86efac;
     }
