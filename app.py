@@ -76,27 +76,26 @@ st.markdown("""
 
     /* ── Badges de estado ────────────────────────────────────────── */
   /* Ajuste para mayor contraste en Badges */
-    .badge-ok {
-        background: #dcfce7; border: 2px solid #16a34a;
-        color: #064e3b; /* Color verde bosque más oscuro */
-        font-weight: 800; /* Un poco más grueso */
-    }
-    .badge-warn {
-        background: #fefce8; border: 2px solid #ca8a04;
-        color: #854d0e; /* Color ámbar más oscuro */
-        font-weight: 800;
-    }
-    .badge-warn {
-        background: #fefce8; border: 2px solid #ca8a04;
+  .badge-ok {
+        background: #dcfce7 !important; 
+        border: 2px solid #16a34a !important;
         border-radius: 10px; padding: 12px 16px;
-        color: #713f12; font-weight: 700; font-size: 14px;
-        box-shadow: 0 2px 8px rgba(202,138,4,0.15);
+        color: #064e3b !important; /* Verde muy oscuro forzado */
+        font-weight: 800 !important; font-size: 14px;
     }
-    .badge-err {
-        background: #fef2f2; border: 2px solid #dc2626;
+   .badge-warn {
+        background: #fefce8 !important; 
+        border: 2px solid #ca8a04 !important;
         border-radius: 10px; padding: 12px 16px;
-        color: #7f1d1d; font-weight: 700; font-size: 14px;
-        box-shadow: 0 2px 8px rgba(220,38,38,0.15);
+        color: #854d0e !important; /* Ámbar muy oscuro forzado */
+        font-weight: 800 !important; font-size: 14px;
+    }
+   .badge-err {
+        background: #fef2f2 !important; 
+        border: 2px solid #dc2626 !important;
+        border-radius: 10px; padding: 12px 16px;
+        color: #7f1d1d !important; /* Rojo muy oscuro forzado */
+        font-weight: 800 !important; font-size: 14px;
     }
 
     /* ── Cards de métricas ───────────────────────────────────────── */
