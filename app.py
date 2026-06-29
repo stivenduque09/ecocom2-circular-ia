@@ -40,23 +40,187 @@ st.set_page_config(page_title="EcoCom2 Circular IA", page_icon="♻️", layout=
 
 st.markdown("""
 <style>
-    .stApp { background-color: #0f1f17; color: #e8f5e9; }
+    /* ── Fondo principal: blanco roto / crema cálido ─────────────── */
+    .stApp {
+        background-color: #f0fdf4;
+        color: #1a2e1a;
+        font-family: 'Segoe UI', Arial, sans-serif;
+    }
     .block-container { padding-top: 1rem; max-width: 1200px; }
-    h1, h2, h3 { color: #4ade80 !important; }
+
+    /* ── Sidebar: verde oscuro suave ─────────────────────────────── */
+    [data-testid="stSidebar"] {
+        background: linear-gradient(180deg, #166534 0%, #14532d 100%) !important;
+        border-right: 3px solid #4ade80;
+    }
+    [data-testid="stSidebar"] * { color: #f0fdf4 !important; }
+    [data-testid="stSidebar"] .stRadio label { font-size: 15px !important; font-weight: 600 !important; }
+    [data-testid="stSidebar"] .stRadio div[role="radiogroup"] label {
+        background: rgba(255,255,255,0.08);
+        border-radius: 8px; padding: 8px 12px; margin: 3px 0;
+        transition: background 0.2s;
+    }
+    [data-testid="stSidebar"] .stRadio div[role="radiogroup"] label:hover {
+        background: rgba(255,255,255,0.18);
+    }
+
+    /* ── Títulos ─────────────────────────────────────────────────── */
+    h1 { color: #166534 !important; font-size: 2rem !important; font-weight: 800 !important; }
+    h2 { color: #15803d !important; font-weight: 700 !important; }
+    h3 { color: #16a34a !important; font-weight: 600 !important; }
+
+    /* ── Header de Streamlit oculto ──────────────────────────────── */
     header { visibility: hidden; }
-    .badge-ok  { background:rgba(16,185,129,0.15); border:1px solid #4ade80;
-                 border-radius:8px; padding:10px 14px; color:#4ade80; font-weight:bold; }
-    .badge-warn{ background:rgba(251,191,36,0.12); border:1px solid #fbbf24;
-                 border-radius:8px; padding:10px 14px; color:#fbbf24; font-weight:bold; }
-    .badge-err { background:rgba(239,68,68,0.12); border:1px solid #ef4444;
-                 border-radius:8px; padding:10px 14px; color:#ef4444; font-weight:bold; }
-    .metric-card { background:rgba(16,185,129,0.08); border:1px solid rgba(74,222,128,0.3);
-                   border-radius:10px; padding:14px; text-align:center; }
-    /* Botones de navegación tipo pestaña */
-    .nav-btn button { border-radius:6px !important; font-weight:bold !important; font-size:13px !important; }
+
+    /* ── Badges de estado ────────────────────────────────────────── */
+    .badge-ok {
+        background: #dcfce7; border: 2px solid #16a34a;
+        border-radius: 10px; padding: 12px 16px;
+        color: #14532d; font-weight: 700; font-size: 14px;
+        box-shadow: 0 2px 8px rgba(22,163,74,0.15);
+    }
+    .badge-warn {
+        background: #fefce8; border: 2px solid #ca8a04;
+        border-radius: 10px; padding: 12px 16px;
+        color: #713f12; font-weight: 700; font-size: 14px;
+        box-shadow: 0 2px 8px rgba(202,138,4,0.15);
+    }
+    .badge-err {
+        background: #fef2f2; border: 2px solid #dc2626;
+        border-radius: 10px; padding: 12px 16px;
+        color: #7f1d1d; font-weight: 700; font-size: 14px;
+        box-shadow: 0 2px 8px rgba(220,38,38,0.15);
+    }
+
+    /* ── Cards de métricas ───────────────────────────────────────── */
+    .metric-card {
+        background: #ffffff;
+        border: 2px solid #bbf7d0;
+        border-radius: 14px; padding: 18px;
+        text-align: center;
+        box-shadow: 0 4px 12px rgba(22,163,74,0.10);
+        transition: transform 0.2s;
+    }
+    .metric-card:hover { transform: translateY(-2px); }
+    .metric-card h2, .metric-card h3 { margin: 0 0 4px 0 !important; }
+    .metric-card p { color: #4b5563 !important; font-size: 13px !important; margin: 0; }
+
+    /* ── Botones primarios ───────────────────────────────────────── */
     div[data-testid="stButton"] button[kind="primary"] {
-        background:linear-gradient(135deg,#10b981,#059669);
-        border:none; font-weight:bold; }
+        background: linear-gradient(135deg, #16a34a, #15803d) !important;
+        color: white !important; border: none !important;
+        font-weight: 700 !important; font-size: 15px !important;
+        border-radius: 10px !important; padding: 10px 20px !important;
+        box-shadow: 0 4px 12px rgba(22,163,74,0.35) !important;
+        transition: all 0.2s !important;
+    }
+    div[data-testid="stButton"] button[kind="primary"]:hover {
+        transform: translateY(-1px) !important;
+        box-shadow: 0 6px 16px rgba(22,163,74,0.45) !important;
+    }
+
+    /* ── Botones secundarios ─────────────────────────────────────── */
+    div[data-testid="stButton"] button[kind="secondary"] {
+        background: #ffffff !important; color: #166534 !important;
+        border: 2px solid #16a34a !important;
+        font-weight: 600 !important; border-radius: 10px !important;
+    }
+
+    /* ── Inputs ──────────────────────────────────────────────────── */
+    div[data-testid="stTextInput"] input {
+        border: 2px solid #86efac !important;
+        border-radius: 10px !important; font-size: 15px !important;
+        background: #ffffff !important; color: #1a2e1a !important;
+        padding: 10px 14px !important;
+    }
+    div[data-testid="stTextInput"] input:focus {
+        border-color: #16a34a !important;
+        box-shadow: 0 0 0 3px rgba(22,163,74,0.15) !important;
+    }
+
+    /* ── Selectbox ───────────────────────────────────────────────── */
+    div[data-testid="stSelectbox"] > div > div {
+        border: 2px solid #86efac !important;
+        border-radius: 10px !important; background: #ffffff !important;
+    }
+
+    /* ── Tabs ────────────────────────────────────────────────────── */
+    .stTabs [data-baseweb="tab-list"] {
+        background: #dcfce7; border-radius: 10px; padding: 4px;
+        gap: 4px;
+    }
+    .stTabs [data-baseweb="tab"] {
+        background: transparent; border-radius: 8px;
+        color: #166534 !important; font-weight: 600;
+        padding: 8px 14px;
+    }
+    .stTabs [aria-selected="true"] {
+        background: #16a34a !important; color: white !important;
+        border-radius: 8px;
+    }
+
+    /* ── Expanders ───────────────────────────────────────────────── */
+    div[data-testid="stExpander"] {
+        border: 1px solid #bbf7d0 !important;
+        border-radius: 10px !important;
+        background: #ffffff !important;
+        margin-bottom: 8px !important;
+    }
+
+    /* ── Dataframes ──────────────────────────────────────────────── */
+    div[data-testid="stDataFrameContainer"] {
+        border: 2px solid #bbf7d0;
+        border-radius: 10px; overflow: hidden;
+    }
+
+    /* ── Info / Warning / Error boxes ───────────────────────────── */
+    div[data-testid="stInfo"] {
+        background: #eff6ff !important; border-left: 4px solid #3b82f6 !important;
+        color: #1e3a5f !important; border-radius: 8px !important;
+    }
+    div[data-testid="stWarning"] {
+        background: #fefce8 !important; border-left: 4px solid #f59e0b !important;
+        color: #713f12 !important; border-radius: 8px !important;
+    }
+    div[data-testid="stSuccess"] {
+        background: #f0fdf4 !important; border-left: 4px solid #16a34a !important;
+        color: #14532d !important; border-radius: 8px !important;
+    }
+    div[data-testid="stError"] {
+        background: #fef2f2 !important; border-left: 4px solid #dc2626 !important;
+        color: #7f1d1d !important; border-radius: 8px !important;
+    }
+
+    /* ── File uploader ───────────────────────────────────────────── */
+    div[data-testid="stFileUploader"] {
+        background: #f0fdf4 !important; border: 2px dashed #4ade80 !important;
+        border-radius: 12px !important; padding: 16px !important;
+    }
+
+    /* ── Chat del agente ─────────────────────────────────────────── */
+    .chat-burbuja-user {
+        background: #dcfce7; border-radius: 16px 16px 4px 16px;
+        padding: 12px 16px; margin: 8px 0; color: #14532d;
+        font-size: 14px; max-width: 80%; margin-left: auto;
+        text-align: right;
+    }
+    .chat-burbuja-bot {
+        background: #ffffff; border: 2px solid #bbf7d0;
+        border-radius: 16px 16px 16px 4px;
+        padding: 12px 16px; margin: 8px 0; color: #1a2e1a;
+        font-size: 14px; max-width: 85%;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+    }
+    .chat-agente-header {
+        background: linear-gradient(135deg, #16a34a, #15803d);
+        border-radius: 14px 14px 0 0; padding: 14px 18px;
+        color: white; font-weight: 700; font-size: 16px;
+    }
+    .chat-container {
+        background: #f8fff8; border: 2px solid #bbf7d0;
+        border-radius: 0 0 14px 14px; padding: 16px;
+        max-height: 350px; overflow-y: auto;
+    }
 </style>
 """, unsafe_allow_html=True)
 
@@ -82,53 +246,37 @@ st.markdown("""
 #          Santo Domingo y Popular  quedan FUERA (son otra comuna)
 # ============================================================
 POLIGONO_COMUNA2 = Polygon([
-
-    # Sur-occidente (Carrera 52 - Santa Cruz)
-
-    (-75.5613, 6.2933),
-
-    # Subiendo por el límite con Castilla
-
-    (-75.5608, 6.2965),
-
-    (-75.5598, 6.3005),
-
-    (-75.5585, 6.3055),
-
-    # Norte
-
-    (-75.5560, 6.3098),
-
-    (-75.5540, 6.3100),
-
-    # Oriente norte
-
-    (-75.5500, 6.3032),
-
-    # Oriente medio
-
-    (-75.5498, 6.2980),
-
-    # Moscú
-
-    (-75.5500, 6.2935),
-
-    # Suroriente
-
-    (-75.5500, 6.2895),
-
-    # Sur
-
-    (-75.5555, 6.2890),
-
-    (-75.5590, 6.2895),
-
-    # Cierre
-
-    (-75.5613, 6.2933)
-
+    # SW — La Rosa, sur-oeste (Carrera 52, sur)
+    (-75.5618, 6.2962),
+    # OESTE — Carrera 52 subiendo hacia el norte
+    (-75.5616, 6.3008),
+    (-75.5613, 6.3055),
+    (-75.5608, 6.3100),
+    (-75.5602, 6.3145),
+    # NW — curva noroeste hacia Playón de los Comuneros
+    (-75.5590, 6.3182),
+    (-75.5568, 6.3205),
+    (-75.5540, 6.3215),   # ← extremo norte (Playón, antes de Bello/Zamora)
+    # Norte — tope norte de Playón de los Comuneros
+    (-75.5512, 6.3210),
+    # NE — La Frontera (límite norte-este, ANTES de Popular)
+    # Santo Domingo cable (Popular) está en lon=-75.5490 → excluido
+    (-75.5508, 6.3190),
+    (-75.5498, 6.3162),
+    # ESTE — límite urbano antes de Popular / Santo Domingo
+    # (Carrera 44-48, NO sube a la ladera de Popular)
+    (-75.5492, 6.3115),
+    (-75.5488, 6.3065),
+    (-75.5490, 6.3015),
+    (-75.5492, 6.2972),
+    # SE — La Rosa / límite con Aranjuez
+    (-75.5475, 6.2950),
+    (-75.5520, 6.2942),
+    (-75.5568, 6.2945),
+    (-75.5608, 6.2950),
+    # Cierre SW
+    (-75.5618, 6.2962),
 ])
-
 
 BARRIOS = [
     "La Isla", "Playón de los Comuneros", "Pablo VI", "La Frontera",
@@ -462,7 +610,7 @@ st.sidebar.markdown("---")
 st.sidebar.markdown("""
 <div style="font-size:11px;color:#6b7280;padding:8px;background:rgba(16,185,129,0.06);
 border-radius:6px;border:1px solid rgba(74,222,128,0.15);">
-⚙️ <b style="color:#4ade80">EcoCom2 v4.2</b><br>
+⚙️ <b style="color:#4ade80">EcoCom2 v5.0</b><br>
 Territorio INN 2026 | ITM Medellín<br>
 Dev: <b style="color:#4ade80">Brandon Duque</b>
 </div>""", unsafe_allow_html=True)
@@ -474,6 +622,129 @@ Dev: <b style="color:#4ade80">Brandon Duque</b>
 if menu == "🏠 Inicio y Mapa":
     st.title("♻️ EcoCom2 Circular IA")
     st.caption("Gestión inteligente de residuos — Solo residentes de la **Comuna 2** pueden publicar reportes.")
+
+    # ── AGENTE DE AYUDA IA (sidebar expandible) ───────────────────────
+    with st.sidebar.expander("🤖 Asistente EcoCom2", expanded=False):
+        st.markdown("""
+<div style="background:linear-gradient(135deg,#4ade80,#16a34a);
+border-radius:10px;padding:10px 14px;color:white;font-weight:700;
+font-size:14px;text-align:center;margin-bottom:10px;">
+🤖 Hola, soy EcoBot<br>
+<span style="font-weight:400;font-size:12px">Te ayudo a reportar residuos</span>
+</div>""", unsafe_allow_html=True)
+
+        # Historial del chat del agente
+        if "agente_msgs" not in st.session_state:
+            st.session_state.agente_msgs = [
+                {"role": "assistant",
+                 "content": "¡Hola! 👋 Soy **EcoBot**, tu asistente de EcoCom2.\n\nPuedo ayudarte a:\n- 📍 Verificar tu dirección\n- 📸 Saber cómo reportar residuos\n- 🚨 Reportar puntos críticos\n- ♻️ Entender cómo funciona la IA\n\n¿En qué te ayudo hoy?"}
+            ]
+
+        # Mostrar historial
+        for msg in st.session_state.agente_msgs[-6:]:   # últimos 6 mensajes
+            if msg["role"] == "assistant":
+                st.markdown(
+                    f'<div style="background:#f0fdf4;border:1px solid #bbf7d0;'
+                    f'border-radius:10px;padding:10px;font-size:13px;'
+                    f'color:#14532d;margin-bottom:6px;">'
+                    f'🤖 {msg["content"]}</div>',
+                    unsafe_allow_html=True)
+            else:
+                st.markdown(
+                    f'<div style="background:#dcfce7;border-radius:10px;'
+                    f'padding:8px 10px;font-size:13px;color:#166534;'
+                    f'text-align:right;margin-bottom:6px;">'
+                    f'👤 {msg["content"]}</div>',
+                    unsafe_allow_html=True)
+
+        # Input del usuario
+        pregunta = st.text_input("Escribe tu pregunta:",
+                                  placeholder="¿Cómo reporto basura?",
+                                  key="agente_input",
+                                  label_visibility="collapsed")
+        col_send, col_clear = st.columns([3,1])
+        with col_send:
+            enviar = st.button("Enviar ➤", key="agente_enviar",
+                               type="primary", use_container_width=True)
+        with col_clear:
+            if st.button("🗑️", key="agente_limpiar", use_container_width=True,
+                         help="Limpiar chat"):
+                st.session_state.agente_msgs = [st.session_state.agente_msgs[0]]
+                st.rerun()
+
+        if enviar and pregunta.strip():
+            st.session_state.agente_msgs.append(
+                {"role": "user", "content": pregunta.strip()})
+
+            # Llamar a la API de Claude
+            try:
+                import requests
+                SISTEMA_AGENTE = """Eres EcoBot, el asistente amigable de EcoCom2 Circular IA,
+una app para reportar residuos en la Comuna 2 - Santa Cruz de Medellín, Colombia.
+
+Responde en español, de forma CORTA (máximo 3 oraciones), amigable y clara.
+Usa emojis para hacer la respuesta más visual.
+Eres accesible para niños, adultos y personas mayores.
+
+Lo que hace la app:
+- Verificar si el usuario vive en la Comuna 2 por dirección
+- Tocar el mapa para seleccionar el punto exacto del residuo
+- La IA (YOLOv8) detecta materiales en la foto
+- 🟢 Verde: muchos reciclables | 🟡 Amarillo: mezcla | 🔴 Rojo: basura sin valorizar
+- El reporte queda guardado en el mapa comunitario
+
+Pasos para reportar:
+1. Verificar dirección en el campo de arriba
+2. Tocar el mapa en el punto del residuo
+3. Presionar "Reportar Residuo" o "Punto Crítico"
+4. Subir una foto
+5. La IA analiza y clasifica automáticamente
+6. Presionar Publicar
+
+Si preguntan algo fuera de EcoCom2, redirige amablemente al tema de residuos."""
+
+                mensajes_api = [
+                    {"role": m["role"], "content": m["content"]}
+                    for m in st.session_state.agente_msgs
+                ]
+
+                resp = requests.post(
+                    "https://api.anthropic.com/v1/messages",
+                    headers={"Content-Type": "application/json"},
+                    json={
+                        "model": "claude-sonnet-4-6",
+                        "max_tokens": 200,
+                        "system": SISTEMA_AGENTE,
+                        "messages": mensajes_api,
+                    },
+                    timeout=15
+                )
+                if resp.status_code == 200:
+                    data = resp.json()
+                    respuesta = data["content"][0]["text"]
+                else:
+                    respuesta = "⚠️ No pude conectarme en este momento. Para reportar: verifica tu dirección, toca el mapa y sube una foto."
+            except Exception:
+                respuesta = "⚠️ Sin conexión al asistente. Pasos: 1️⃣ Verifica dirección 2️⃣ Toca el mapa 3️⃣ Sube foto 4️⃣ Publica."
+
+            st.session_state.agente_msgs.append(
+                {"role": "assistant", "content": respuesta})
+            st.rerun()
+
+        # Preguntas rápidas de acceso rápido
+        st.markdown("<p style='font-size:11px;color:#6b7280;margin:8px 0 4px 0;'>Preguntas rápidas:</p>",
+                    unsafe_allow_html=True)
+        preguntas_rapidas = [
+            "¿Cómo reporto basura?",
+            "¿Qué significa 🔴 rojo?",
+            "¿Cómo verifico mi dirección?",
+            "¿Para qué sirve la IA?",
+        ]
+        for pq in preguntas_rapidas:
+            if st.button(pq, key=f"pq_{pq[:15]}", use_container_width=True):
+                st.session_state.agente_msgs.append({"role":"user","content":pq})
+                st.session_state["agente_input"] = pq
+                st.rerun()
 
     # ── CAMPO DE DIRECCIÓN (se auto-rellena al hacer clic en el mapa) ─
     dir_auto = st.session_state.get("click_dir") or st.session_state.get("direccion") or ""
@@ -522,7 +793,7 @@ if menu == "🏠 Inicio y Mapa":
     lat_c = st.session_state.get("lat") or LAT_C
     lon_c = st.session_state.get("lon") or LON_C
 
-    mapa = folium.Map(location=[lat_c, lon_c], zoom_start=14, tiles="CartoDB dark_matter")
+    mapa = folium.Map(location=[lat_c, lon_c], zoom_start=14, tiles="CartoDB positron")
 
     # Polígono oficial
     coords_p = [(la, lo) for lo, la in POLIGONO_COMUNA2.exterior.coords]
@@ -1135,7 +1406,7 @@ padding:10px 16px;margin-top:12px;font-size:14px;">
                     key="adm_f_nivel")
 
             mapa_adm = folium.Map(location=[LAT_C, LON_C],
-                                  zoom_start=14, tiles="CartoDB dark_matter")
+                                  zoom_start=14, tiles="CartoDB positron")
 
             # Polígono
             coords_p = [(la, lo) for lo, la in POLIGONO_COMUNA2.exterior.coords]
@@ -1510,7 +1781,7 @@ en tiempo real para detectar y clasificar objetos. El sistema:
     st.markdown("""
 <div style="background:rgba(16,185,129,0.06);border:1px solid rgba(74,222,128,0.2);
 border-radius:10px;padding:16px;text-align:center;color:#9ca3af;font-size:13px;">
-⚙️ <b style="color:#4ade80">EcoCom2 Circular IA v4.0</b><br>
+⚙️ <b style="color:#4ade80">EcoCom2 Circular IA v5.0</b><br>
 Proyecto <b style="color:#4ade80">Territorio INN 2026</b> · Instituto Tecnológico Metropolitano (ITM) · Medellín<br>
 Desarrollado por: <b style="color:#4ade80">Brandon Duque</b> · Comuna 2 Santa Cruz
 </div>
