@@ -271,33 +271,56 @@ st.markdown("""
         border-radius: 12px !important; padding: 16px !important;
     }
 
-    /* ── Chat del agente ─────────────────────────────────────────── */
+ /* ── Chat del agente ─────────────────────────────────────────── */
+/* ── Chat del agente (Corregido para máxima visibilidad) ─────── */
     .chat-burbuja-user {
-        background: #dcfce7; border-radius: 16px 16px 4px 16px;
-        padding: 12px 16px; margin: 8px 0; color: #14532d;
-        font-size: 14px; max-width: 80%; margin-left: auto;
-        text-align: right;
+        background: #dcfce7 !important; 
+        border-radius: 16px 16px 4px 16px !important;
+        padding: 12px 16px !important; 
+        margin: 8px 0 !important; 
+        color: #064e3b !important; /* Verde muy oscuro forzado */
+        font-size: 15px !important; 
+        font-weight: 600 !important;
+        max-width: 80% !important; 
+        margin-left: auto !important;
+        text-align: right !important;
     }
     .chat-burbuja-bot {
-        background: #ffffff; border: 2px solid #bbf7d0;
-        border-radius: 16px 16px 16px 4px;
-        padding: 12px 16px; margin: 8px 0; color: #1a2e1a;
-        font-size: 14px; max-width: 85%;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
+        background: #ffffff !important; 
+        border: 2px solid #bbf7d0 !important;
+        border-radius: 16px 16px 16px 4px !important;
+        padding: 12px 16px !important; 
+        margin: 8px 0 !important; 
+        color: #0f172a !important; /* Azul oscuro casi negro forzado */
+        font-size: 15px !important; 
+        font-weight: 600 !important;
+        max-width: 85% !important;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08) !important;
     }
     .chat-agente-header {
-        background: linear-gradient(135deg, #16a34a, #15803d);
-        border-radius: 14px 14px 0 0; padding: 14px 18px;
-        color: white; font-weight: 700; font-size: 16px;
+        background: linear-gradient(135deg, #16a34a, #15803d) !important;
+        border-radius: 14px 14px 0 0 !important; 
+        padding: 14px 18px !important;
+        color: #ffffff !important; /* Blanco garantizado */
+        font-weight: 700 !important; 
+        font-size: 16px !important;
     }
     .chat-container {
-        background: #f8fff8; border: 2px solid #bbf7d0;
-        border-radius: 0 0 14px 14px; padding: 16px;
-        max-height: 350px; overflow-y: auto;
+        background: #f8fff8 !important; 
+        border: 2px solid #bbf7d0 !important;
+        border-radius: 0 0 14px 14px !important; 
+        padding: 16px !important;
+        max-height: 350px !important; 
+        overflow-y: auto !important;
+    }
+    
+    /* Por si acaso usas el input de chat nativo de Streamlit */
+    [data-testid="stChatInput"] textarea {
+        color: #0f172a !important;
+        background-color: #ffffff !important;
     }
 </style>
 """, unsafe_allow_html=True)
-
 # ====================================================================
 # 2. POLÍGONO COMUNA 2 — SANTA CRUZ, MEDELLÍN
 #    Desde Estación Acevedo (sur) → Andalucía → Comuneros → Santa Cruz
