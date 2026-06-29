@@ -48,22 +48,94 @@ st.markdown("""
     }
     .block-container { padding-top: 1rem; max-width: 1200px; }
 
-    /* Sidebar verde moderno */
-[data-testid="stSidebar"] {
+    /* ══════════════════════════════════════════════════════════════
+       SIDEBAR — Estrategia: fondo verde oscuro, TODAS las cajas
+       que flotan encima también oscuras → texto blanco siempre visible
+       ══════════════════════════════════════════════════════════════ */
+
+    /* Fondo del sidebar */
+    [data-testid="stSidebar"] {
         background: linear-gradient(180deg, #166534 0%, #15803d 100%) !important;
-        border-right: 3px solid #86efac;
+        border-right: 3px solid #4ade80;
     }
-    border-right: 3px solid #86efac;
-}
+
+    /* Todo el texto en blanco/crema (legible sobre fondo verde oscuro) */
     [data-testid="stSidebar"] * { color: #f0fdf4 !important; }
-    [data-testid="stSidebar"] .stRadio label { font-size: 15px !important; font-weight: 600 !important; }
+
+    /* ── Radio buttons ──────────────────────────────────────────── */
+    [data-testid="stSidebar"] .stRadio label {
+        font-size: 15px !important; font-weight: 600 !important;
+    }
     [data-testid="stSidebar"] .stRadio div[role="radiogroup"] label {
-        background: rgba(255,255,255,0.08);
-        border-radius: 8px; padding: 8px 12px; margin: 3px 0;
-        transition: background 0.2s;
+        background: rgba(255,255,255,0.10) !important;
+        border-radius: 8px !important; padding: 8px 12px !important;
+        margin: 3px 0 !important; transition: background 0.2s !important;
     }
     [data-testid="stSidebar"] .stRadio div[role="radiogroup"] label:hover {
-        background: rgba(255,255,255,0.18);
+        background: rgba(255,255,255,0.22) !important;
+    }
+
+    /* ── BADGES: fondo OSCURO para que el texto blanco se vea ──────
+       El problema anterior: fondo claro (#dcfce7, #fefce8) + texto
+       blanco = texto invisible. Solución: fondos oscuros. ────────── */
+    [data-testid="stSidebar"] .badge-ok {
+        background: #14532d !important;
+        border: 2px solid #4ade80 !important;
+        border-radius: 10px !important; padding: 10px 14px !important;
+    }
+    [data-testid="stSidebar"] .badge-warn {
+        background: #451a03 !important;
+        border: 2px solid #f59e0b !important;
+        border-radius: 10px !important; padding: 10px 14px !important;
+    }
+    [data-testid="stSidebar"] .badge-err {
+        background: #450a0a !important;
+        border: 2px solid #f87171 !important;
+        border-radius: 10px !important; padding: 10px 14px !important;
+    }
+
+    /* ── EXPANDERS (🔐 Admin, 🤖 EcoBot): fondo semi-oscuro ────────
+       Streamlit renderiza <details> con fondo blanco por defecto.
+       Lo sobreescribimos para que el texto blanco sea visible. ───── */
+    [data-testid="stSidebar"] details {
+        background: rgba(0, 40, 20, 0.70) !important;
+        border: 1px solid rgba(74,222,128,0.45) !important;
+        border-radius: 8px !important;
+    }
+    [data-testid="stSidebar"] details > summary {
+        background: rgba(0, 50, 25, 0.50) !important;
+        border-radius: 8px !important;
+        padding: 8px 12px !important;
+        font-weight: 600 !important;
+        cursor: pointer !important;
+    }
+    [data-testid="stSidebar"] details[open] > summary {
+        border-radius: 8px 8px 0 0 !important;
+        border-bottom: 1px solid rgba(74,222,128,0.25) !important;
+    }
+    [data-testid="stSidebar"] details > div {
+        background: rgba(0, 40, 20, 0.55) !important;
+        border-radius: 0 0 8px 8px !important;
+        padding: 8px 6px !important;
+    }
+
+    /* ── INPUTS dentro del sidebar: texto OSCURO sobre fondo claro ──
+       Los campos de texto/contraseña tienen fondo blanco propio;
+       necesitan texto oscuro para ser legibles. ───────────────────── */
+    [data-testid="stSidebar"] input[type="text"],
+    [data-testid="stSidebar"] input[type="password"],
+    [data-testid="stSidebar"] input {
+        background: #f0fdf4 !important;
+        color: #14532d !important;
+        border: 1px solid #4ade80 !important;
+        border-radius: 6px !important;
+    }
+
+    /* ── FOOTER del sidebar: caja semitransparente oscura ─────────── */
+    [data-testid="stSidebar"] .ecocom2-footer {
+        background: rgba(0, 30, 15, 0.55) !important;
+        border: 1px solid rgba(74,222,128,0.35) !important;
+        border-radius: 6px !important;
     }
 
     /* ── Títulos ─────────────────────────────────────────────────── */
@@ -72,49 +144,36 @@ st.markdown("""
     h3 { color: #16a34a !important; font-weight: 600 !important; }
 
     /* ── Header de Streamlit oculto ──────────────────────────────── */
-  /* ── Ocultar fondo del header pero mantener el botón visible ── */
-    header { 
-        background-color: transparent !important; 
-    }
-    
-    /* Ocultar solo el menú de los 3 puntitos de Streamlit (opcional) */
-    [data-testid="stHeader"] > div > div:nth-child(2) {
-        visibility: hidden !important;
-    }
+    header { visibility: hidden; }
 
     /* ── Badges de estado ────────────────────────────────────────── */
-  /* Ajuste para mayor contraste en Badges */
-  .badge-ok {
-        background: #dcfce7 !important; 
-        border: 2px solid #16a34a !important;
+    .badge-ok {
+        background: #dcfce7; border: 2px solid #16a34a;
         border-radius: 10px; padding: 12px 16px;
-        color: #064e3b !important; /* Verde muy oscuro forzado */
-        font-weight: 800 !important; font-size: 14px;
+        color: #14532d; font-weight: 700; font-size: 14px;
+        box-shadow: 0 2px 8px rgba(22,163,74,0.15);
     }
-   .badge-warn {
-        background: #fefce8 !important; 
-        border: 2px solid #ca8a04 !important;
+    .badge-warn {
+        background: #fefce8; border: 2px solid #ca8a04;
         border-radius: 10px; padding: 12px 16px;
-        color: #854d0e !important; /* Ámbar muy oscuro forzado */
-        font-weight: 800 !important; font-size: 14px;
+        color: #713f12; font-weight: 700; font-size: 14px;
+        box-shadow: 0 2px 8px rgba(202,138,4,0.15);
     }
-   .badge-err {
-        background: #fef2f2 !important; 
-        border: 2px solid #dc2626 !important;
+    .badge-err {
+        background: #fef2f2; border: 2px solid #dc2626;
         border-radius: 10px; padding: 12px 16px;
-        color: #7f1d1d !important; /* Rojo muy oscuro forzado */
-        font-weight: 800 !important; font-size: 14px;
+        color: #7f1d1d; font-weight: 700; font-size: 14px;
+        box-shadow: 0 2px 8px rgba(220,38,38,0.15);
     }
 
     /* ── Cards de métricas ───────────────────────────────────────── */
-.metric-card {
+    .metric-card {
         background: #ffffff;
-        border: 2px solid #86efac; /* Un verde un poco más marcado */
-        /* ... resto de tu código ... */
-    }
-    .metric-card h2, .metric-card h3 { 
-        color: #064e3b !important; /* Verde muy oscuro */
-        font-weight: 900 !important; 
+        border: 2px solid #bbf7d0;
+        border-radius: 14px; padding: 18px;
+        text-align: center;
+        box-shadow: 0 4px 12px rgba(22,163,74,0.10);
+        transition: transform 0.2s;
     }
     .metric-card:hover { transform: translateY(-2px); }
     .metric-card h2, .metric-card h3 { margin: 0 0 4px 0 !important; }
@@ -213,52 +272,28 @@ st.markdown("""
     }
 
     /* ── Chat del agente ─────────────────────────────────────────── */
-/* ── Chat del agente (Corregido para máxima visibilidad) ─────── */
     .chat-burbuja-user {
-        background: #dcfce7 !important; 
-        border-radius: 16px 16px 4px 16px !important;
-        padding: 12px 16px !important; 
-        margin: 8px 0 !important; 
-        color: #064e3b !important; /* Verde muy oscuro forzado */
-        font-size: 15px !important; 
-        font-weight: 600 !important;
-        max-width: 80% !important; 
-        margin-left: auto !important;
-        text-align: right !important;
+        background: #dcfce7; border-radius: 16px 16px 4px 16px;
+        padding: 12px 16px; margin: 8px 0; color: #14532d;
+        font-size: 14px; max-width: 80%; margin-left: auto;
+        text-align: right;
     }
     .chat-burbuja-bot {
-        background: #ffffff !important; 
-        border: 2px solid #bbf7d0 !important;
-        border-radius: 16px 16px 16px 4px !important;
-        padding: 12px 16px !important; 
-        margin: 8px 0 !important; 
-        color: #0f172a !important; /* Azul oscuro casi negro forzado */
-        font-size: 15px !important; 
-        font-weight: 600 !important;
-        max-width: 85% !important;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.08) !important;
+        background: #ffffff; border: 2px solid #bbf7d0;
+        border-radius: 16px 16px 16px 4px;
+        padding: 12px 16px; margin: 8px 0; color: #1a2e1a;
+        font-size: 14px; max-width: 85%;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
     }
     .chat-agente-header {
-        background: linear-gradient(135deg, #16a34a, #15803d) !important;
-        border-radius: 14px 14px 0 0 !important; 
-        padding: 14px 18px !important;
-        color: #ffffff !important; /* Blanco garantizado */
-        font-weight: 700 !important; 
-        font-size: 16px !important;
+        background: linear-gradient(135deg, #16a34a, #15803d);
+        border-radius: 14px 14px 0 0; padding: 14px 18px;
+        color: white; font-weight: 700; font-size: 16px;
     }
     .chat-container {
-        background: #f8fff8 !important; 
-        border: 2px solid #bbf7d0 !important;
-        border-radius: 0 0 14px 14px !important; 
-        padding: 16px !important;
-        max-height: 350px !important; 
-        overflow-y: auto !important;
-    }
-    
-    /* Por si acaso usas el input de chat nativo de Streamlit */
-    [data-testid="stChatInput"] textarea {
-        color: #0f172a !important;
-        background-color: #ffffff !important;
+        background: #f8fff8; border: 2px solid #bbf7d0;
+        border-radius: 0 0 14px 14px; padding: 16px;
+        max-height: 350px; overflow-y: auto;
     }
 </style>
 """, unsafe_allow_html=True)
@@ -662,11 +697,11 @@ else:
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("""
-<div style="font-size:11px;color:#6b7280;padding:8px;background:rgba(16,185,129,0.06);
+<div class="ecocom2-footer" style="font-size:11px;padding:8px;background:rgba(16,185,129,0.06);
 border-radius:6px;border:1px solid rgba(74,222,128,0.15);">
-⚙️ <b style="color:#4ade80">EcoCom2 v5.0</b><br>
+⚙️ <b style="color:#16a34a">EcoCom2 v5.0</b><br>
 Territorio INN 2026 | ITM Medellín<br>
-Dev: <b style="color:#4ade80">Brandon Duque</b>
+Dev: <b style="color:#16a34a">Brandon Duque</b>
 </div>""", unsafe_allow_html=True)
 
 
@@ -678,24 +713,96 @@ if menu == "🏠 Inicio y Mapa":
     st.caption("Gestión inteligente de residuos — Solo residentes de la **Comuna 2** pueden publicar reportes.")
 
     # ── AGENTE DE AYUDA IA (sidebar expandible) ───────────────────────
+    # Inicializar estado del agente
+    if "agente_msgs" not in st.session_state:
+        st.session_state.agente_msgs = [
+            {"role": "assistant",
+             "content": "¡Hola! 👋 Soy EcoBot, tu asistente de EcoCom2.\n\n¿En qué te ayudo hoy?"}
+        ]
+    if "agente_pendiente" not in st.session_state:
+        st.session_state.agente_pendiente = False
+
+    # ── Función para llamar la API de Claude ─────────────────────────
+    def llamar_ecobot(mensajes_historial: list) -> str:
+        SISTEMA_AGENTE = """Eres EcoBot, el asistente amigable de EcoCom2 Circular IA,
+una app para reportar residuos en la Comuna 2 - Santa Cruz de Medellín, Colombia.
+
+Responde en español, de forma CORTA (máximo 3 oraciones), amigable y clara.
+Usa emojis. Sé accesible para niños, adultos y personas mayores.
+
+La app permite:
+- Verificar si el usuario vive en la Comuna 2
+- Tocar el mapa para marcar el punto del residuo
+- La IA (YOLOv8) analiza la foto y detecta materiales
+- 🟢 Verde: ≥60% reciclables | 🟡 Amarillo: mezcla | 🔴 Rojo: basura sin valorizar
+- El reporte queda visible en el mapa comunitario
+
+Pasos para reportar:
+1. Escribe tu dirección y presiona Verificar
+2. Toca el mapa en el punto del residuo
+3. Presiona "Reportar Residuo" o "Punto Crítico"
+4. Sube una foto
+5. La IA analiza automáticamente
+6. Presiona Publicar
+
+Redirige preguntas no relacionadas al tema de residuos."""
+        try:
+            import requests
+            api_key = ""
+            try:
+                api_key = st.secrets.get("ANTHROPIC_API_KEY", "")
+            except Exception:
+                pass
+
+            headers = {"Content-Type": "application/json"}
+            if api_key:
+                headers["x-api-key"] = api_key
+
+            mensajes_api = [
+                {"role": m["role"], "content": m["content"]}
+                for m in mensajes_historial
+            ]
+            resp = requests.post(
+                "https://api.anthropic.com/v1/messages",
+                headers=headers,
+                json={
+                    "model": "claude-sonnet-4-6",
+                    "max_tokens": 250,
+                    "system": SISTEMA_AGENTE,
+                    "messages": mensajes_api,
+                },
+                timeout=20,
+            )
+            if resp.status_code == 200:
+                return resp.json()["content"][0]["text"]
+            else:
+                return ("⚠️ No pude conectarme ahora. "
+                        "Pasos: 1️⃣ Verifica dirección 2️⃣ Toca el mapa "
+                        "3️⃣ Sube foto 4️⃣ Publica.")
+        except Exception:
+            return ("🤖 Sin conexión al asistente. "
+                    "Pasos: 1️⃣ Verifica dirección 2️⃣ Toca el mapa "
+                    "3️⃣ Sube foto 4️⃣ Publica.")
+
+    # ── Si hay pregunta pendiente (de botón rápido), responde ANTES de dibujar
+    if st.session_state.agente_pendiente:
+        st.session_state.agente_pendiente = False
+        with st.spinner("🤖 EcoBot está pensando..."):
+            respuesta = llamar_ecobot(st.session_state.agente_msgs)
+        st.session_state.agente_msgs.append({"role": "assistant", "content": respuesta})
+        st.rerun()
+
     with st.sidebar.expander("🤖 Asistente EcoCom2", expanded=False):
         st.markdown("""
-<div style="background:linear-gradient(135deg,#4ade80,#16a34a);
-border-radius:10px;padding:10px 14px;color:white;font-weight:700;
+<div class="eco-chat-header-gradient" style="background:linear-gradient(135deg,#4ade80,#16a34a);
+border-radius:10px;padding:10px 14px;font-weight:700;
 font-size:14px;text-align:center;margin-bottom:10px;">
 🤖 Hola, soy EcoBot<br>
 <span style="font-weight:400;font-size:12px">Te ayudo a reportar residuos</span>
 </div>""", unsafe_allow_html=True)
 
-        # Historial del chat del agente
-        if "agente_msgs" not in st.session_state:
-            st.session_state.agente_msgs = [
-                {"role": "assistant",
-                 "content": "¡Hola! 👋 Soy **EcoBot**, tu asistente de EcoCom2.\n\nPuedo ayudarte a:\n- 📍 Verificar tu dirección\n- 📸 Saber cómo reportar residuos\n- 🚨 Reportar puntos críticos\n- ♻️ Entender cómo funciona la IA\n\n¿En qué te ayudo hoy?"}
-            ]
-
-        # Mostrar historial
-        for msg in st.session_state.agente_msgs[-6:]:   # últimos 6 mensajes
+        # Mostrar historial (últimos 6 mensajes)
+        for msg in st.session_state.agente_msgs[-6:]:
             if msg["role"] == "assistant":
                 st.markdown(
                     f'<div style="background:#f0fdf4;border:1px solid #bbf7d0;'
@@ -711,12 +818,12 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                     f'👤 {msg["content"]}</div>',
                     unsafe_allow_html=True)
 
-        # Input del usuario
-        pregunta = st.text_input("Escribe tu pregunta:",
-                                  placeholder="¿Cómo reporto basura?",
-                                  key="agente_input",
-                                  label_visibility="collapsed")
-        col_send, col_clear = st.columns([3,1])
+        # Input del usuario (solo un campo de texto + botones)
+        pregunta = st.text_input(
+            "Pregunta:", placeholder="¿Cómo reporto basura?",
+            key="agente_input", label_visibility="collapsed")
+
+        col_send, col_clear = st.columns([3, 1])
         with col_send:
             enviar = st.button("Enviar ➤", key="agente_enviar",
                                type="primary", use_container_width=True)
@@ -726,66 +833,19 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                 st.session_state.agente_msgs = [st.session_state.agente_msgs[0]]
                 st.rerun()
 
+        # Enviar por botón principal
         if enviar and pregunta.strip():
             st.session_state.agente_msgs.append(
                 {"role": "user", "content": pregunta.strip()})
-
-            # Llamar a la API de Claude
-            try:
-                import requests
-                SISTEMA_AGENTE = """Eres EcoBot, el asistente amigable de EcoCom2 Circular IA,
-una app para reportar residuos en la Comuna 2 - Santa Cruz de Medellín, Colombia.
-
-Responde en español, de forma CORTA (máximo 3 oraciones), amigable y clara.
-Usa emojis para hacer la respuesta más visual.
-Eres accesible para niños, adultos y personas mayores.
-
-Lo que hace la app:
-- Verificar si el usuario vive en la Comuna 2 por dirección
-- Tocar el mapa para seleccionar el punto exacto del residuo
-- La IA (YOLOv8) detecta materiales en la foto
-- 🟢 Verde: muchos reciclables | 🟡 Amarillo: mezcla | 🔴 Rojo: basura sin valorizar
-- El reporte queda guardado en el mapa comunitario
-
-Pasos para reportar:
-1. Verificar dirección en el campo de arriba
-2. Tocar el mapa en el punto del residuo
-3. Presionar "Reportar Residuo" o "Punto Crítico"
-4. Subir una foto
-5. La IA analiza y clasifica automáticamente
-6. Presionar Publicar
-
-Si preguntan algo fuera de EcoCom2, redirige amablemente al tema de residuos."""
-
-                mensajes_api = [
-                    {"role": m["role"], "content": m["content"]}
-                    for m in st.session_state.agente_msgs
-                ]
-
-                resp = requests.post(
-                    "https://api.anthropic.com/v1/messages",
-                    headers={"Content-Type": "application/json"},
-                    json={
-                        "model": "claude-sonnet-4-6",
-                        "max_tokens": 200,
-                        "system": SISTEMA_AGENTE,
-                        "messages": mensajes_api,
-                    },
-                    timeout=15
-                )
-                if resp.status_code == 200:
-                    data = resp.json()
-                    respuesta = data["content"][0]["text"]
-                else:
-                    respuesta = "⚠️ No pude conectarme en este momento. Para reportar: verifica tu dirección, toca el mapa y sube una foto."
-            except Exception:
-                respuesta = "⚠️ Sin conexión al asistente. Pasos: 1️⃣ Verifica dirección 2️⃣ Toca el mapa 3️⃣ Sube foto 4️⃣ Publica."
-
+            with st.spinner("🤖 EcoBot está pensando..."):
+                respuesta = llamar_ecobot(st.session_state.agente_msgs)
             st.session_state.agente_msgs.append(
                 {"role": "assistant", "content": respuesta})
             st.rerun()
 
-        # Preguntas rápidas de acceso rápido
+        # Preguntas rápidas — NO asignan session_state["agente_input"]
+        # porque Streamlit prohíbe modificar widgets ya renderizados.
+        # En su lugar usan la bandera agente_pendiente para llamar la API en el siguiente ciclo.
         st.markdown("<p style='font-size:11px;color:#6b7280;margin:8px 0 4px 0;'>Preguntas rápidas:</p>",
                     unsafe_allow_html=True)
         preguntas_rapidas = [
@@ -796,8 +856,12 @@ Si preguntan algo fuera de EcoCom2, redirige amablemente al tema de residuos."""
         ]
         for pq in preguntas_rapidas:
             if st.button(pq, key=f"pq_{pq[:15]}", use_container_width=True):
-                st.session_state.agente_msgs.append({"role":"user","content":pq})
-                st.session_state["agente_input"] = pq
+                st.session_state.agente_msgs.append({"role": "user", "content": pq})
+                # ✅ CORRECTO: usamos bandera, NO st.session_state["agente_input"] = pq
+                # Asignar directamente el valor de un widget ya renderizado
+                # lanza StreamlitAPIException. La bandera se procesa en el
+                # siguiente ciclo, antes de dibujar el expander.
+                st.session_state.agente_pendiente = True
                 st.rerun()
 
     # ── CAMPO DE DIRECCIÓN (se auto-rellena al hacer clic en el mapa) ─
