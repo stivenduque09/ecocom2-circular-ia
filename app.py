@@ -59,8 +59,7 @@ st.markdown("""
         border-right: 3px solid #4ade80;
     }
 
-    /* Todo el texto en blanco/crema — base (luego se sobreescribe
-       selectivamente en botones, inputs y burbujas con fondo claro) */
+    /* Todo el texto en blanco/crema (legible sobre fondo verde oscuro) */
     [data-testid="stSidebar"] * { color: #f0fdf4 !important; }
 
     /* ── Radio buttons ──────────────────────────────────────────── */
@@ -120,33 +119,6 @@ st.markdown("""
         padding: 8px 6px !important;
     }
 
-    /* ── BOTONES dentro del sidebar: texto OSCURO sobre fondo claro ──
-       La regla * { color: #f0fdf4 } de arriba hace que los botones
-       secundarios (fondo blanco) muestren texto blanco invisible.
-       Esto lo corrige específicamente para los botones. ──────────── */
-    [data-testid="stSidebar"] div[data-testid="stButton"] button {
-        color: #14532d !important;
-        background: rgba(255,255,255,0.92) !important;
-        border: 1px solid #4ade80 !important;
-        font-weight: 600 !important;
-        border-radius: 8px !important;
-        font-size: 13px !important;
-    }
-    [data-testid="stSidebar"] div[data-testid="stButton"] button:hover {
-        background: #dcfce7 !important;
-        color: #14532d !important;
-    }
-    /* Botón primario (Enviar ➤, Ingresar) mantiene fondo verde + texto blanco */
-    [data-testid="stSidebar"] div[data-testid="stButton"] button[kind="primary"] {
-        background: #16a34a !important;
-        color: #ffffff !important;
-        border: none !important;
-    }
-    [data-testid="stSidebar"] div[data-testid="stButton"] button[kind="primary"]:hover {
-        background: #15803d !important;
-        color: #ffffff !important;
-    }
-
     /* ── INPUTS dentro del sidebar: texto OSCURO sobre fondo claro ──
        Los campos de texto/contraseña tienen fondo blanco propio;
        necesitan texto oscuro para ser legibles. ───────────────────── */
@@ -157,24 +129,6 @@ st.markdown("""
         color: #14532d !important;
         border: 1px solid #4ade80 !important;
         border-radius: 6px !important;
-    }
-
-    /* ── Burbujas del chatbot EcoBot dentro del sidebar ────────────
-       Los mensajes del bot/usuario se pintan con fondo claro inline
-       (#f0fdf4, #dcfce7) pero la regla * { color: #f0fdf4 } de
-       arriba les pone texto blanco encima → invisible. Forzamos
-       texto oscuro en esos contenedores específicos. ──────────────── */
-    [data-testid="stSidebar"] div[style*="background:#f0fdf4"],
-    [data-testid="stSidebar"] div[style*="background: #f0fdf4"],
-    [data-testid="stSidebar"] div[style*="background:#dcfce7"],
-    [data-testid="stSidebar"] div[style*="background: #dcfce7"] {
-        color: #14532d !important;
-    }
-    [data-testid="stSidebar"] div[style*="background:#f0fdf4"] *,
-    [data-testid="stSidebar"] div[style*="background: #f0fdf4"] *,
-    [data-testid="stSidebar"] div[style*="background:#dcfce7"] *,
-    [data-testid="stSidebar"] div[style*="background: #dcfce7"] * {
-        color: #14532d !important;
     }
 
     /* ── FOOTER del sidebar: caja semitransparente oscura ─────────── */
@@ -317,55 +271,33 @@ st.markdown("""
         border-radius: 12px !important; padding: 16px !important;
     }
 
-    /* ── Chat del agente (Corregido para máxima visibilidad) ─────── */
+    /* ── Chat del agente ─────────────────────────────────────────── */
     .chat-burbuja-user {
-        background: #dcfce7 !important;
-        border-radius: 16px 16px 4px 16px !important;
-        padding: 12px 16px !important;
-        margin: 8px 0 !important;
-        color: #064e3b !important; /* Verde muy oscuro forzado */
-        font-size: 15px !important;
-        font-weight: 600 !important;
-        max-width: 80% !important;
-        margin-left: auto !important;
-        text-align: right !important;
+        background: #dcfce7; border-radius: 16px 16px 4px 16px;
+        padding: 12px 16px; margin: 8px 0; color: #14532d;
+        font-size: 14px; max-width: 80%; margin-left: auto;
+        text-align: right;
     }
     .chat-burbuja-bot {
-        background: #ffffff !important;
-        border: 2px solid #bbf7d0 !important;
-        border-radius: 16px 16px 16px 4px !important;
-        padding: 12px 16px !important;
-        margin: 8px 0 !important;
-        color: #0f172a !important; /* Azul oscuro casi negro forzado */
-        font-size: 15px !important;
-        font-weight: 600 !important;
-        max-width: 85% !important;
-        box-shadow: 0 2px 8px rgba(0,0,0,0.08) !important;
+        background: #ffffff; border: 2px solid #bbf7d0;
+        border-radius: 16px 16px 16px 4px;
+        padding: 12px 16px; margin: 8px 0; color: #1a2e1a;
+        font-size: 14px; max-width: 85%;
+        box-shadow: 0 2px 8px rgba(0,0,0,0.08);
     }
     .chat-agente-header {
-        background: linear-gradient(135deg, #16a34a, #15803d) !important;
-        border-radius: 14px 14px 0 0 !important;
-        padding: 14px 18px !important;
-        color: #ffffff !important; /* Blanco garantizado */
-        font-weight: 700 !important;
-        font-size: 16px !important;
+        background: linear-gradient(135deg, #16a34a, #15803d);
+        border-radius: 14px 14px 0 0; padding: 14px 18px;
+        color: white; font-weight: 700; font-size: 16px;
     }
     .chat-container {
-        background: #f8fff8 !important;
-        border: 2px solid #bbf7d0 !important;
-        border-radius: 0 0 14px 14px !important;
-        padding: 16px !important;
-        max-height: 350px !important;
-        overflow-y: auto !important;
-    }
-
-    /* Por si acaso usas el input de chat nativo de Streamlit */
-    [data-testid="stChatInput"] textarea {
-        color: #0f172a !important;
-        background-color: #ffffff !important;
+        background: #f8fff8; border: 2px solid #bbf7d0;
+        border-radius: 0 0 14px 14px; padding: 16px;
+        max-height: 350px; overflow-y: auto;
     }
 </style>
 """, unsafe_allow_html=True)
+
 # ====================================================================
 # 2. POLÍGONO COMUNA 2 — SANTA CRUZ, MEDELLÍN
 #    Desde Estación Acevedo (sur) → Andalucía → Comuneros → Santa Cruz
@@ -864,9 +796,9 @@ Redirige preguntas no relacionadas al tema de residuos."""
         st.markdown("""
 <div class="eco-chat-header-gradient" style="background:linear-gradient(135deg,#4ade80,#16a34a);
 border-radius:10px;padding:10px 14px;font-weight:700;
-font-size:14px;text-align:center;margin-bottom:10px;color:#ffffff;">
+font-size:14px;text-align:center;margin-bottom:10px;">
 🤖 Hola, soy EcoBot<br>
-<span style="font-weight:400;font-size:12px;color:#ffffff">Te ayudo a reportar residuos</span>
+<span style="font-weight:400;font-size:12px">Te ayudo a reportar residuos</span>
 </div>""", unsafe_allow_html=True)
 
         # Mostrar historial (últimos 6 mensajes)
@@ -876,14 +808,14 @@ font-size:14px;text-align:center;margin-bottom:10px;color:#ffffff;">
                     f'<div style="background:#f0fdf4;border:1px solid #bbf7d0;'
                     f'border-radius:10px;padding:10px;font-size:13px;'
                     f'color:#14532d;margin-bottom:6px;">'
-                    f'🤖 <span style="color:#14532d;">{msg["content"]}</span></div>',
+                    f'🤖 {msg["content"]}</div>',
                     unsafe_allow_html=True)
             else:
                 st.markdown(
                     f'<div style="background:#dcfce7;border-radius:10px;'
                     f'padding:8px 10px;font-size:13px;color:#166534;'
                     f'text-align:right;margin-bottom:6px;">'
-                    f'👤 <span style="color:#166534;">{msg["content"]}</span></div>',
+                    f'👤 {msg["content"]}</div>',
                     unsafe_allow_html=True)
 
         # Input del usuario (solo un campo de texto + botones)
@@ -914,7 +846,7 @@ font-size:14px;text-align:center;margin-bottom:10px;color:#ffffff;">
         # Preguntas rápidas — NO asignan session_state["agente_input"]
         # porque Streamlit prohíbe modificar widgets ya renderizados.
         # En su lugar usan la bandera agente_pendiente para llamar la API en el siguiente ciclo.
-        st.markdown("<p style='font-size:11px;color:#d1fae5;margin:8px 0 4px 0;'>Preguntas rápidas:</p>",
+        st.markdown("<p style='font-size:11px;color:#6b7280;margin:8px 0 4px 0;'>Preguntas rápidas:</p>",
                     unsafe_allow_html=True)
         preguntas_rapidas = [
             "¿Cómo reporto basura?",
