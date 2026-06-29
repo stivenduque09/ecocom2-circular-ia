@@ -411,7 +411,71 @@ def nav_tabs(seccion_actual):
 # ====================================================================
 # 7. BARRA LATERAL
 # ====================================================================
-
+try:
+    st.sidebar.image("logo.png", use_container_width=True)
+except Exception:
+    st.sidebar.markdown("## ♻️ EcoCom2")
+ 
+if st.session_state.validado:
+    if not st.session_state.fuera:
+        st.sidebar.markdown(
+            f'<div class="badge-ok" style="font-size:12px;">✅ Dentro de la Comuna 2<br>'
+            f'<span style="font-weight:normal">{st.session_state.direccion[:55]}</span></div>',
+            unsafe_allow_html=True)
+    else:
+        st.sidebar.markdown(
+            '<div class="badge-err" style="font-size:12px;">🛑 Fuera de la Comuna 2<br>'
+            '<span style="font-weight:normal">Solo lectura del mapa</span></div>',
+            unsafe_allow_html=True)
+else:
+    st.sidebar.markdown(
+        '<div class="badge-warn" style="font-size:12px;">⚠️ Sin verificar<br>'
+        '<span style="font-weight:normal">Ingresa tu dirección abajo</span></div>',
+        unsafe_allow_html=True)
+ 
+st.sidebar.markdown("---")
+ 
+# SOLUCIÓN Python 3.10: menú SIEMPRE con las mismas 3 opciones (no cambiar dinámicamente)
+# El contenido del panel admin está protegido por contraseña dentro de la página
+PAGINAS = ["🏠 Inicio y Mapa", "🛡️ Panel Admin", "ℹ️ Información"]
+menu = st.sidebar.radio("Menú", PAGINAS)   # sin key → sin conflicto de estado
+ 
+st.sidebar.markdown("---")
+es_admin = st.session_state.get("admin_ok", False)
+ 
+# ── Login / logout de administrador ──────────────────────────────
+if not es_admin:
+    with st.sidebar.expander("🔐 Acceso Administrador"):
+        pwd = st.text_input("Contraseña:", type="password", key="adm_pwd",
+                            placeholder="Ingresa la contraseña")
+        if st.button("Ingresar", key="adm_login", type="primary",
+                     use_container_width=True):
+            if pwd == "ecocom2admin2026":          # ← cambia esta contraseña
+                st.session_state.admin_ok = True
+                st.success("✅ Sesión iniciada")
+                st.rerun()
+            else:
+                st.error("❌ Contraseña incorrecta")
+else:
+    st.sidebar.markdown(
+        '<div class="badge-ok" style="font-size:12px;margin-bottom:6px;">'
+        '🛡️ Admin activo<br>'
+        '<span style="font-weight:normal">Brandon Duque · ITM</span></div>',
+        unsafe_allow_html=True)
+    if st.sidebar.button("🔓 Cerrar sesión", key="adm_logout",
+                         use_container_width=True):
+        st.session_state.admin_ok = False
+        st.rerun()
+ 
+st.sidebar.markdown("---")
+st.sidebar.markdown("""
+<div style="font-size:11px;color:#6b7280;padding:8px;background:rgba(16,185,129,0.06);
+border-radius:6px;border:1px solid rgba(74,222,128,0.15);">
+⚙️ <b style="color:#4ade80">EcoCom2 v4.2</b><br>
+Territorio INN 2026 | ITM Medellín<br>
+Dev: <b style="color:#4ade80">Brandon Duque</b>
+</div>""", unsafe_allow_html=True)
+ 
 
 
 # ====================================================================
