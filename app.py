@@ -313,7 +313,7 @@ elif menu == "Reportar residuo":
                         "✅ Reporte validado correctamente."
                     )
 
-            else:
+            else: 
 
                 st.error(
                     "❌ No se detectaron objetos."
