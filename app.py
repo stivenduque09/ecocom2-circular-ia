@@ -48,11 +48,16 @@ st.markdown("""
     }
     .block-container { padding-top: 1rem; max-width: 1200px; }
 
-    /* ── Sidebar: verde oscuro suave ─────────────────────────────── */
-    [data-testid="stSidebar"] {
-        background: linear-gradient(180deg, #166534 0%, #14532d 100%) !important;
-        border-right: 3px solid #4ade80;
-    }
+    /* Sidebar verde moderno */
+[data-testid="stSidebar"] {
+    background: linear-gradient(
+        180deg,
+        #1f7a4d 0%,
+        #2d9b63 100%
+    ) !important;
+
+    border-right: 3px solid #86efac;
+}
     [data-testid="stSidebar"] * { color: #f0fdf4 !important; }
     [data-testid="stSidebar"] .stRadio label { font-size: 15px !important; font-weight: 600 !important; }
     [data-testid="stSidebar"] .stRadio div[role="radiogroup"] label {
