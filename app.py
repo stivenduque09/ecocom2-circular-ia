@@ -42,6 +42,8 @@ st.set_page_config(
     layout="wide",
     initial_sidebar_state="expanded"
 )
+st.sidebar.success("SIDEBAR FUNCIONANDO")
+st.sidebar.write("Prueba")
 st.markdown("""
 <style>
     .stApp { background-color: #0f1f17; color: #e8f5e9; }
