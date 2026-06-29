@@ -97,26 +97,31 @@ st.markdown("""
     /* ── EXPANDERS (🔐 Admin, 🤖 EcoBot): fondo semi-oscuro ────────
        Streamlit renderiza <details> con fondo blanco por defecto.
        Lo sobreescribimos para que el texto blanco sea visible. ───── */
-    [data-testid="stSidebar"] details {
-        background: rgba(0, 40, 20, 0.70) !important;
-        border: 1px solid rgba(74,222,128,0.45) !important;
-        border-radius: 8px !important;
-    }
-    [data-testid="stSidebar"] details > summary {
-        background: rgba(0, 50, 25, 0.50) !important;
-        border-radius: 8px !important;
-        padding: 8px 12px !important;
-        font-weight: 600 !important;
-        cursor: pointer !important;
-    }
-    [data-testid="stSidebar"] details[open] > summary {
-        border-radius: 8px 8px 0 0 !important;
-        border-bottom: 1px solid rgba(74,222,128,0.25) !important;
-    }
     [data-testid="stSidebar"] details > div {
         background: rgba(0, 40, 20, 0.55) !important;
         border-radius: 0 0 8px 8px !important;
         padding: 8px 6px !important;
+    }
+
+    /* ── BOTONES dentro del sidebar: texto OSCURO sobre fondo claro ── */
+    [data-testid="stSidebar"] div[data-testid="stButton"] button {
+        color: #14532d !important;
+        background: #f0fdf4 !important;
+        border: 1px solid #4ade80 !important;
+        font-weight: 600 !important;
+        border-radius: 8px !important;
+    }
+    [data-testid="stSidebar"] div[data-testid="stButton"] button:hover {
+        background: #dcfce7 !important;
+        color: #14532d !important;
+    }
+    [data-testid="stSidebar"] div[data-testid="stButton"] button[kind="primary"] {
+        background: linear-gradient(135deg, #16a34a, #15803d) !important;
+        color: #ffffff !important;
+        border: none !important;
+    }
+    [data-testid="stSidebar"] div[data-testid="stButton"] button[kind="primary"]:hover {
+        color: #ffffff !important;
     }
 
     /* ── INPUTS dentro del sidebar: texto OSCURO sobre fondo claro ──
