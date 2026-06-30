@@ -273,69 +273,53 @@ st.markdown("""
         border-radius: 12px !important; padding: 16px !important;
     }
 
-    /* ── Chat del agente ─────────────────────────────────────────── */
+    /* ── Chat del agente (Ajustado con colores oscuros legibles) ──── */
+    .chat-burbuja-bot {
+        background: #052e16 !important;
+        color: #f0fdf4 !important;
+        border: 2px solid #4ade80 !important;
+        border-radius: 12px !important;
+        padding: 12px !important;
+        font-size: 14px !important;
+        font-weight: 500 !important;
+    }
+
     .chat-burbuja-user {
-        background: #dcfce7; border-radius: 16px 16px 4px 16px;
-        padding: 12px 16px; margin: 8px 0; color: #14532d;
-        font-size: 14px; max-width: 80%; margin-left: auto;
+        background: #14532d !important;
+        color: #f0fdf4 !important;
+        border-radius: 12px !important;
+        padding: 12px !important;
+        font-size: 14px !important;
+        max-width: 80%;
+        margin-left: auto;
         text-align: right;
     }
-   .chat-burbuja-bot{
-    background: #f0fdf4 !important;
-    color: #14532d !important;
-    border: 2px solid #4ade80 !important;
-    border-radius: 12px !important;
-    padding: 12px !important;
-    font-size: 14px !important;
-    font-weight: 500 !important;
-}
 
-.chat-burbuja-user{
-    background: #16a34a !important;
-    color: white !important;
-    border-radius: 12px !important;
-    padding: 12px !important;
-    font-size: 14px !important;
-}
-
+/* Caja donde aparecen los mensajes */
 .chat-container{
-    background:#ffffff !important;
-    border:2px solid #86efac !important;
-    border-radius:12px !important;
-    padding:12px !important;
+    background: #ffffff !important;
+    border: 2px solid #86efac !important;
+    border-radius: 12px !important;
+    padding: 12px !important;
 }
 
-/* Mensajes del usuario */
-.chat-burbuja-user{
-    background:#dcfce7 !important;
-    color:#14532d !important;
-    border-radius:14px 14px 4px 14px;
-    padding:10px 14px;
-    margin:8px 0;
-    font-size:14px;
-    font-weight:500;
-}
-
-/* Mensajes del bot */
-.chat-burbuja-bot{
-    background:#f8fafc !important;
-    color:#111827 !important;
-    border:1px solid #cbd5e1;
-    border-radius:14px 14px 14px 4px;
-    padding:10px 14px;
-    margin:8px 0;
-    font-size:14px;
-    font-weight:500;
-}
-
-/* Todo el texto del chat */
+/* Texto dentro del chat */
 .chat-container *{
-    color:#111827 !important;
+    color:#14532d !important;
 }
 
-/* Caja donde se escribe */
+/* Campo donde se escribe */
+.chat-container textarea,
 .chat-container input{
-    color:#111827 !important;
+    background:#ffffff !important;
+    color:#14532d !important;
+    border:2px solid #86efac !important;
+}
+
+/* Placeholder */
+.chat-container textarea::placeholder,
+.chat-container input::placeholder{
+    color:#6b7280 !important;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -345,68 +329,20 @@ st.markdown("""
 #    Desde Estación Acevedo (sur) → Andalucía → Comuneros → Santa Cruz
 #    → Villa del Socorro (norte). Límite oeste = Autopista Norte.
 # ====================================================================
-# ============================================================
-# Polígono COMUNA 2 — SANTA CRUZ, Medellín
-# Verificado con calles reales (imágenes del proyecto)
-#
-# Barrios incluidos (11 oficiales):
-#   La Rosa · Santa Cruz · Moscú No.1 · Villa Niza · Andalucía
-#   Villa del Socorro · La Francia · La Frontera
-#   Playón de los Comuneros · Pablo VI · La Isla
-#
-# Límites reales:
-#   Sur:   La Rosa / Calle 92-95    (lat ≈ 6.296)
-#   Norte: Playón — antes de Bello  (lat ≈ 6.317, NO incluye Zamora)
-#   Oeste: Carrera 52               (lon ≈ -75.560 a -75.562)
-#   Este:  antes de Popular/ladera  (lon ≈ -75.550 a -75.553)
-#          Santo Domingo y Popular  quedan FUERA (son otra comuna)
-# ============================================================
 POLIGONO_COMUNA2 = Polygon([
-
-    # Sur-occidente (Carrera 52 - Santa Cruz)
-
     (-75.5613, 6.2933),
-
-    # Subiendo por el límite con Castilla
-
     (-75.5608, 6.2965),
-
     (-75.5598, 6.3005),
-
     (-75.5585, 6.3055),
-
-    # Norte
-
     (-75.5560, 6.3098),
-
     (-75.5540, 6.3100),
-
-    # Oriente norte
-
     (-75.5500, 6.3032),
-
-    # Oriente medio
-
     (-75.5498, 6.2980),
-
-    # Moscú
-
     (-75.5500, 6.2935),
-
-    # Suroriente
-
     (-75.5500, 6.2895),
-
-    # Sur
-
     (-75.5555, 6.2890),
-
     (-75.5590, 6.2895),
-
-    # Cierre
-
     (-75.5613, 6.2933)
-
 ])
 
 BARRIOS = [
@@ -415,7 +351,6 @@ BARRIOS = [
     "Moscú No. 1", "Santa Cruz", "La Rosa",
 ]
 
-# Centro de la Comuna 2
 LAT_C = 6.3104
 LON_C = -75.5552
 
@@ -425,7 +360,7 @@ LON_C = -75.5552
 for k, v in {
     "lat": None, "lon": None, "validado": False, "fuera": True,
     "direccion": "", "reporte_ok": False, "cache": None,
-    "seccion": "info",   # "info" | "residuo" | "critico" | "historial"
+    "seccion": "info",
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -434,7 +369,7 @@ if "reportes" not in st.session_state:
     st.session_state.reportes = cargar_reportes_disco()
 
 # ====================================================================
-# 4. MODELO YOLO — conf 0.05 para detectar más objetos en basura real
+# 4. MODELO YOLO
 # ====================================================================
 @st.cache_resource
 def cargar_modelo():
@@ -442,10 +377,9 @@ def cargar_modelo():
 modelo = cargar_modelo()
 
 # ====================================================================
-# 5. MATERIALES — incluye bolsas de basura y más residuos reales
+# 5. MATERIALES
 # ====================================================================
 MAT = {
-    # ── Plástico ──────────────────────────────────────────────────────
     "bottle":         ("Botella plástica",         "Plástico",    0.05, True),
     "cup":            ("Vaso / Recipiente plástico","Plástico",    0.03, True),
     "chair":          ("Silla plástica",            "Plástico",    2.00, True),
@@ -454,24 +388,19 @@ MAT = {
     "bowl":           ("Recipiente plástico",       "Plástico",    0.15, True),
     "toy":            ("Juguete plástico",          "Plástico",    0.50, True),
     "frisbee":        ("Disco plástico",            "Plástico",    0.10, True),
-    # Bolsas de basura — YOLO las detecta como handbag/backpack en baja confianza
     "handbag":        ("Bolsa de basura / Bolso",   "Plástico",    0.40, True),
     "backpack":       ("Bolsa / Mochila",           "Textil",      0.50, True),
     "suitcase":       ("Bolsa grande / Maleta",     "Textil",      1.00, True),
-    # ── Papel / Cartón ────────────────────────────────────────────────
     "book":           ("Libro / Cuaderno",          "Papel",       0.30, True),
     "newspaper":      ("Periódico / Papel",         "Papel",       0.10, True),
     "box":            ("Caja de cartón",            "Cartón",      0.30, True),
-    # ── Vidrio ────────────────────────────────────────────────────────
     "wine glass":     ("Botella / Copa de vidrio",  "Vidrio",      0.20, True),
     "vase":           ("Frasco / Jarrón de vidrio", "Vidrio",      0.80, True),
-    # ── Aluminio / Metal ──────────────────────────────────────────────
     "can":            ("Lata de aluminio",          "Aluminio",    0.02, True),
     "knife":          ("Cuchillo / Utensilio metal","Metal",       0.10, True),
     "fork":           ("Tenedor / Utensilio metal", "Metal",       0.05, True),
     "spoon":          ("Cuchara / Utensilio metal", "Metal",       0.05, True),
     "scissors":       ("Tijeras",                   "Metal",       0.10, True),
-    # ── Electrónico ───────────────────────────────────────────────────
     "cell phone":     ("Celular",                   "Electrónico", 0.20, True),
     "laptop":         ("Portátil",                  "Electrónico", 2.50, True),
     "keyboard":       ("Teclado",                   "Electrónico", 0.60, True),
@@ -479,7 +408,6 @@ MAT = {
     "remote":         ("Control remoto",            "Electrónico", 0.20, True),
     "tv":             ("Televisor",                 "Electrónico", 8.00, True),
     "clock":          ("Reloj",                     "Electrónico", 0.30, True),
-    # ── Orgánico ──────────────────────────────────────────────────────
     "banana":         ("Banano",                    "Orgánico",    0.10, True),
     "apple":          ("Manzana",                   "Orgánico",    0.15, True),
     "orange":         ("Naranja",                   "Orgánico",    0.20, True),
@@ -491,13 +419,11 @@ MAT = {
     "hot dog":        ("Residuo de comida",         "Orgánico",    0.15, True),
     "cake":           ("Residuo de comida",         "Orgánico",    0.20, True),
     "donut":          ("Residuo de comida",         "Orgánico",    0.10, True),
-    # ── Madera / Mixto ────────────────────────────────────────────────
     "dining table":   ("Mesa / Madera",             "Madera",     12.00, True),
     "couch":          ("Sofá / Mueble",             "Mixto",      15.00, True),
     "bed":            ("Cama / Colchón",            "Mixto",      20.00, True),
     "umbrella":       ("Paraguas",                  "Mixto",       0.50, True),
     "tie":            ("Corbata / Textil",          "Textil",      0.10, True),
-    # ── No aplica / No reciclable ──────────────────────────────────────
     "person":         ("Persona",     "—", 0, False),
     "dog":            ("Perro",       "—", 0, False),
     "cat":            ("Gato",        "—", 0, False),
@@ -552,7 +478,6 @@ def geocodificar_inversa(lat: float, lon: float) -> str:
 
 
 def img_a_b64(img_pil, max_px=200) -> str:
-    """Convierte una imagen PIL a base64 JPEG thumbnail para el popup del mapa."""
     try:
         thumb = img_pil.copy()
         thumb.thumbnail((max_px, max_px))
@@ -578,17 +503,10 @@ def set_ubicacion(lat, lon, direccion=""):
 def analizar(img):
     with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
         img.save(tmp.name)
-        # conf=0.05 detecta más objetos en imágenes de basura real
         return modelo(tmp.name, conf=0.05)
 
 
 def procesar(resultados):
-    """
-    Clasifica la escena según ratio de reciclables:
-    🟢 Verde      ≥60% reciclables  → alta valorización
-    🟡 Amarillo   30-60% mixto      → mezcla
-    🔴 Rojo       <30% reciclables  → acumulación sin valor (como la foto de basura)
-    """
     objetos = []
     for r in resultados:
         for box in r.boxes:
@@ -659,7 +577,6 @@ def metricas(residuos, peso, nivel):
 
 
 def nav_tabs(seccion_actual):
-    """Barra de navegación como pestañas usando botones — funciona en celular."""
     SECCIONES = [
         ("info",      "📍 Info del punto"),
         ("residuo",   "📸 Reportar Residuo"),
@@ -669,7 +586,6 @@ def nav_tabs(seccion_actual):
     cols = st.columns(len(SECCIONES))
     for col, (key, label) in zip(cols, SECCIONES):
         with col:
-            # Botón resaltado si es la sección activa
             es_activa = seccion_actual == key
             btn_type = "primary" if es_activa else "secondary"
             if st.button(label, key=f"nav_{key}",
@@ -705,22 +621,19 @@ else:
 
 st.sidebar.markdown("---")
 
-# SOLUCIÓN Python 3.10: menú SIEMPRE con las mismas 3 opciones (no cambiar dinámicamente)
-# El contenido del panel admin está protegido por contraseña dentro de la página
 PAGINAS = ["🏠 Inicio y Mapa", "🛡️ Panel Admin", "ℹ️ Información"]
-menu = st.sidebar.radio("Menú", PAGINAS)   # sin key → sin conflicto de estado
+menu = st.sidebar.radio("Menú", PAGINAS)
 
 st.sidebar.markdown("---")
 es_admin = st.session_state.get("admin_ok", False)
 
-# ── Login / logout de administrador ──────────────────────────────
 if not es_admin:
     with st.sidebar.expander("🔐 Acceso Administrador"):
         pwd = st.text_input("Contraseña:", type="password", key="adm_pwd",
                             placeholder="Ingresa la contraseña")
         if st.button("Ingresar", key="adm_login", type="primary",
                      use_container_width=True):
-            if pwd == "ecocom2admin2026":          # ← cambia esta contraseña
+            if pwd == "ecocom2admin2026":
                 st.session_state.admin_ok = True
                 st.success("✅ Sesión iniciada")
                 st.rerun()
@@ -754,8 +667,6 @@ if menu == "🏠 Inicio y Mapa":
     st.title("♻️ EcoCom2 Circular IA")
     st.caption("Gestión inteligente de residuos — Solo residentes de la **Comuna 2** pueden publicar reportes.")
 
-    # ── AGENTE DE AYUDA IA (sidebar expandible) ───────────────────────
-    # Inicializar estado del agente
     if "agente_msgs" not in st.session_state:
         st.session_state.agente_msgs = [
             {"role": "assistant",
@@ -764,7 +675,6 @@ if menu == "🏠 Inicio y Mapa":
     if "agente_pendiente" not in st.session_state:
         st.session_state.agente_pendiente = False
 
-    # ── Función para llamar la API de Claude ─────────────────────────
     def llamar_ecobot(mensajes_historial: list) -> str:
         SISTEMA_AGENTE = """Eres EcoBot, el asistente amigable de EcoCom2 Circular IA,
 una app para reportar residuos en la Comuna 2 - Santa Cruz de Medellín, Colombia.
@@ -826,7 +736,6 @@ Redirige preguntas no relacionadas al tema de residuos."""
                     "Pasos: 1️⃣ Verifica dirección 2️⃣ Toca el mapa "
                     "3️⃣ Sube foto 4️⃣ Publica.")
 
-    # ── Si hay pregunta pendiente (de botón rápido), responde ANTES de dibujar
     if st.session_state.agente_pendiente:
         st.session_state.agente_pendiente = False
         with st.spinner("🤖 EcoBot está pensando..."):
@@ -843,24 +752,23 @@ font-size:14px;text-align:center;margin-bottom:10px;">
 <span style="font-weight:400;font-size:12px">Te ayudo a reportar residuos</span>
 </div>""", unsafe_allow_html=True)
 
-        # Mostrar historial (últimos 6 mensajes)
+        # Mostrar historial con colores oscuros de fondo ajustados para legibilidad del texto blanco
         for msg in st.session_state.agente_msgs[-6:]:
             if msg["role"] == "assistant":
                 st.markdown(
-                    f'<div style="background:#f0fdf4;border:1px solid #bbf7d0;'
+                    f'<div style="background:#052e16;border:1px solid #4ade80;'
                     f'border-radius:10px;padding:10px;font-size:13px;'
-                    f'color:#14532d;margin-bottom:6px;">'
+                    f'color:#f0fdf4 !important;margin-bottom:6px;">'
                     f'🤖 {msg["content"]}</div>',
                     unsafe_allow_html=True)
             else:
                 st.markdown(
-                    f'<div style="background:#dcfce7;border-radius:10px;'
-                    f'padding:8px 10px;font-size:13px;color:#166534;'
+                    f'<div style="background:#14532d;border-radius:10px;'
+                    f'padding:8px 10px;font-size:13px;color:#f0fdf4 !important;'
                     f'text-align:right;margin-bottom:6px;">'
                     f'👤 {msg["content"]}</div>',
                     unsafe_allow_html=True)
 
-        # Input del usuario (solo un campo de texto + botones)
         pregunta = st.text_input(
             "Pregunta:", placeholder="¿Cómo reporto basura?",
             key="agente_input", label_visibility="collapsed")
@@ -875,7 +783,6 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                 st.session_state.agente_msgs = [st.session_state.agente_msgs[0]]
                 st.rerun()
 
-        # Enviar por botón principal
         if enviar and pregunta.strip():
             st.session_state.agente_msgs.append(
                 {"role": "user", "content": pregunta.strip()})
@@ -885,9 +792,6 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                 {"role": "assistant", "content": respuesta})
             st.rerun()
 
-        # Preguntas rápidas — NO asignan session_state["agente_input"]
-        # porque Streamlit prohíbe modificar widgets ya renderizados.
-        # En su lugar usan la bandera agente_pendiente para llamar la API en el siguiente ciclo.
         st.markdown("<p style='font-size:11px;color:#6b7280;margin:8px 0 4px 0;'>Preguntas rápidas:</p>",
                     unsafe_allow_html=True)
         preguntas_rapidas = [
@@ -899,14 +803,9 @@ font-size:14px;text-align:center;margin-bottom:10px;">
         for pq in preguntas_rapidas:
             if st.button(pq, key=f"pq_{pq[:15]}", use_container_width=True):
                 st.session_state.agente_msgs.append({"role": "user", "content": pq})
-                # ✅ CORRECTO: usamos bandera, NO st.session_state["agente_input"] = pq
-                # Asignar directamente el valor de un widget ya renderizado
-                # lanza StreamlitAPIException. La bandera se procesa en el
-                # siguiente ciclo, antes de dibujar el expander.
                 st.session_state.agente_pendiente = True
                 st.rerun()
 
-    # ── CAMPO DE DIRECCIÓN (se auto-rellena al hacer clic en el mapa) ─
     dir_auto = st.session_state.get("click_dir") or st.session_state.get("direccion") or ""
 
     c_inp, c_btn = st.columns([5, 1])
@@ -931,7 +830,6 @@ font-size:14px;text-align:center;margin-bottom:10px;">
             else:
                 st.warning("Escribe o toca el mapa para obtener una dirección.")
 
-    # Badge de estado
     if st.session_state.validado:
         if not st.session_state.fuera:
             badge(f"✅ <b>Dentro de la Comuna 2</b> — {st.session_state.direccion[:80]}", "ok")
@@ -955,7 +853,6 @@ font-size:14px;text-align:center;margin-bottom:10px;">
 
     mapa = folium.Map(location=[lat_c, lon_c], zoom_start=14, tiles="CartoDB positron")
 
-    # Polígono oficial
     coords_p = [(la, lo) for lo, la in POLIGONO_COMUNA2.exterior.coords]
     folium.Polygon(
         locations=coords_p, color="#4ade80", weight=2,
@@ -963,7 +860,6 @@ font-size:14px;text-align:center;margin-bottom:10px;">
         tooltip="📍 Área piloto — Comuna 2 Santa Cruz (Acevedo → Villa del Socorro)"
     ).add_to(mapa)
 
-    # Pin hogar
     if st.session_state.get("validado") and st.session_state.get("lat"):
         col_pin = "blue" if not st.session_state.fuera else "gray"
         folium.Marker(
@@ -973,7 +869,6 @@ font-size:14px;text-align:center;margin-bottom:10px;">
             icon=folium.Icon(color=col_pin, icon="home", prefix="fa")
         ).add_to(mapa)
 
-    # Pin punto seleccionado
     if st.session_state.get("click_lat"):
         folium.Marker(
             location=[st.session_state.click_lat, st.session_state.click_lon],
@@ -982,11 +877,9 @@ font-size:14px;text-align:center;margin-bottom:10px;">
             icon=folium.Icon(color="red", icon="map-marker", prefix="fa")
         ).add_to(mapa)
 
-    # Reportes guardados
     for rep in st.session_state.reportes:
         niv = rep.get("Clasificación", "🟢")
         col = "red" if "🔴" in niv else ("orange" if "🟡" in niv else "green")
-        # Construir popup con foto si está disponible
         foto_b64 = rep.get("FotoB64", "")
         img_html = (f'<br><img src="data:image/jpeg;base64,{foto_b64}" '
                     f'style="width:180px;border-radius:6px;margin-top:6px;">'
@@ -1012,7 +905,6 @@ font-size:14px;text-align:center;margin-bottom:10px;">
     mapa_data = st_folium(mapa, width="100%", height=340,
                           returned_objects=["last_clicked"])
 
-    # ── Click en el mapa → dirección automática en el campo de arriba ─
     if mapa_data and mapa_data.get("last_clicked"):
         clk = mapa_data["last_clicked"]
         lat_clk = round(clk["lat"], 7)
@@ -1024,14 +916,10 @@ font-size:14px;text-align:center;margin-bottom:10px;">
             with st.spinner("📍 Detectando dirección..."):
                 dir_obtenida = geocodificar_inversa(lat_clk, lon_clk)
             st.session_state.click_dir = dir_obtenida
-            # Si aún no estaba verificado, validar automáticamente
             if not st.session_state.get("validado"):
                 set_ubicacion(lat_clk, lon_clk, dir_obtenida)
-            st.rerun()  # ← recarga y el campo de dirección muestra la nueva
+            st.rerun()
 
-    # ====================================================================
-    # PANEL DE ACCIÓN — aparece cuando hay punto seleccionado
-    # ====================================================================
     clat       = st.session_state.get("click_lat")
     clon       = st.session_state.get("click_lon")
     cdir       = st.session_state.get("click_dir", "")
@@ -1039,7 +927,6 @@ font-size:14px;text-align:center;margin-bottom:10px;">
 
     if clat:
         st.markdown("")
-        # Tarjeta de dirección del punto
         color_card = "#4ade80" if dentro_clk else "#ef4444"
         estado_txt = "✅ Dentro de la Comuna 2" if dentro_clk else "🛑 Fuera del área piloto"
         st.markdown(
@@ -1050,10 +937,8 @@ font-size:14px;text-align:center;margin-bottom:10px;">
             f'</div>',
             unsafe_allow_html=True)
 
-        # ── BOTONES DE ACCIÓN — redirigen al menú lateral ───────────
         if dentro_clk and es_residente():
             st.markdown("")
-            # Guardar el punto seleccionado para que lo use la página de reporte
             st.session_state.punto_para_reporte = {
                 "lat": clat, "lon": clon, "dir": cdir
             }
@@ -1079,11 +964,8 @@ font-size:14px;text-align:center;margin-bottom:10px;">
             badge("⚠️ Verifica tu dirección arriba para reportar en este punto.", "warn")
 
     st.markdown("")
-
-    st.markdown("")
     seccion = st.session_state.get("seccion", "info")
 
-    # ── Indicador de sección activa (compacto, sin duplicar botones) ──
     if seccion != "info":
         iconos = {"residuo": "📸 Reportar Residuo", "critico": "🚨 Punto Crítico",
                   "historial": "📋 Historial"}
@@ -1093,12 +975,10 @@ font-size:14px;text-align:center;margin-bottom:10px;">
             f'{iconos.get(seccion,"")}</div>',
             unsafe_allow_html=True)
 
-    # ── SECCIÓN: Punto en el mapa ──────────────────────────────────────
     if seccion == "info":
         if not clat:
             st.info("👆 Toca cualquier punto del mapa y usa los botones que aparecen para reportar.")
 
-    # ── SECCIÓN: Reportar Residuo ──────────────────────────────────────
     elif seccion == "residuo":
         st.markdown("### 📸 Reportar Residuo")
 
@@ -1145,8 +1025,6 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                             st.markdown("**⚠️ No aprovechables:**")
                             st.dataframe(df_no, use_container_width=True, hide_index=True)
 
-                    # ── Fallback manual si YOLO no detecta nada ──────
-                    # (escombros, basura genérica, plástico oscuro, etc.)
                     if residuos == 0 and len(tabla) == 0:
                         st.warning(
                             "⚠️ La IA no reconoció objetos específicos. "
@@ -1168,7 +1046,6 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                             "Cantidad aproximada de residuos visibles:",
                             1, 20, 5, key="r_cant_manual"
                         )
-                        # Clasificar según selección
                         MAP_MANUAL = {
                             "🏗️ Escombros / Residuos de construcción":
                                 ("🔴 Punto crítico — Acumulación sin valorización",
@@ -1203,7 +1080,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         "Lat": plat, "Lon": plon,
                         "Fecha": datetime.now().strftime("%Y-%m-%d %H:%M"),
                         "Estado": "🔴 Pendiente",
-                        "FotoB64": img_a_b64(img),   # ← miniatura para popup del mapa
+                        "FotoB64": img_a_b64(img),
                     }
 
             if st.session_state.get("cache"):
@@ -1226,7 +1103,6 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         st.session_state.cache = None
                         st.rerun()
 
-    # ── SECCIÓN: Punto Crítico ─────────────────────────────────────────
     elif seccion == "critico":
         st.markdown("### 🚨 Registrar Punto Crítico")
 
@@ -1249,7 +1125,6 @@ font-size:14px;text-align:center;margin-bottom:10px;">
             if cr_img:
                 img2 = Image.open(cr_img)
 
-                # ── Botón de análisis — guarda resultados en cache_critico ──
                 if st.button("🔍 Evaluar con IA", type="primary",
                              use_container_width=True, key="cr_analizar"):
                     with st.spinner("Analizando con YOLOv8..."):
@@ -1273,7 +1148,6 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         if not df_si2.empty:
                             st.dataframe(df_si2, use_container_width=True, hide_index=True)
 
-                    # Guardar en session_state para que persista entre reruns
                     st.session_state.cache_critico = {
                         "residuos":    res2_r,
                         "peso":        peso2,
@@ -1285,12 +1159,9 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         "Lon":         plon,
                     }
 
-                # ── Resultados y botón REGISTRAR — FUERA del bloque analizar ──
-                # (esto persiste entre reruns gracias a cache_critico)
                 if st.session_state.get("cache_critico"):
                     cc = st.session_state.cache_critico
 
-                    # Si la IA no detectó nada → selector manual
                     if not cc["ia_detecto"]:
                         st.warning(
                             "⚠️ La IA no reconoció objetos específicos "
@@ -1333,7 +1204,6 @@ font-size:14px;text-align:center;margin-bottom:10px;">
 
                     metricas(residuos_f, peso_f, nivel_f)
 
-                    # Botón REGISTRAR fuera del bloque analizar → siempre visible
                     st.markdown("")
                     cr_pub, cr_can = st.columns(2)
                     with cr_pub:
@@ -1368,7 +1238,6 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                             st.session_state.cache_critico = None
                             st.rerun()
 
-    # ── SECCIÓN: Historial ─────────────────────────────────────────────
     elif seccion == "historial":
         st.markdown("### 📋 Historial de Reportes")
         if not st.session_state.reportes:
@@ -1376,7 +1245,6 @@ font-size:14px;text-align:center;margin-bottom:10px;">
         else:
             df = pd.DataFrame(st.session_state.reportes)
 
-            # Métricas resumen
             h1, h2, h3, h4 = st.columns(4)
             pendientes = df.get("Estado", pd.Series([])).str.contains("Pendiente", na=False).sum() if "Estado" in df.columns else len(df)
             resueltos  = df.get("Estado", pd.Series([])).str.contains("Resuelto",  na=False).sum() if "Estado" in df.columns else 0
@@ -1392,13 +1260,11 @@ font-size:14px;text-align:center;margin-bottom:10px;">
 
             st.markdown("")
 
-            # Tabla con columnas relevantes
             COLS = ["Código","Fecha","Estado","Sector","Referencia",
                     "Objetos","Peso (Kg)","Clasificación"]
             cols_ok = [c for c in COLS if c in df.columns]
             st.dataframe(df[cols_ok], use_container_width=True, hide_index=True)
 
-            # Exportar CSV
             csv_data = df[cols_ok].to_csv(index=False).encode("utf-8")
             st.download_button(
                 "📥 Exportar como CSV",
@@ -1409,14 +1275,13 @@ font-size:14px;text-align:center;margin-bottom:10px;">
             )
 
 # ====================================================================
-# 9. PANEL ADMINISTRADOR — Gestión completa de reportes
+# 9. PANEL ADMINISTRADOR
 # ====================================================================
 elif menu == "🛡️ Panel Admin":
 
-    # ── Pantalla de login si no está autenticado ───────────────────────
     if not st.session_state.get("admin_ok"):
         st.markdown("")
-        col_login = st.columns([1, 2, 1])[1]   # centrado
+        col_login = st.columns([1, 2, 1])[1]
         with col_login:
             st.markdown("""
 <div style="background:rgba(16,185,129,0.08);border:1px solid #4ade80;
@@ -1438,7 +1303,6 @@ EcoCom2 Circular IA · ITM Medellín</p>
                     st.error("❌ Contraseña incorrecta")
         st.stop()
 
-    # ── ADMIN AUTENTICADO ─────────────────────────────────────────────
     st.markdown("""
 <div style="display:flex;align-items:center;justify-content:space-between;
 margin-bottom:8px;">
@@ -1449,7 +1313,6 @@ margin-bottom:8px;">
 </div>
 </div>""", unsafe_allow_html=True)
 
-    # Procesar acción pendiente ANTES de renderizar (evita removeChild)
     accion = st.session_state.pop("adm_accion_pendiente", None)
     if accion:
         cod_obj = accion["codigo"]
@@ -1481,7 +1344,6 @@ margin-bottom:8px;">
 
     reportes = st.session_state.reportes
 
-    # ── PESTAÑAS DEL ADMIN ────────────────────────────────────────────
     tab_dash, tab_mapa, tab_lista, tab_export = st.tabs([
         "📊 Dashboard",
         "🗺️ Mapa de control",
@@ -1489,16 +1351,12 @@ margin-bottom:8px;">
         "📥 Exportar / Limpiar"
     ])
 
-    # ════════════════════════════════════════════════════════════════
-    # TAB 1: DASHBOARD
-    # ════════════════════════════════════════════════════════════════
     with tab_dash:
         if not reportes:
             st.info("Sin reportes aún. Los reportes de los residentes aparecerán aquí.")
         else:
             df_a = pd.DataFrame(reportes)
 
-            # ── KPIs principales ─────────────────────────────────────
             total    = len(df_a)
             criticos = int(df_a["Clasificación"].str.contains("crítico",  case=False, na=False).sum())
             amarillos= int(df_a["Clasificación"].str.contains("amarillo", case=False, na=False).sum())
@@ -1529,7 +1387,6 @@ padding:10px 16px;margin-top:12px;font-size:14px;">
 ⚖️ <b style="color:#a78bfa">Carga total acumulada: {peso_t:.1f} kg</b> en {total} reportes
 </div>""", unsafe_allow_html=True)
 
-            # ── Reportes por barrio ───────────────────────────────────
             st.markdown("---")
             st.markdown("#### 📍 Reportes por Barrio")
             if "Sector" in df_a.columns:
@@ -1538,23 +1395,18 @@ padding:10px 16px;margin-top:12px;font-size:14px;">
                 st.dataframe(conteo_barrio, use_container_width=True,
                              hide_index=True)
 
-            # ── Últimos 5 reportes ────────────────────────────────────
             st.markdown("#### 🕐 Últimos reportes registrados")
             COLS_DASH = ["Código","Fecha","Estado","Sector","Clasificación","Peso (Kg)"]
             cols_ok = [c for c in COLS_DASH if c in df_a.columns]
             st.dataframe(df_a[cols_ok].tail(5).iloc[::-1],
                          use_container_width=True, hide_index=True)
 
-    # ════════════════════════════════════════════════════════════════
-    # TAB 2: MAPA DE CONTROL
-    # ════════════════════════════════════════════════════════════════
     with tab_mapa:
         st.markdown("#### 🗺️ Todos los puntos reportados — mapa de control")
 
         if not reportes:
             st.info("Sin reportes aún.")
         else:
-            # Filtros rápidos
             fm1, fm2 = st.columns(2)
             with fm1:
                 f_estado = st.selectbox("Filtrar por estado:",
@@ -1568,14 +1420,12 @@ padding:10px 16px;margin-top:12px;font-size:14px;">
             mapa_adm = folium.Map(location=[LAT_C, LON_C],
                                   zoom_start=14, tiles="CartoDB positron")
 
-            # Polígono
             coords_p = [(la, lo) for lo, la in POLIGONO_COMUNA2.exterior.coords]
             folium.Polygon(locations=coords_p, color="#4ade80", weight=2,
                            fill=True, fill_color="#4ade80", fill_opacity=0.06).add_to(mapa_adm)
 
             total_mostrados = 0
             for rep in reportes:
-                # Filtrar
                 est = rep.get("Estado", "")
                 niv = rep.get("Clasificación", "")
                 if f_estado != "Todos":
@@ -1615,16 +1465,12 @@ padding:10px 16px;margin-top:12px;font-size:14px;">
             st_folium(mapa_adm, width="100%", height=480, returned_objects=[])
             st.caption(f"Mostrando {total_mostrados} de {len(reportes)} reportes")
 
-    # ════════════════════════════════════════════════════════════════
-    # TAB 3: GESTIÓN DE REPORTES
-    # ════════════════════════════════════════════════════════════════
     with tab_lista:
         st.markdown("#### 🗂️ Gestión individual de reportes")
 
         if not reportes:
             st.info("Sin reportes aún.")
         else:
-            # Filtros
             g1, g2, g3 = st.columns(3)
             with g1:
                 g_sector = st.selectbox("Barrio:", ["Todos"]+BARRIOS, key="adm_g_sector")
@@ -1645,7 +1491,6 @@ padding:10px 16px;margin-top:12px;font-size:14px;">
                 estado   = rep.get("Estado","🔴 Pendiente")
                 nivel    = rep.get("Clasificación","")
 
-                # Aplicar filtros
                 if g_sector != "Todos" and rep.get("Sector") != g_sector: continue
                 if g_estado != "Todos":
                     if g_estado == "🔴 Pendiente"  and "Pendiente" not in estado: continue
@@ -1665,7 +1510,6 @@ padding:10px 16px;margin-top:12px;font-size:14px;">
                     f"{rep.get('Referencia','')[:30]} · {estado}",
                     expanded=False
                 ):
-                    # Foto si existe
                     foto_b64 = rep.get("FotoB64","")
                     if foto_b64:
                         st.markdown("**📷 Foto del reporte:**")
@@ -1674,7 +1518,6 @@ padding:10px 16px;margin-top:12px;font-size:14px;">
                             f'style="max-width:320px;border-radius:8px;margin-bottom:10px;">',
                             unsafe_allow_html=True)
 
-                    # Detalles
                     i1, i2 = st.columns(2)
                     with i1:
                         st.markdown(
@@ -1725,15 +1568,11 @@ padding:10px 16px;margin-top:12px;font-size:14px;">
                                 "codigo":codigo,"tipo":"eliminar"}
                             st.rerun()
 
-    # ════════════════════════════════════════════════════════════════
-    # TAB 4: EXPORTAR / LIMPIAR
-    # ════════════════════════════════════════════════════════════════
     with tab_export:
         st.markdown("#### 📥 Exportar datos")
 
         if reportes:
             df_exp = pd.DataFrame(reportes)
-            # CSV sin la columna de foto (es muy grande)
             cols_exp = [c for c in df_exp.columns if c != "FotoB64"]
 
             csv_bytes = df_exp[cols_exp].to_csv(index=False).encode("utf-8")
@@ -1745,7 +1584,6 @@ padding:10px 16px;margin-top:12px;font-size:14px;">
                 use_container_width=True,
             )
 
-            # Solo pendientes
             df_pend = df_exp[df_exp.get("Estado","").str.contains("Pendiente",na=False)] if "Estado" in df_exp.columns else df_exp
             if len(df_pend) > 0:
                 csv_pend = df_pend[cols_exp].to_csv(index=False).encode("utf-8")
