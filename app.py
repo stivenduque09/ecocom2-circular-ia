@@ -298,31 +298,44 @@ st.markdown("""
     font-size: 14px !important;
 }
 
-/* Caja donde aparecen los mensajes */
 .chat-container{
-    background: #ffffff !important;
-    border: 2px solid #86efac !important;
-    border-radius: 12px !important;
-    padding: 12px !important;
-}
-
-/* Texto dentro del chat */
-.chat-container *{
-    color:#14532d !important;
-}
-
-/* Campo donde se escribe */
-.chat-container textarea,
-.chat-container input{
     background:#ffffff !important;
-    color:#14532d !important;
     border:2px solid #86efac !important;
+    border-radius:12px !important;
+    padding:12px !important;
 }
 
-/* Placeholder */
-.chat-container textarea::placeholder,
-.chat-container input::placeholder{
-    color:#6b7280 !important;
+/* Mensajes del usuario */
+.chat-burbuja-user{
+    background:#dcfce7 !important;
+    color:#14532d !important;
+    border-radius:14px 14px 4px 14px;
+    padding:10px 14px;
+    margin:8px 0;
+    font-size:14px;
+    font-weight:500;
+}
+
+/* Mensajes del bot */
+.chat-burbuja-bot{
+    background:#f8fafc !important;
+    color:#111827 !important;
+    border:1px solid #cbd5e1;
+    border-radius:14px 14px 14px 4px;
+    padding:10px 14px;
+    margin:8px 0;
+    font-size:14px;
+    font-weight:500;
+}
+
+/* Todo el texto del chat */
+.chat-container *{
+    color:#111827 !important;
+}
+
+/* Caja donde se escribe */
+.chat-container input{
+    color:#111827 !important;
 }
 </style>
 """, unsafe_allow_html=True)
