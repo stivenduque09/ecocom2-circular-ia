@@ -36,6 +36,11 @@ def guardar_reportes_disco(reportes):
 # ====================================================================
 # 1. CONFIGURACIÓN
 # ====================================================================
+¡Claro que sí! Ya le agregué la corrección justo al final del bloque de estilos (antes del `</style>`).
+
+Solo tienes que copiar este bloque completo y reemplazar el que tienes en tu archivo. Así te quedarán los botones blancos con letras verde oscuro, perfectamente legibles:
+
+```python
 st.set_page_config(page_title="EcoCom2 Circular IA", page_icon="♻️", layout="wide")
 
 st.markdown("""
@@ -321,8 +326,27 @@ st.markdown("""
 .chat-container input::placeholder{
     color:#6b7280 !important;
 }
+
+/* ── SOLUCIÓN PARA LAS PREGUNTAS RÁPIDAS INVISIBLES ── */
+[data-testid="stSidebar"] .stButton button {
+    background-color: #ffffff !important;
+    border: 2px solid #86efac !important;
+    border-radius: 8px !important;
+}
+
+[data-testid="stSidebar"] .stButton button p {
+    color: #14532d !important; /* Verde oscuro para que contraste */
+    font-weight: 500 !important;
+}
+
+[data-testid="stSidebar"] .stButton button:hover {
+    background-color: #f0fdf4 !important;
+    border-color: #16a34a !important;
+}
 </style>
 """, unsafe_allow_html=True)
+
+```
 
 # ====================================================================
 # 2. POLÍGONO COMUNA 2 — SANTA CRUZ, MEDELLÍN
