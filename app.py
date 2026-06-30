@@ -341,7 +341,7 @@ st.markdown("""
 </style>
 """, unsafe_allow_html=True)
 
-```
+
 
 # ====================================================================
 # 2. POLÍGONO COMUNA 2 — SANTA CRUZ, MEDELLÍN
