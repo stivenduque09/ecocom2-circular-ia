@@ -403,12 +403,6 @@ st.markdown("""
     border-color: #16a34a !important;
 
 }
-/* ── OPCIÓN: PREGUNTAS RÁPIDAS EN VERDE ── */
-[data-testid="stSidebar"] .stButton button {
-    background: linear-gradient(135deg, #16a34a, #15803d) !important;
-    border: none !important;
-    border-radius: 8px !important;
-}
 </style>
 """, unsafe_allow_html=True)
 # ====================================================================
