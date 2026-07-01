@@ -389,7 +389,7 @@ st.markdown("""
 /* ── SOLUCIÓN PARA LAS PREGUNTAS RÁPIDAS INVISIBLES ── */
 [data-testid="stSidebar"] .stButton button {
     background-color: #ffffff !important;
-    border: 2px solid #86efac !important;
+    border: 2px solid #6b7280 !important;
     border-radius: 8px !important;
 }
 
