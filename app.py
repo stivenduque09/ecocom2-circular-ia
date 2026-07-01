@@ -368,8 +368,8 @@ st.markdown("""
 }
 
 /* Texto dentro del chat */
-.chat-container *{
-    color:#14532d !important;
+.chat-container * {
+    color: #1f2937 !important;
 }
 
 /* Campo donde se escribe */
@@ -387,10 +387,15 @@ st.markdown("""
 }
 
 /* ── SOLUCIÓN PARA LAS PREGUNTAS RÁPIDAS INVISIBLES ── */
+
 [data-testid="stSidebar"] .stButton button {
+
     background-color: #ffffff !important;
-    border: 2px solid #6b7280 !important;
+
+    border: 2px solid #86efac !important;
+
     border-radius: 8px !important;
+
 }
 
 [data-testid="stSidebar"] .stButton button p {
