@@ -404,6 +404,7 @@ st.markdown("""
 }
 </style>
 """, unsafe_allow_html=True)
+
 # ====================================================================
 # 2. POLÍGONO COMUNA 2 — SANTA CRUZ, MEDELLÍN
 #    Desde Estación Acevedo (sur) → Andalucía → Comuneros → Santa Cruz
@@ -665,11 +666,59 @@ def set_ubicacion(lat, lon, direccion=""):
     st.session_state.direccion = direccion
 
 
-def analizar(img):
-    with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
-        img.save(tmp.name)
-        # conf=0.05 detecta más objetos en imágenes de basura real
-        return modelo(tmp.name, conf=0.05)
+def analizar(img, imgsz=640):
+    """Ejecuta YOLOv8 sobre la imagen.
+    imgsz: resolución de inferencia. Más alto = detecta mejor objetos
+    pequeños/lejanos (útil en fotos de Punto Crítico, que suelen abarcar
+    más área que una foto de un solo residuo), a costa de más tiempo de
+    cómputo. Debe ser múltiplo de 32 (640, 960, 1280...).
+    """
+    tmp_path = None
+    try:
+        with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
+            img.save(tmp.name)
+            tmp_path = tmp.name
+        # conf=0.05 detecta más objetos en imágenes de basura real;
+        # el filtrado de duplicados ocurre después, en procesar().
+        return modelo(tmp_path, conf=0.05, imgsz=imgsz)
+    finally:
+        # Antes este archivo nunca se borraba (delete=False + sin cleanup)
+        # y se iba acumulando en disco con cada foto analizada.
+        if tmp_path and os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except Exception:
+                pass
+
+
+def _iou(caja_a, caja_b):
+    """Intersección sobre unión entre dos cajas [x1,y1,x2,y2]."""
+    xa1, ya1, xa2, ya2 = caja_a
+    xb1, yb1, xb2, yb2 = caja_b
+    ix1, iy1 = max(xa1, xb1), max(ya1, yb1)
+    ix2, iy2 = min(xa2, xb2), min(ya2, yb2)
+    inter = max(0.0, ix2 - ix1) * max(0.0, iy2 - iy1)
+    area_a = max(0.0, xa2 - xa1) * max(0.0, ya2 - ya1)
+    area_b = max(0.0, xb2 - xb1) * max(0.0, yb2 - yb1)
+    union = area_a + area_b - inter
+    return inter / union if union > 0 else 0.0
+
+
+def _deduplicar_detecciones(objetos, iou_umbral=0.55):
+    """Evita doble conteo: si dos detecciones de CLASES DISTINTAS caen
+    sobre el mismo objeto físico (cajas muy solapadas — típico cuando
+    YOLO duda entre 'handbag' y 'backpack' para la misma bolsa de
+    basura), nos quedamos solo con la de mayor confianza.
+    El NMS interno de YOLO ya evita duplicados DENTRO de una misma clase;
+    esto cubre el caso ENTRE clases distintas, que YOLO no filtra solo.
+    objetos: lista de (nombre, confianza, [x1,y1,x2,y2])."""
+    ordenados = sorted(objetos, key=lambda o: o[1], reverse=True)
+    conservados = []
+    for nombre, conf, caja in ordenados:
+        if any(_iou(caja, c[2]) >= iou_umbral for c in conservados):
+            continue
+        conservados.append((nombre, conf, caja))
+    return conservados
 
 
 def procesar(resultados):
@@ -682,13 +731,20 @@ def procesar(resultados):
     objetos = []
     for r in resultados:
         for box in r.boxes:
-            objetos.append((modelo.names[int(box.cls[0])], float(box.conf[0])))
+            nombre = modelo.names[int(box.cls[0])]
+            conf   = float(box.conf[0])
+            caja   = box.xyxy[0].tolist()
+            objetos.append((nombre, conf, caja))
 
     if not objetos:
-        return [], 0, 0.0, "N/D", "🟢 Sin residuos detectados"
+        return [], 0, 0.0, "N/D", "🟢 Sin residuos detectados", 0
+
+    # Evitar doble conteo de un mismo objeto físico detectado con dos
+    # etiquetas distintas y cajas solapadas.
+    objetos = _deduplicar_detecciones(objetos)
 
     conteo = Counter(o[0] for o in objetos)
-    mejor  = {n: max(c for nn, c in objetos if nn == n) for n in conteo}
+    mejor  = {n: max(c for nn, c, _ in objetos if nn == n) for n in conteo}
 
     tabla, peso_total, residuos, no_rec = [], 0.0, 0, 0
     cnt_mat = Counter()
@@ -723,7 +779,7 @@ def procesar(resultados):
     else:
         nivel = "🔴 Punto crítico — Acumulación sin valorización"
 
-    return tabla, residuos, round(peso_total, 2), tipo, nivel
+    return tabla, residuos, round(peso_total, 2), tipo, nivel, total
 
 
 def badge(txt, tipo="ok"):
@@ -1269,7 +1325,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         st.markdown("**🤖 Detecciones IA**")
                         st.image(res[0].plot(), use_container_width=True)
 
-                    tabla, residuos, peso, tipo, nivel = procesar(res)
+                    tabla, residuos, peso, tipo, nivel, _ = procesar(res)
                     if tabla:
                         df_t = pd.DataFrame(tabla)
                         df_si = df_t[df_t["♻️"] == "✅ Sí"]
@@ -1403,8 +1459,13 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                 # ── Botón de análisis — guarda resultados en cache_critico ──
                 if st.button("🔍 Evaluar con IA", type="primary",
                              use_container_width=True, key="cr_analizar"):
-                    with st.spinner("Analizando con YOLOv8..."):
-                        res2 = analizar(img2)
+                    with st.spinner("Analizando con YOLOv8 (alta resolución)..."):
+                        # imgsz=960: Punto Crítico suele mostrar acumulaciones
+                        # que abarcan más área que una foto de un solo residuo,
+                        # así que una resolución mayor ayuda a detectar objetos
+                        # pequeños o al fondo de la imagen que 640px pasaría
+                        # por alto. Es más lento que el análisis normal.
+                        res2 = analizar(img2, imgsz=960)
                     st.session_state.cache_foto_b64 = img_a_b64(img2)
 
                     co2, cd2 = st.columns(2)
@@ -1415,8 +1476,10 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         st.markdown("**🤖 Detecciones IA**")
                         st.image(res2[0].plot(), use_container_width=True)
 
-                    tabla2, res2_r, peso2, tipo2, nivel2 = procesar(res2)
-                    total2 = sum(len(r.boxes) for r in res2)
+                    # total2 ahora viene directo de procesar() (ya sin duplicados);
+                    # antes se recalculaba con sum(len(r.boxes)...), que contaba
+                    # cada detección solapada como un objeto distinto.
+                    tabla2, res2_r, peso2, tipo2, nivel2, total2 = procesar(res2)
 
                     if tabla2:
                         df_si2 = pd.DataFrame(tabla2)
