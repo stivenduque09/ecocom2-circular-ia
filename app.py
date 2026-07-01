@@ -337,27 +337,27 @@ st.markdown("""
         border-radius: 12px !important; padding: 16px !important;
     }
 
-   /* ── Chat del agente (Estilo con fondo celeste brillante) ──── */
+/* ── Estilos para las burbujas del Chat ──── */
 .chat-burbuja-bot {
     background: #99FFFF !important;
-    color: #064e3b !important; /* Texto oscuro para máxima legibilidad sobre el fondo claro */
+    color: #064e3b !important;
     border: 2px solid #4ade80 !important;
     border-radius: 12px !important;
     padding: 12px !important;
     font-size: 14px !important;
     font-weight: 600 !important;
+    margin-bottom: 10px !important;
 }
 
-    .chat-burbuja-user {
-        background: #14532d !important;
-        color: #f0fdf4 !important;
-        border-radius: 12px !important;
-        padding: 12px !important;
-        font-size: 14px !important;
-        max-width: 80%;
-        margin-left: auto;
-        text-align: right;
-    }
+.chat-burbuja-user {
+    background: #e2e8f0 !important;
+    color: #1e293b !important;
+    border: 1px solid #cbd5e1 !important;
+    border-radius: 12px !important;
+    padding: 12px !important;
+    margin-bottom: 10px !important;
+    text-align: right !important;
+}
 
 /* Caja donde aparecen los mensajes */
 .chat-container{
