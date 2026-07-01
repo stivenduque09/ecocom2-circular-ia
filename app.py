@@ -337,16 +337,15 @@ st.markdown("""
         border-radius: 12px !important; padding: 16px !important;
     }
 
-    /* ── Chat del agente (Ajustado con colores oscuros legibles) ──── */
-    .chat-burbuja-bot {
-        background: #052e16 !important;
-        color: #f0fdf4 !important;
-        border: 2px solid #4ade80 !important;
-        border-radius: 12px !important;
-        padding: 12px !important;
-        font-size: 14px !important;
-        font-weight: 500 !important;
-    }
+ /* Burbuja para el usuario (estilo más claro para diferenciar) */
+.chat-burbuja-user {
+    background: #e2e8f0 !important; /* Gris muy claro */
+    color: #1e293b !important;      /* Gris oscuro para el texto */
+    border: 1px solid #cbd5e1 !important;
+    border-radius: 12px !important;
+    padding: 12px !important;
+    margin: 10px 0 !important;
+}
 
     .chat-burbuja-user {
         background: #14532d !important;
