@@ -12,3 +12,4 @@ folium
 streamlit-folium
 shapely
 pandas
+anthropic
