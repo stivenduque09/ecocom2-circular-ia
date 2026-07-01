@@ -394,12 +394,12 @@ st.markdown("""
 }
 
 [data-testid="stSidebar"] .stButton button p {
-    color: #14532d !important; /* Verde oscuro para que contraste */
+    color: #14532d !important; /* Verde oscuro idéntico al de tus textos */
     font-weight: 500 !important;
 }
 
 [data-testid="stSidebar"] .stButton button:hover {
-    background-color: #f0fdf4 !important;
+    background-color: #f0fdf4 !important; /* Cambio sutil al pasar el mouse */
     border-color: #16a34a !important;
 }
 </style>
