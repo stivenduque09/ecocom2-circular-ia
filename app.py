@@ -337,27 +337,16 @@ st.markdown("""
         border-radius: 12px !important; padding: 16px !important;
     }
 
-   /* ── Chat del agente (Ajustado con colores oscuros legibles) ──── */
-
+    /* ── Chat del agente (Ajustado con colores oscuros legibles) ──── */
     .chat-burbuja-bot {
-
         background: #052e16 !important;
-
         color: #f0fdf4 !important;
-
         border: 2px solid #4ade80 !important;
-
         border-radius: 12px !important;
-
         padding: 12px !important;
-
         font-size: 14px !important;
-
         font-weight: 500 !important;
-
-    } 
-
-
+    }
 
     .chat-burbuja-user {
         background: #14532d !important;
@@ -371,24 +360,16 @@ st.markdown("""
     }
 
 /* Caja donde aparecen los mensajes */
-.chat-container {
+.chat-container{
     background: #ffffff !important;
-    border: 2px solid #4ade80 !important; /* Un verde un poco más sólido para que contraste mejor */
+    border: 2px solid #86efac !important;
     border-radius: 12px !important;
-    padding: 16px !important;
-    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06) !important;
-}
-
-/* Texto oscuro dentro de la caja */
-.chat-container * {
-    color: #064e3b !important; 
-    font-size: 14px !important;
-    line-height: 1.5 !important;
+    padding: 12px !important;
 }
 
 /* Texto dentro del chat */
-.chat-container * {
-    color: #022c22 !important;
+.chat-container *{
+    color:#14532d !important;
 }
 
 /* Campo donde se escribe */
@@ -406,24 +387,19 @@ st.markdown("""
 }
 
 /* ── SOLUCIÓN PARA LAS PREGUNTAS RÁPIDAS INVISIBLES ── */
-
 [data-testid="stSidebar"] .stButton button {
-
     background-color: #ffffff !important;
-
     border: 2px solid #86efac !important;
-
     border-radius: 8px !important;
-
 }
 
 [data-testid="stSidebar"] .stButton button p {
-    color: #14532d !important; /* Verde oscuro idéntico al de tus textos */
+    color: #14532d !important; /* Verde oscuro para que contraste */
     font-weight: 500 !important;
 }
 
 [data-testid="stSidebar"] .stButton button:hover {
-    background-color: #f0fdf4 !important; /* Cambio sutil al pasar el mouse */
+    background-color: #f0fdf4 !important;
     border-color: #16a34a !important;
 }
 </style>
