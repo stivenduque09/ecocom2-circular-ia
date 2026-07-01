@@ -337,73 +337,73 @@ st.markdown("""
         border-radius: 12px !important; padding: 16px !important;
     }
 
-    /* ── Chat del agente ─────────────────────────────────────────── */
+    /* ── Chat del agente (Ajustado con colores oscuros legibles) ──── */
+    .chat-burbuja-bot {
+        background: #052e16 !important;
+        color: #f0fdf4 !important;
+        border: 2px solid #4ade80 !important;
+        border-radius: 12px !important;
+        padding: 12px !important;
+        font-size: 14px !important;
+        font-weight: 500 !important;
+    }
+
     .chat-burbuja-user {
-        background: #dcfce7; border-radius: 16px 16px 4px 16px;
-        padding: 12px 16px; margin: 8px 0; color: #14532d;
-        font-size: 14px; max-width: 80%; margin-left: auto;
+        background: #14532d !important;
+        color: #f0fdf4 !important;
+        border-radius: 12px !important;
+        padding: 12px !important;
+        font-size: 14px !important;
+        max-width: 80%;
+        margin-left: auto;
         text-align: right;
     }
-   .chat-burbuja-bot{
-    background: #f0fdf4 !important;
-    color: #14532d !important;
-    border: 2px solid #4ade80 !important;
+
+/* Caja donde aparecen los mensajes */
+.chat-container{
+    background: #ffffff !important;
+    border: 2px solid #86efac !important;
     border-radius: 12px !important;
     padding: 12px !important;
-    font-size: 14px !important;
+}
+
+/* Texto dentro del chat */
+.chat-container *{
+    color:#14532d !important;
+}
+
+/* Campo donde se escribe */
+.chat-container textarea,
+.chat-container input{
+    background:#ffffff !important;
+    color:#14532d !important;
+    border:2px solid #86efac !important;
+}
+
+/* Placeholder */
+.chat-container textarea::placeholder,
+.chat-container input::placeholder{
+    color:#6b7280 !important;
+}
+
+/* ── SOLUCIÓN PARA LAS PREGUNTAS RÁPIDAS INVISIBLES ── */
+[data-testid="stSidebar"] .stButton button {
+    background-color: #ffffff !important;
+    border: 2px solid #86efac !important;
+    border-radius: 8px !important;
+}
+
+[data-testid="stSidebar"] .stButton button p {
+    color: #14532d !important; /* Verde oscuro para que contraste */
     font-weight: 500 !important;
 }
 
-.chat-burbuja-user{
-    background: #16a34a !important;
-    color: white !important;
-    border-radius: 12px !important;
-    padding: 12px !important;
-    font-size: 14px !important;
-}
-
-.chat-container{
-    background:#ffffff !important;
-    border:2px solid #86efac !important;
-    border-radius:12px !important;
-    padding:12px !important;
-}
-
-/* Mensajes del usuario */
-.chat-burbuja-user{
-    background:#dcfce7 !important;
-    color:#14532d !important;
-    border-radius:14px 14px 4px 14px;
-    padding:10px 14px;
-    margin:8px 0;
-    font-size:14px;
-    font-weight:500;
-}
-
-/* Mensajes del bot */
-.chat-burbuja-bot{
-    background:#f8fafc !important;
-    color:#111827 !important;
-    border:1px solid #cbd5e1;
-    border-radius:14px 14px 14px 4px;
-    padding:10px 14px;
-    margin:8px 0;
-    font-size:14px;
-    font-weight:500;
-}
-
-/* Todo el texto del chat */
-.chat-container *{
-    color:#111827 !important;
-}
-
-/* Caja donde se escribe */
-.chat-container input{
-    color:#111827 !important;
+[data-testid="stSidebar"] .stButton button:hover {
+    background-color: #f0fdf4 !important;
+    border-color: #16a34a !important;
 }
 </style>
 """, unsafe_allow_html=True)
-
 # ====================================================================
 # 2. POLÍGONO COMUNA 2 — SANTA CRUZ, MEDELLÍN
 #    Desde Estación Acevedo (sur) → Andalucía → Comuneros → Santa Cruz
