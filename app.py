@@ -409,11 +409,6 @@ st.markdown("""
     border: none !important;
     border-radius: 8px !important;
 }
-
-[data-testid="stSidebar"] .stButton button p {
-    color: white !important;
-    font-weight: 600 !important;
-}
 </style>
 """, unsafe_allow_html=True)
 # ====================================================================
