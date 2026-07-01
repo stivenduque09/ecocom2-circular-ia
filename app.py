@@ -401,7 +401,6 @@ st.markdown("""
 [data-testid="stSidebar"] .stButton button:hover {
     background-color: #f0fdf4 !important;
     border-color: #16a34a !important;
-
 }
 </style>
 """, unsafe_allow_html=True)
