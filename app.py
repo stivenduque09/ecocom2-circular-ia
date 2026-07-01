@@ -360,16 +360,24 @@ st.markdown("""
     }
 
 /* Caja donde aparecen los mensajes */
-.chat-container{
+.chat-container {
     background: #ffffff !important;
-    border: 2px solid #86efac !important;
+    border: 2px solid #4ade80 !important; /* Un verde un poco más sólido para que contraste mejor */
     border-radius: 12px !important;
-    padding: 12px !important;
+    padding: 16px !important;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06) !important;
+}
+
+/* Texto oscuro dentro de la caja */
+.chat-container * {
+    color: #064e3b !important; 
+    font-size: 14px !important;
+    line-height: 1.5 !important;
 }
 
 /* Texto dentro del chat */
 .chat-container * {
-    color: #1f2937 !important;
+    color: #022c22 !important;
 }
 
 /* Campo donde se escribe */
