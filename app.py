@@ -770,14 +770,31 @@ def procesar(resultados):
     total = residuos + no_rec
     ratio = residuos / total if total > 0 else 0
 
-    if total <= 2:
+    # ── Dimensión de ESCALA, aparte del ratio ──────────────────────────
+    # Antes, la clasificación solo miraba qué tan reciclable era el
+    # material. Eso significaba que una acumulación enorme (ej. 40
+    # botellas, 100% reciclable) salía "🟢 verde" igual que 3 botellas,
+    # aunque una montaña de botellas SÍ es un punto crítico que necesita
+    # recolección — el material tiene valor, pero el volumen es un
+    # problema en sí mismo. Estos umbrales son un punto de partida
+    # razonable, no una medición de campo; ajústalos si hace falta.
+    ESCALA_ALERTA_OBJ, ESCALA_CRITICA_OBJ = 15, 30      # cant. de objetos
+    PESO_ALERTA_KG,    PESO_CRITICA_KG    = 20.0, 50.0   # kg estimados
+    gran_volumen    = residuos >= ESCALA_ALERTA_OBJ  or peso_total >= PESO_ALERTA_KG
+    volumen_critico = residuos >= ESCALA_CRITICA_OBJ or peso_total >= PESO_CRITICA_KG
+
+    if volumen_critico:
+        nivel = "🔴 Punto crítico — Gran acumulación, recolección urgente"
+    elif total <= 2:
         nivel = "🟢 Residuo puntual"
+    elif ratio < 0.30:
+        nivel = "🔴 Punto crítico — Acumulación sin valorización"
+    elif gran_volumen:
+        nivel = "🟡 Punto amarillo — Buen material, pero gran volumen"
     elif ratio >= 0.60:
         nivel = "🟢 Punto verde — Alta valorización reciclable"
-    elif ratio >= 0.30:
-        nivel = "🟡 Punto amarillo — Residuos mixtos"
     else:
-        nivel = "🔴 Punto crítico — Acumulación sin valorización"
+        nivel = "🟡 Punto amarillo — Residuos mixtos"
 
     return tabla, residuos, round(peso_total, 2), tipo, nivel, total
 
@@ -2101,11 +2118,15 @@ existen zonas donde los residuos se depositan en espacios públicos sin recolecc
 
 ### 🟢 🟡 🔴 Sistema de Clasificación EcoCom2
 
+La clasificación combina **dos factores**: qué tan reciclable es el material, y **qué tan grande**
+es la acumulación. Un montón grande de material 100% reciclable (ej. 40 botellas) también cuenta
+como punto crítico — el volumen es un problema aunque el material tenga valor.
+
 | Color | Significado | Acción recomendada |
 |---|---|---|
-| 🟢 **Verde** | ≥60% objetos reciclables. Punto de **alta valorización** | Ruta de reciclaje |
-| 🟡 **Amarillo** | 30-60% mixto: reciclables + basura | Separación en origen |
-| 🔴 **Rojo** | <30% reciclable. Acumulación crítica sin valor | Recolección urgente |
+| 🟢 **Verde** | ≥60% objetos reciclables y volumen pequeño | Ruta de reciclaje |
+| 🟡 **Amarillo** | 30-60% mixto, o buen material pero volumen considerable | Separación en origen |
+| 🔴 **Rojo** | <30% reciclable, o una acumulación grande sin importar el material | Recolección urgente |
 """)
 
     st.markdown("---")
