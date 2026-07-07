@@ -500,6 +500,12 @@ for k, v in {
 if "reportes" not in st.session_state:
     st.session_state.reportes = cargar_reportes_disco()
 
+# Recordar cuántos de "mis" reportes ya estaban Resueltos la última vez
+# que el ciudadano vio su historial — así podemos avisarle solo de los
+# CAMBIOS nuevos (cierre de ciclo), no repetir el mismo aviso siempre.
+if "mis_estados_vistos" not in st.session_state:
+    st.session_state.mis_estados_vistos = {}
+
 # ====================================================================
 # 4. MODELO YOLO — conf 0.05 para detectar más objetos en basura real
 # ====================================================================
@@ -892,9 +898,9 @@ else:
 
 st.sidebar.markdown("---")
 
-# SOLUCIÓN Python 3.10: menú SIEMPRE con las mismas 3 opciones (no cambiar dinámicamente)
+# SOLUCIÓN Python 3.10: menú SIEMPRE con las mismas opciones (no cambiar dinámicamente)
 # El contenido del panel admin está protegido por contraseña dentro de la página
-PAGINAS = ["🏠 Inicio y Mapa", "🛡️ Panel Admin", "ℹ️ Información"]
+PAGINAS = ["🏠 Inicio y Mapa", "📊 Comuna en Cifras", "🛡️ Panel Admin", "ℹ️ Información"]
 menu = st.sidebar.radio("Menú", PAGINAS)   # sin key → sin conflicto de estado
 
 st.sidebar.markdown("---")
@@ -1424,6 +1430,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                                  use_container_width=True, key="r_publicar"):
                         st.session_state.reportes.append(r)
                         st.session_state.mis_codigos.append(r["Código"])
+                        st.session_state.mis_estados_vistos[r["Código"]] = r["Estado"]
                         guardar_reportes_disco(st.session_state.reportes)
                         st.session_state.cache = None
                         st.session_state.seccion = "historial"
@@ -1587,6 +1594,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                             }
                             st.session_state.reportes.append(nuevo)
                             st.session_state.mis_codigos.append(nuevo["Código"])
+                            st.session_state.mis_estados_vistos[nuevo["Código"]] = nuevo["Estado"]
                             guardar_reportes_disco(st.session_state.reportes)
                             st.session_state.cache_critico = None
                             st.session_state.seccion = "historial"
@@ -1603,6 +1611,53 @@ font-size:14px;text-align:center;margin-bottom:10px;">
     # ── SECCIÓN: Historial ─────────────────────────────────────────────
     elif seccion == "historial":
         st.markdown("### 📋 Historial de Reportes")
+
+        # ── CIERRE DE CICLO: aviso de cambios en MIS reportes ─────────
+        # Comparamos el estado actual de cada reporte que YO publiqué en
+        # esta sesión contra el último estado que vi. Si cambió (p.ej.
+        # de Pendiente a En proceso o a Resuelto), se lo mostramos como
+        # una notificación explícita — así el reporte deja de sentirse
+        # como "una foto y ya" y el ciudadano ve que su acción tuvo
+        # seguimiento real.
+        mis_reportes_actuales = [
+            r for r in st.session_state.reportes
+            if r["Código"] in st.session_state.mis_codigos
+        ]
+        avisos_cambio = []
+        for r in mis_reportes_actuales:
+            cod = r["Código"]
+            estado_actual = r.get("Estado", "")
+            estado_previo = st.session_state.mis_estados_vistos.get(cod)
+            if estado_previo is not None and estado_previo != estado_actual:
+                avisos_cambio.append((cod, estado_previo, estado_actual, r))
+            st.session_state.mis_estados_vistos[cod] = estado_actual
+
+        if avisos_cambio:
+            for cod, previo, actual, r in avisos_cambio:
+                if "Resuelto" in actual:
+                    st.success(
+                        f"🎉 ¡Tu reporte **{cod}** ({r.get('Sector','')}) fue **resuelto**! "
+                        f"Gracias por reportarlo — tu acción ayudó a limpiar tu barrio."
+                    )
+                elif "proceso" in actual:
+                    st.info(
+                        f"🚚 Tu reporte **{cod}** ({r.get('Sector','')}) pasó a "
+                        f"**en proceso de recolección**. Ya está siendo atendido."
+                    )
+
+        # Resumen rápido de "mis reportes" (siempre visible si ha publicado algo)
+        if mis_reportes_actuales:
+            n_total_mios = len(mis_reportes_actuales)
+            n_resueltos_mios = sum(1 for r in mis_reportes_actuales if "Resuelto" in r.get("Estado",""))
+            n_proceso_mios   = sum(1 for r in mis_reportes_actuales if "proceso"  in r.get("Estado",""))
+            n_pend_mios      = n_total_mios - n_resueltos_mios - n_proceso_mios
+            st.markdown(
+                f'<div style="background:rgba(74,222,128,0.08);border:1px solid #4ade80;'
+                f'border-radius:10px;padding:10px 16px;margin-bottom:10px;font-size:13px;">'
+                f'👤 <b>Tus reportes en esta sesión:</b> {n_total_mios} total · '
+                f'🔴 {n_pend_mios} pendientes · 🟡 {n_proceso_mios} en proceso · '
+                f'✅ {n_resueltos_mios} resueltos'
+                f'</div>', unsafe_allow_html=True)
 
         solo_mios = st.checkbox(
             "📍 Mostrar solo mis reportes",
@@ -1655,6 +1710,127 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                 mime="text/csv",
                 use_container_width=True,
             )
+
+# ====================================================================
+# 8.5 COMUNA EN CIFRAS — Panel público, sin contraseña
+#
+# El Panel Admin (sección 9) ya calcula estos mismos indicadores, pero
+# solo el administrador los ve. Esta sección expone una versión de
+# solo-lectura de esas cifras a CUALQUIER visitante, para que la
+# comunidad pueda ver el estado agregado de la Comuna 2 sin necesitar
+# login. Esto es lo que convierte el reporte individual en algo que
+# alimenta un panorama colectivo visible — la pieza de "movilización"
+# que el diagnóstico original identificó como faltante.
+# ====================================================================
+elif menu == "📊 Comuna en Cifras":
+    st.title("📊 Comuna 2 en Cifras")
+    st.caption("Panel público — visible para cualquier persona, sin contraseña. "
+               "Estos datos se actualizan en tiempo real con cada reporte y cada "
+               "cambio de estado que hace la administración.")
+
+    reportes_pub = st.session_state.reportes
+
+    if not reportes_pub:
+        st.info("Todavía no hay reportes publicados. Sé el primero en reportar un "
+                "punto crítico desde 🏠 Inicio y Mapa.")
+    else:
+        df_pub = pd.DataFrame(reportes_pub)
+
+        total_pub      = len(df_pub)
+        criticos_pub   = int(df_pub["Clasificación"].str.contains("crítico",  case=False, na=False).sum())
+        amarillos_pub  = int(df_pub["Clasificación"].str.contains("amarillo", case=False, na=False).sum())
+        verdes_pub     = int(df_pub["Clasificación"].str.contains("verde",    case=False, na=False).sum())
+        peso_pub       = float(df_pub["Peso (Kg)"].sum()) if "Peso (Kg)" in df_pub.columns else 0.0
+        pendientes_pub = int(df_pub["Estado"].str.contains("Pendiente", na=False).sum()) if "Estado" in df_pub.columns else total_pub
+        proceso_pub    = int(df_pub["Estado"].str.contains("proceso",   na=False).sum()) if "Estado" in df_pub.columns else 0
+        resueltos_pub  = int(df_pub["Estado"].str.contains("Resuelto",  na=False).sum()) if "Estado" in df_pub.columns else 0
+
+        # ── Reportes de este mes calendario (para el "gracias a los
+        # reportes de esta semana/mes se atendieron X puntos") ────────
+        try:
+            df_pub["_fecha_dt"] = pd.to_datetime(df_pub["Fecha"], errors="coerce")
+            hoy = datetime.now()
+            df_mes = df_pub[
+                (df_pub["_fecha_dt"].dt.month == hoy.month) &
+                (df_pub["_fecha_dt"].dt.year == hoy.year)
+            ]
+            resueltos_mes = int(df_mes["Estado"].str.contains("Resuelto", na=False).sum()) if "Estado" in df_mes.columns else 0
+            nuevos_mes    = len(df_mes)
+        except Exception:
+            resueltos_mes, nuevos_mes = 0, 0
+
+        # Mensaje de impacto — el "retorno visible" del reporte ciudadano
+        st.markdown(
+            f'<div style="background:linear-gradient(135deg,rgba(74,222,128,0.15),rgba(22,163,74,0.10));'
+            f'border:1px solid #4ade80;border-radius:14px;padding:18px 22px;margin-bottom:16px;">'
+            f'<span style="font-size:16px;font-weight:700;color:#166534;">'
+            f'🙌 Gracias a los reportes de la comunidad, este mes se han resuelto '
+            f'<span style="color:#16a34a;">{resueltos_mes}</span> punto(s) crítico(s) '
+            f'y se registraron <span style="color:#16a34a;">{nuevos_mes}</span> reporte(s) nuevo(s).'
+            f'</span></div>', unsafe_allow_html=True)
+
+        # KPIs generales
+        k1, k2, k3, k4, k5, k6 = st.columns(6)
+        for col, val, label, color in [
+            (k1, total_pub,     "Total reportes",  "#4ade80"),
+            (k2, criticos_pub,  "🔴 Críticos",      "#f87171"),
+            (k3, amarillos_pub, "🟡 Mixtos",        "#fbbf24"),
+            (k4, verdes_pub,    "🟢 Reciclables",   "#4ade80"),
+            (k5, proceso_pub,   "🚚 En proceso",    "#fb923c"),
+            (k6, resueltos_pub, "✅ Resueltos",     "#34d399"),
+        ]:
+            with col:
+                st.markdown(
+                    f'<div class="metric-card"><h2 style="color:{color};margin:0">{val}</h2>'
+                    f'<p style="font-size:11px;margin:4px 0 0 0;">{label}</p></div>',
+                    unsafe_allow_html=True)
+
+        st.markdown(
+            f'<div style="background:rgba(167,139,250,0.10);border:1px solid #a78bfa;'
+            f'border-radius:8px;padding:10px 16px;margin-top:14px;font-size:14px;">'
+            f'⚖️ <b style="color:#7c3aed">Carga total estimada reportada: {peso_pub:.1f} kg</b> '
+            f'en {total_pub} reportes desde el inicio del proyecto.'
+            f'</div>', unsafe_allow_html=True)
+
+        st.markdown("---")
+
+        # ── Ranking de barrios: dónde se acumula más, para orientar la
+        # conversación comunitaria (sin nombrar culpables, solo datos) ──
+        st.markdown("#### 🏘️ Puntos críticos activos por barrio")
+        st.caption("Barrios con reportes 🔴/🟡 que aún no han sido marcados como resueltos — "
+                   "útil para priorizar dónde enfocar la limpieza y la sensibilización.")
+
+        if "Sector" in df_pub.columns and "Estado" in df_pub.columns:
+            df_activos = df_pub[~df_pub["Estado"].str.contains("Resuelto", na=False)]
+            if not df_activos.empty:
+                ranking = (df_activos.groupby("Sector").size()
+                           .reset_index(name="Puntos activos")
+                           .sort_values("Puntos activos", ascending=False))
+                ranking.insert(0, "Puesto", range(1, len(ranking) + 1))
+                st.dataframe(ranking, use_container_width=True, hide_index=True)
+            else:
+                st.success("🎉 ¡No hay puntos activos pendientes! Todos los reportes están resueltos.")
+
+        st.markdown("---")
+
+        # ── Evolución simple: acumulado de reportes en el tiempo ──────
+        st.markdown("#### 📈 Reportes acumulados en el tiempo")
+        try:
+            df_evol = df_pub.dropna(subset=["_fecha_dt"]).sort_values("_fecha_dt")
+            if not df_evol.empty:
+                df_evol["Acumulado"] = range(1, len(df_evol) + 1)
+                st.line_chart(df_evol.set_index("_fecha_dt")["Acumulado"])
+            else:
+                st.caption("Sin fechas suficientes para mostrar la evolución todavía.")
+        except Exception:
+            st.caption("Sin datos suficientes para mostrar la evolución todavía.")
+
+        st.markdown("---")
+        st.caption(
+            "💡 Este panel es de solo lectura: los cambios de estado (Pendiente → En proceso → "
+            "Resuelto) los hace la administración desde el 🛡️ Panel Admin. Si tú publicaste un "
+            "reporte, puedes ver su seguimiento personal en 🏠 Inicio y Mapa → 📋 Historial."
+        )
 
 # ====================================================================
 # 9. PANEL ADMINISTRADOR — Gestión completa de reportes
