@@ -3,7 +3,7 @@ ultralytics
 torch
 torchvision
 pillow
-opencv-python-headless
+opencv-python
 numpy
 matplotlib
 streamlit-js-eval
