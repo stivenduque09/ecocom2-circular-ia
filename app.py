@@ -684,9 +684,15 @@ def analizar(img, imgsz=640):
         with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
             img.save(tmp.name)
             tmp_path = tmp.name
-        # conf=0.05 detecta más objetos en imágenes de basura real;
-        # el filtrado de duplicados ocurre después, en procesar().
-        return modelo(tmp_path, conf=0.05, imgsz=imgsz)
+        # conf=0.15: antes estaba en 0.05, que dejaba pasar puro ruido
+        # (detecciones tipo "train 0.07", "boat 0.07" sobre fondos que no
+        # tienen nada que ver con el residuo, ej. un bus o un grafiti detrás
+        # de la basura). Con 0.05 esas detecciones espurias se contaban
+        # igual que una detección real y podían hacer que la escena entera
+        # se clasificara mal. 0.15 sigue siendo permisivo (para no perder
+        # objetos parcialmente ocultos en fotos de basura real) pero corta
+        # el ruido de muy baja confianza.
+        return modelo(tmp_path, conf=0.15, imgsz=imgsz)
     finally:
         # Antes este archivo nunca se borraba (delete=False + sin cleanup)
         # y se iba acumulando en disco con cada foto analizada.
@@ -745,6 +751,26 @@ def procesar(resultados):
     if not objetos:
         return [], 0, 0.0, "N/D", "🟢 Sin residuos detectados", 0
 
+    # ── Filtro extra para clases "raras" en una foto de basura ─────────
+    # YOLOv8 fue entrenado sobre COCO, que incluye 80 clases muy variadas
+    # (pelota deportiva, cometa, bate de béisbol, avión...). En fotos de
+    # basura real, texturas de pasto/asfalto/edificios de fondo a veces
+    # disparan estas clases con confianza baja-media aunque no exista
+    # nada parecido en la imagen — son alucinaciones del modelo, no
+    # detecciones reales. MAT ya define qué objetos son plausibles en
+    # este contexto (reciclables + no-reciclables esperados como persona,
+    # carro, perro...). Si la clase NO está en MAT, le exigimos mucha más
+    # confianza (40%) para tomarla en cuenta; si está en MAT, basta con
+    # el umbral normal del modelo (ver conf= en analizar()).
+    UMBRAL_CONF_CLASE_DESCONOCIDA = 0.40
+    objetos = [
+        (nombre, conf, caja) for nombre, conf, caja in objetos
+        if nombre in MAT or conf >= UMBRAL_CONF_CLASE_DESCONOCIDA
+    ]
+
+    if not objetos:
+        return [], 0, 0.0, "N/D", "🟢 Sin residuos detectados", 0
+
     # Evitar doble conteo de un mismo objeto físico detectado con dos
     # etiquetas distintas y cajas solapadas.
     objetos = _deduplicar_detecciones(objetos)
@@ -791,7 +817,15 @@ def procesar(resultados):
 
     if volumen_critico:
         nivel = "🔴 Punto crítico — Gran acumulación, recolección urgente"
-    elif total <= 2:
+    elif total <= 2 and ratio >= 0.5:
+        # ANTES: "total <= 2" solía en su solo bastar para poner verde,
+        # sin mirar si esos 1-2 objetos eran reciclables. Eso hacía que
+        # una foto de basura real, donde YOLO solo detectaba 1-2 falsos
+        # positivos de bajísima confianza sobre el fondo (ej. "boat 0.07",
+        # "train 0.09"), saliera marcada como "🟢 Residuo puntual" aunque
+        # visualmente fuera un punto crítico. Ahora también exige que la
+        # mayoría de lo detectado sea reciclable (ratio >= 0.5) — si no,
+        # cae a las reglas de abajo, que sí valoran correctamente.
         nivel = "🟢 Residuo puntual"
     elif ratio < 0.30:
         nivel = "🔴 Punto crítico — Acumulación sin valorización"
