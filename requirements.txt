@@ -8,3 +8,4 @@ geopy
 pandas
 pillow
 requests
+streamlit-js-eval
