@@ -1242,6 +1242,13 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         dir_gps, barrio_gps = geocodificar_inversa(glat, glon)
                     set_ubicacion(glat, glon, dir_gps)
                     st.session_state.click_barrio = barrio_gps
+                    # Marcamos el punto GPS como "punto seleccionado" también,
+                    # igual que si hubieras tocado el mapa — así el panel con
+                    # los botones 📸 Reportar Residuo / 🚨 Punto Crítico aparece
+                    # de una vez, sin necesidad de tocar nada más.
+                    st.session_state.click_lat = glat
+                    st.session_state.click_lon = glon
+                    st.session_state.click_dir = dir_gps
                     st.success(f"✅ ¡Verificado por GPS! Estás en: {dir_gps}")
                 else:
                     st.warning(
@@ -1283,30 +1290,45 @@ font-size:14px;text-align:center;margin-bottom:10px;">
         tooltip="📍 Área piloto — Comuna 2 Santa Cruz (Acevedo → Villa del Socorro)"
     ).add_to(mapa)
 
-    if st.session_state.get("validado") and st.session_state.get("lat"):
+    def _mismo_punto(a, b, tol=0.00003):
+        return (a[0] is not None and b[0] is not None
+                and abs(a[0] - b[0]) < tol and abs(a[1] - b[1]) < tol)
+
+    _lat_home = st.session_state.get("lat")
+    _lon_home = st.session_state.get("lon")
+    _clat_ss  = st.session_state.get("click_lat")
+    _clon_ss  = st.session_state.get("click_lon")
+    _glat_ss  = st.session_state.get("gps_lat")
+    _glon_ss  = st.session_state.get("gps_lon")
+
+    if st.session_state.get("validado") and _lat_home:
         col_pin = "blue" if not st.session_state.fuera else "gray"
         folium.Marker(
-            location=[st.session_state.lat, st.session_state.lon],
+            location=[_lat_home, _lon_home],
             popup=f"🏠 {st.session_state.direccion}",
             tooltip="🏠 Tu dirección verificada",
             icon=folium.Icon(color=col_pin, icon="home", prefix="fa")
         ).add_to(mapa)
 
-    if st.session_state.get("click_lat"):
+    # Pin "punto seleccionado" — se omite si coincide con el de la casa
+    # (ej. cuando el GPS verificó y marcó el mismo punto automáticamente)
+    # para no apilar dos pines exactamente encima uno del otro.
+    if _clat_ss and not _mismo_punto((_clat_ss, _clon_ss), (_lat_home, _lon_home)):
         folium.Marker(
-            location=[st.session_state.click_lat, st.session_state.click_lon],
+            location=[_clat_ss, _clon_ss],
             popup=f"📌 {st.session_state.get('click_dir','Punto seleccionado')}",
             tooltip="📌 Punto seleccionado",
             icon=folium.Icon(color="red", icon="map-marker", prefix="fa")
         ).add_to(mapa)
 
-    # Pin de posición GPS real del dispositivo (distinto del pin de
-    # dirección verificada y del pin de punto seleccionado) — se
-    # muestra incluso si el GPS cae fuera de la Comuna 2, solo como
-    # referencia visual de dónde estás parado.
-    if st.session_state.get("gps_lat"):
+    # Pin de posición GPS real del dispositivo — se omite si coincide
+    # con la casa o el punto seleccionado (mismo motivo de arriba). Solo
+    # aporta valor cuando es distinto, ej. GPS fuera de la Comuna 2.
+    if (_glat_ss
+            and not _mismo_punto((_glat_ss, _glon_ss), (_lat_home, _lon_home))
+            and not _mismo_punto((_glat_ss, _glon_ss), (_clat_ss, _clon_ss))):
         folium.Marker(
-            location=[st.session_state.gps_lat, st.session_state.gps_lon],
+            location=[_glat_ss, _glon_ss],
             popup="📍 Tu posición GPS actual",
             tooltip="📍 Tu ubicación en tiempo real",
             icon=folium.Icon(color="purple", icon="crosshairs", prefix="fa")
