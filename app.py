@@ -18,30 +18,16 @@ from io import BytesIO
 
 # ====================================================================
 # PERSISTENCIA — SQLite en vez de JSON en /tmp
-#
-# /tmp se borra en cada reinicio en la mayoría de hostings (incluido
-# Streamlit Community Cloud), así que los reportes se perdían sin
-# aviso. SQLite en una carpeta junto al script sobrevive reinicios
-# normales de la app.
-#
-# ⚠️ Si despliegas en Streamlit Community Cloud (share.streamlit.io):
-# el contenedor se reconstruye desde el repo de GitHub en cada redeploy
-# o cuando la app "despierta" tras dormir, así que NINGÚN archivo local
-# (ni este) sobrevive eso. En ese caso se necesita una base de datos
-# externa (Google Sheets o Supabase son las opciones más simples).
-# Si es tu caso, avísame y lo conectamos.
-#
-# Las funciones cargar_reportes_disco() / guardar_reportes_disco()
-# mantienen la misma firma que antes, así que el resto del código no
-# cambia: sigue trabajando con listas de diccionarios normales.
 # ====================================================================
 DB_PATH = Path(__file__).resolve().parent / "data" / "ecocom2.db"
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 _CAMPOS    = ["Código","Sector","Referencia","Objetos","Peso (Kg)",
-              "Predominante","Clasificación","Lat","Lon","Fecha","Estado","FotoB64","Observaciones"]
+              "Predominante","Clasificación","Lat","Lon","Fecha","Estado","FotoB64",
+              "Descripcion","NotaVozB64"]
 _COLUMNAS  = ["codigo","sector","referencia","objetos","peso_kg",
-              "predominante","clasificacion","lat","lon","fecha","estado","foto_b64","observaciones"]
+              "predominante","clasificacion","lat","lon","fecha","estado","foto_b64",
+              "descripcion","nota_voz_b64"]
 
 def _conectar_db():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
@@ -64,16 +50,18 @@ def _crear_tabla():
                     lon REAL,
                     fecha TEXT,
                     estado TEXT,
-                    foto_b64 TEXT,
-                    observaciones TEXT
+                    foto_b64 TEXT
                 )
             """)
-            # Migración suave: si la tabla ya existía de una versión anterior
-            # sin la columna "observaciones", la agregamos sin perder datos.
-            try:
-                conn.execute("ALTER TABLE reportes ADD COLUMN observaciones TEXT")
-            except Exception:
-                pass  # la columna ya existe
+            # Migración: agregar columnas nuevas si la tabla ya existía de
+            # una versión anterior sin descripción/nota de voz. SQLite no
+            # soporta "ADD COLUMN IF NOT EXISTS", así que intentamos y
+            # silenciamos el error si la columna ya existe.
+            for col_sql in ["descripcion TEXT", "nota_voz_b64 TEXT"]:
+                try:
+                    conn.execute(f"ALTER TABLE reportes ADD COLUMN {col_sql}")
+                except Exception:
+                    pass
     except Exception:
         pass
 
@@ -91,8 +79,6 @@ def cargar_reportes_disco():
         return []
 
 def guardar_reportes_disco(reportes):
-    """Reescribe toda la tabla con la lista actual (mismo comportamiento
-    que el guardado completo del JSON anterior)."""
     try:
         with _conectar_db() as conn:
             conn.execute("DELETE FROM reportes")
@@ -111,22 +97,17 @@ st.set_page_config(page_title="EcoCom2 Circular IA", page_icon="♻️", layout=
 
 st.markdown("""
 <style>
-    /* ── Fondo principal: blanco roto / crema cálido ─────────────── */
     .stApp {
         background-color: #f0fdf4;
         color: #1a2e1a;
         font-family: 'Segoe UI', Arial, sans-serif;
     }
     .block-container { padding-top: 1rem; max-width: 1200px; }
-
-    /* Fondo del sidebar */
     [data-testid="stSidebar"] {
         background: linear-gradient(180deg, #166534 0%, #15803d 100%) !important;
         border-right: 3px solid #4ade80;
     }
-
     [data-testid="stSidebar"] * { color: #f0fdf4 !important; }
-
     [data-testid="stSidebar"] .stRadio label {
         font-size: 15px !important; font-weight: 600 !important;
     }
@@ -138,7 +119,6 @@ st.markdown("""
     [data-testid="stSidebar"] .stRadio div[role="radiogroup"] label:hover {
         background: rgba(255,255,255,0.22) !important;
     }
-
     [data-testid="stSidebar"] .badge-ok {
         background: #14532d !important;
         border: 2px solid #4ade80 !important;
@@ -154,7 +134,6 @@ st.markdown("""
         border: 2px solid #f87171 !important;
         border-radius: 10px !important; padding: 10px 14px !important;
     }
-
     [data-testid="stSidebar"] details {
         background: rgba(0, 40, 20, 0.70) !important;
         border: 1px solid rgba(74,222,128,0.45) !important;
@@ -176,7 +155,6 @@ st.markdown("""
         border-radius: 0 0 8px 8px !important;
         padding: 8px 6px !important;
     }
-
     [data-testid="stSidebar"] input[type="text"],
     [data-testid="stSidebar"] input[type="password"],
     [data-testid="stSidebar"] input {
@@ -185,17 +163,14 @@ st.markdown("""
         border: 1px solid #4ade80 !important;
         border-radius: 6px !important;
     }
-
     [data-testid="stSidebar"] .ecocom2-footer {
         background: rgba(0, 30, 15, 0.55) !important;
         border: 1px solid rgba(74,222,128,0.35) !important;
         border-radius: 6px !important;
     }
-
     h1 { color: #166534 !important; font-size: 2rem !important; font-weight: 800 !important; }
     h2 { color: #15803d !important; font-weight: 700 !important; }
     h3 { color: #16a34a !important; font-weight: 600 !important; }
-
     header { 
         background-color: transparent !important; 
             }
@@ -217,7 +192,6 @@ st.markdown("""
         color: #7f1d1d; font-weight: 700; font-size: 14px;
         box-shadow: 0 2px 8px rgba(220,38,38,0.15);
     }
-
     .metric-card {
         background: #ffffff;
         border: 2px solid #bbf7d0;
@@ -229,7 +203,6 @@ st.markdown("""
     .metric-card:hover { transform: translateY(-2px); }
     .metric-card h2, .metric-card h3 { margin: 0 0 4px 0 !important; }
     .metric-card p { color: #4b5563 !important; font-size: 13px !important; margin: 0; }
-
     div[data-testid="stButton"] button[kind="primary"] {
         background: linear-gradient(135deg, #16a34a, #15803d) !important;
         color: white !important; border: none !important;
@@ -242,13 +215,11 @@ st.markdown("""
         transform: translateY(-1px) !important;
         box-shadow: 0 6px 16px rgba(22,163,74,0.45) !important;
     }
-
     div[data-testid="stButton"] button[kind="secondary"] {
         background: #ffffff !important; color: #166534 !important;
         border: 2px solid #16a34a !important;
         font-weight: 600 !important; border-radius: 10px !important;
     }
-
     div[data-testid="stTextInput"] input {
         border: 2px solid #86efac !important;
         border-radius: 10px !important; font-size: 15px !important;
@@ -259,45 +230,10 @@ st.markdown("""
         border-color: #16a34a !important;
         box-shadow: 0 0 0 3px rgba(22,163,74,0.15) !important;
     }
-
-    /* ── Text area (Observaciones): antes heredaba tema oscuro y el
-       texto escrito quedaba invisible (negro sobre negro) ─────────── */
-    div[data-testid="stTextArea"] textarea {
-        border: 2px solid #86efac !important;
-        border-radius: 10px !important; font-size: 15px !important;
-        background: #ffffff !important; color: #14532d !important;
-        padding: 10px 14px !important;
-    }
-    div[data-testid="stTextArea"] textarea::placeholder {
-        color: #9ca3af !important;
-    }
-    div[data-testid="stTextArea"] textarea:focus {
-        border-color: #16a34a !important;
-        box-shadow: 0 0 0 3px rgba(22,163,74,0.15) !important;
-    }
-    /* Etiquetas de los campos (antes casi invisibles sobre fondo claro) */
-    div[data-testid="stTextInput"] label,
-    div[data-testid="stTextArea"] label,
-    div[data-testid="stSelectbox"] label,
-    div[data-testid="stFileUploader"] label {
-        color: #14532d !important;
-        font-weight: 600 !important;
-    }
-
-    /* Captions (ej. "📍 Detectado automáticamente...") — heredaban un
-       gris muy claro casi invisible sobre el fondo crema de la app ─── */
-    div[data-testid="stCaptionContainer"],
-    [data-testid="stCaptionContainer"] p,
-    .stApp small {
-        color: #4b5563 !important;
-        opacity: 1 !important;
-    }
-
     div[data-testid="stSelectbox"] > div > div {
         border: 2px solid #86efac !important;
         border-radius: 10px !important; background: #ffffff !important;
     }
-
     .stTabs [data-baseweb="tab-list"] {
         background: #dcfce7; border-radius: 10px; padding: 4px;
         gap: 4px;
@@ -311,19 +247,16 @@ st.markdown("""
         background: #16a34a !important; color: white !important;
         border-radius: 8px;
     }
-
     div[data-testid="stExpander"] {
         border: 1px solid #bbf7d0 !important;
         border-radius: 10px !important;
         background: #ffffff !important;
         margin-bottom: 8px !important;
     }
-
     div[data-testid="stDataFrameContainer"] {
         border: 2px solid #bbf7d0;
         border-radius: 10px; overflow: hidden;
     }
-
     div[data-testid="stInfo"] {
         background: #eff6ff !important; border-left: 4px solid #3b82f6 !important;
         color: #1e3a5f !important; border-radius: 8px !important;
@@ -340,12 +273,10 @@ st.markdown("""
         background: #fef2f2 !important; border-left: 4px solid #dc2626 !important;
         color: #7f1d1d !important; border-radius: 8px !important;
     }
-
     div[data-testid="stFileUploader"] {
         background: #f0fdf4 !important; border: 2px dashed #4ade80 !important;
         border-radius: 12px !important; padding: 16px !important;
     }
-
 .chat-burbuja-bot {
     background: #99FFFF !important;
     color: #064e3b !important;
@@ -356,7 +287,6 @@ st.markdown("""
     font-weight: 600 !important;
     margin-bottom: 10px !important;
 }
-
 .chat-burbuja-user {
     background: #e2e8f0 !important;
     color: #1e293b !important;
@@ -366,41 +296,34 @@ st.markdown("""
     margin-bottom: 10px !important;
     text-align: right !important;
 }
-
 .chat-container{
     background: #ffffff !important;
     border: 2px solid #86efac !important;
     border-radius: 12px !important;
     padding: 12px !important;
 }
-
 .chat-container *{
     color:#14532d !important;
 }
-
 .chat-container textarea,
 .chat-container input{
     background:#ffffff !important;
     color:#14532d !important;
     border:2px solid #86efac !important;
 }
-
 .chat-container textarea::placeholder,
 .chat-container input::placeholder{
     color:#6b7280 !important;
 }
-
 [data-testid="stSidebar"] .stButton button {
     background-color: #ffffff !important;
     border: 2px solid #86efac !important;
     border-radius: 8px !important;
 }
-
 [data-testid="stSidebar"] .stButton button p {
     color: #14532d !important;
     font-weight: 500 !important;
 }
-
 [data-testid="stSidebar"] .stButton button:hover {
     background-color: #f0fdf4 !important;
     border-color: #16a34a !important;
@@ -410,71 +333,21 @@ st.markdown("""
 
 # ====================================================================
 # 2. POLÍGONO COMUNA 2 — SANTA CRUZ, MEDELLÍN
-#    Desde Estación Acevedo (sur) → Andalucía → Comuneros → Santa Cruz
-#    → Villa del Socorro (norte). Límite oeste = Autopista Norte.
 # ====================================================================
-# ============================================================
-# Polígono COMUNA 2 — SANTA CRUZ, Medellín
-# Verificado con calles reales (imágenes del proyecto)
-#
-# Barrios incluidos (11 oficiales):
-#   La Rosa · Santa Cruz · Moscú No.1 · Villa Niza · Andalucía
-#   Villa del Socorro · La Francia · La Frontera
-#   Playón de los Comuneros · Pablo VI · La Isla
-#
-# Límites reales:
-#   Sur:   La Rosa / Calle 92-95    (lat ≈ 6.296)
-#   Norte: Playón — antes de Bello  (lat ≈ 6.317, NO incluye Zamora)
-#   Oeste: Carrera 52               (lon ≈ -75.560 a -75.562)
-#   Este:  antes de Popular/ladera  (lon ≈ -75.550 a -75.553)
-#          Santo Domingo y Popular  quedan FUERA (son otra comuna)
-# ============================================================
 POLIGONO_COMUNA2 = Polygon([
-
-    # Sur-occidente (Carrera 52 - Santa Cruz)
-
     (-75.5613, 6.2933),
-
-    # Subiendo por el límite con Castilla
-
     (-75.5608, 6.2965),
-
     (-75.5598, 6.3005),
-
     (-75.5585, 6.3055),
-
-    # Norte
-
     (-75.5560, 6.3098),
-
     (-75.5540, 6.3100),
-
-    # Oriente norte
-
     (-75.5500, 6.3032),
-
-    # Oriente medio
-
     (-75.5498, 6.2980),
-
-    # Moscú
-
     (-75.5500, 6.2935),
-
-    # Suroriente
-
     (-75.5500, 6.2895),
-
-    # Sur
-
     (-75.5555, 6.2890),
-
     (-75.5590, 6.2895),
-
-    # Cierre
-
     (-75.5613, 6.2933)
-
 ])
 
 BARRIOS = [
@@ -483,7 +356,6 @@ BARRIOS = [
     "Moscú No. 1", "Santa Cruz", "La Rosa",
 ]
 
-# Centro de la Comuna 2
 LAT_C = 6.3104
 LON_C = -75.5552
 
@@ -493,9 +365,9 @@ LON_C = -75.5552
 for k, v in {
     "lat": None, "lon": None, "validado": False, "fuera": True,
     "direccion": "", "reporte_ok": False, "cache": None,
-    "seccion": "info",   # "info" | "residuo" | "critico" | "historial"
-    "click_barrio": None,   # barrio adivinado del último punto tocado en el mapa
-    "mis_codigos": [],      # códigos de reportes publicados en ESTA sesión de navegador
+    "seccion": "info",
+    "click_barrio": None,
+    "mis_codigos": [],
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -503,14 +375,11 @@ for k, v in {
 if "reportes" not in st.session_state:
     st.session_state.reportes = cargar_reportes_disco()
 
-# Recordar cuántos de "mis" reportes ya estaban Resueltos la última vez
-# que el ciudadano vio su historial — así podemos avisarle solo de los
-# CAMBIOS nuevos (cierre de ciclo), no repetir el mismo aviso siempre.
 if "mis_estados_vistos" not in st.session_state:
     st.session_state.mis_estados_vistos = {}
 
 # ====================================================================
-# 4. MODELO YOLO — conf 0.05 para detectar más objetos en basura real
+# 4. MODELO YOLO
 # ====================================================================
 @st.cache_resource
 def cargar_modelo():
@@ -518,10 +387,9 @@ def cargar_modelo():
 modelo = cargar_modelo()
 
 # ====================================================================
-# 5. MATERIALES — incluye bolsas de basura y más residuos reales
+# 5. MATERIALES
 # ====================================================================
 MAT = {
-    # ── Plástico ──────────────────────────────────────────────────────
     "bottle":         ("Botella plástica",         "Plástico",    0.05, True),
     "cup":            ("Vaso / Recipiente plástico","Plástico",    0.03, True),
     "chair":          ("Silla plástica",            "Plástico",    2.00, True),
@@ -530,24 +398,19 @@ MAT = {
     "bowl":           ("Recipiente plástico",       "Plástico",    0.15, True),
     "toy":            ("Juguete plástico",          "Plástico",    0.50, True),
     "frisbee":        ("Disco plástico",            "Plástico",    0.10, True),
-    # Bolsas de basura — YOLO las detecta como handbag/backpack en baja confianza
     "handbag":        ("Bolsa de basura / Bolso",   "Plástico",    0.40, True),
     "backpack":       ("Bolsa / Mochila",           "Textil",      0.50, True),
     "suitcase":       ("Bolsa grande / Maleta",     "Textil",      1.00, True),
-    # ── Papel / Cartón ────────────────────────────────────────────────
     "book":           ("Libro / Cuaderno",          "Papel",       0.30, True),
     "newspaper":      ("Periódico / Papel",         "Papel",       0.10, True),
     "box":            ("Caja de cartón",            "Cartón",      0.30, True),
-    # ── Vidrio ────────────────────────────────────────────────────────
     "wine glass":     ("Botella / Copa de vidrio",  "Vidrio",      0.20, True),
     "vase":           ("Frasco / Jarrón de vidrio", "Vidrio",      0.80, True),
-    # ── Aluminio / Metal ──────────────────────────────────────────────
     "can":            ("Lata de aluminio",          "Aluminio",    0.02, True),
     "knife":          ("Cuchillo / Utensilio metal","Metal",       0.10, True),
     "fork":           ("Tenedor / Utensilio metal", "Metal",       0.05, True),
     "spoon":          ("Cuchara / Utensilio metal", "Metal",       0.05, True),
     "scissors":       ("Tijeras",                   "Metal",       0.10, True),
-    # ── Electrónico ───────────────────────────────────────────────────
     "cell phone":     ("Celular",                   "Electrónico", 0.20, True),
     "laptop":         ("Portátil",                  "Electrónico", 2.50, True),
     "keyboard":       ("Teclado",                   "Electrónico", 0.60, True),
@@ -555,7 +418,6 @@ MAT = {
     "remote":         ("Control remoto",            "Electrónico", 0.20, True),
     "tv":             ("Televisor",                 "Electrónico", 8.00, True),
     "clock":          ("Reloj",                     "Electrónico", 0.30, True),
-    # ── Orgánico ──────────────────────────────────────────────────────
     "banana":         ("Banano",                    "Orgánico",    0.10, True),
     "apple":          ("Manzana",                   "Orgánico",    0.15, True),
     "orange":         ("Naranja",                   "Orgánico",    0.20, True),
@@ -567,13 +429,11 @@ MAT = {
     "hot dog":        ("Residuo de comida",         "Orgánico",    0.15, True),
     "cake":           ("Residuo de comida",         "Orgánico",    0.20, True),
     "donut":          ("Residuo de comida",         "Orgánico",    0.10, True),
-    # ── Madera / Mixto ────────────────────────────────────────────────
     "dining table":   ("Mesa / Madera",             "Madera",     12.00, True),
     "couch":          ("Sofá / Mueble",             "Mixto",      15.00, True),
     "bed":            ("Cama / Colchón",            "Mixto",      20.00, True),
     "umbrella":       ("Paraguas",                  "Mixto",       0.50, True),
     "tie":            ("Corbata / Textil",          "Textil",      0.10, True),
-    # ── No aplica / No reciclable ──────────────────────────────────────
     "person":         ("Persona",     "—", 0, False),
     "dog":            ("Perro",       "—", 0, False),
     "cat":            ("Gato",        "—", 0, False),
@@ -605,15 +465,11 @@ def geocodificar(direccion: str):
 
 
 def _normalizar_txt(txt: str) -> str:
-    """Quita tildes/mayúsculas para comparar nombres de barrio sin ruido."""
     txt = unicodedata.normalize("NFKD", txt or "").encode("ascii", "ignore").decode("ascii")
     return txt.lower().strip()
 
 
 def adivinar_barrio(texto_nominatim: str):
-    """Intenta emparejar el barrio que devuelve Nominatim con la lista
-    oficial de BARRIOS. Primero por substring (ej. 'Moscú' → 'Moscú No. 1'),
-    y si no, por similitud aproximada. Devuelve None si no hay match confiable."""
     if not texto_nominatim:
         return None
     objetivo = _normalizar_txt(texto_nominatim)
@@ -628,7 +484,6 @@ def adivinar_barrio(texto_nominatim: str):
 
 @st.cache_data(show_spinner=False, ttl=3600)
 def geocodificar_inversa(lat: float, lon: float):
-    """Devuelve (direccion_legible, barrio_adivinado_o_None)."""
     from geopy.geocoders import Nominatim
     try:
         geo = Nominatim(user_agent="ecocom2_v4_rev", timeout=6)
@@ -652,13 +507,24 @@ def geocodificar_inversa(lat: float, lon: float):
 
 
 def img_a_b64(img_pil, max_px=200) -> str:
-    """Convierte una imagen PIL a base64 JPEG thumbnail para el popup del mapa."""
     try:
         thumb = img_pil.copy()
         thumb.thumbnail((max_px, max_px))
         buf = BytesIO()
         thumb.save(buf, format="JPEG", quality=60)
         return base64.b64encode(buf.getvalue()).decode("utf-8")
+    except Exception:
+        return ""
+
+
+def audio_a_b64(audio_uploadedfile) -> str:
+    """Convierte el audio grabado por st.audio_input (WAV) a base64 para
+    guardarlo junto al reporte. st.audio_input devuelve un objeto tipo
+    archivo (UploadedFile) con .getvalue()."""
+    try:
+        if audio_uploadedfile is None:
+            return ""
+        return base64.b64encode(audio_uploadedfile.getvalue()).decode("utf-8")
     except Exception:
         return ""
 
@@ -676,12 +542,6 @@ def set_ubicacion(lat, lon, direccion=""):
 
 
 def analizar(img, imgsz=640):
-    """Ejecuta YOLOv8 sobre la imagen.
-    imgsz: resolución de inferencia. Más alto = detecta mejor objetos
-    pequeños/lejanos (útil en fotos de Punto Crítico, que suelen abarcar
-    más área que una foto de un solo residuo), a costa de más tiempo de
-    cómputo. Debe ser múltiplo de 32 (640, 960, 1280...).
-    """
     tmp_path = None
     try:
         with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
@@ -697,7 +557,6 @@ def analizar(img, imgsz=640):
 
 
 def _iou(caja_a, caja_b):
-    """Intersección sobre unión entre dos cajas [x1,y1,x2,y2]."""
     xa1, ya1, xa2, ya2 = caja_a
     xb1, yb1, xb2, yb2 = caja_b
     ix1, iy1 = max(xa1, xb1), max(ya1, yb1)
@@ -710,7 +569,6 @@ def _iou(caja_a, caja_b):
 
 
 def _deduplicar_detecciones(objetos, iou_umbral=0.55):
-    """Evita doble conteo entre clases distintas con cajas muy solapadas."""
     ordenados = sorted(objetos, key=lambda o: o[1], reverse=True)
     conservados = []
     for nombre, conf, caja in ordenados:
@@ -721,12 +579,6 @@ def _deduplicar_detecciones(objetos, iou_umbral=0.55):
 
 
 def procesar(resultados):
-    """
-    Clasifica la escena según ratio de reciclables:
-    🟢 Verde      ≥60% reciclables  → alta valorización
-    🟡 Amarillo   30-60% mixto      → mezcla
-    🔴 Rojo       <30% reciclables  → acumulación sin valor (como la foto de basura)
-    """
     objetos = []
     for r in resultados:
         for box in r.boxes:
@@ -776,8 +628,8 @@ def procesar(resultados):
     total = residuos + no_rec
     ratio = residuos / total if total > 0 else 0
 
-    ESCALA_ALERTA_OBJ, ESCALA_CRITICA_OBJ = 15, 30      # cant. de objetos
-    PESO_ALERTA_KG,    PESO_CRITICA_KG    = 20.0, 50.0   # kg estimados
+    ESCALA_ALERTA_OBJ, ESCALA_CRITICA_OBJ = 15, 30
+    PESO_ALERTA_KG,    PESO_CRITICA_KG    = 20.0, 50.0
     gran_volumen    = residuos >= ESCALA_ALERTA_OBJ  or peso_total >= PESO_ALERTA_KG
     volumen_critico = residuos >= ESCALA_CRITICA_OBJ or peso_total >= PESO_CRITICA_KG
 
@@ -803,7 +655,6 @@ def badge(txt, tipo="ok"):
 
 
 def progreso_pasos(paso_actual: int, labels=None):
-    """Indicador horizontal 'Paso X de N' para el flujo de reportar."""
     labels = labels or ["Dirección", "Punto en mapa", "Foto", "Publicar"]
     total = len(labels)
     cols = st.columns(total)
@@ -843,94 +694,7 @@ def metricas(residuos, peso, nivel):
                     unsafe_allow_html=True)
 
 
-def _widget_dictado(placeholder_substr: str, key_html: str):
-    """Botón de '🎤 Dictar' que usa el reconocimiento de voz nativo del
-    navegador (Web Speech API) para llenar el campo de Observaciones
-    hablando en vez de escribiendo.
-
-    Cómo funciona:
-    - No sube audio a ningún servidor: todo el reconocimiento ocurre
-      en el navegador (Chrome / Edge en Android, PC y la mayoría de
-      celulares Android). Safari / iOS y Firefox NO lo soportan todavía.
-    - Al terminar de hablar, el texto reconocido se escribe directo en
-      el campo de Observaciones correspondiente (se identifica por su
-      placeholder, que es único para cada campo).
-    - Es un truco: como el widget vive en un iframe de Streamlit,
-      accedemos al documento del padre (window.parent.document) para
-      encontrar el textarea real y disparamos un evento 'input' para
-      que Streamlit detecte el cambio como si el usuario hubiera escrito.
-    """
-    import streamlit.components.v1 as components
-    placeholder_js = placeholder_substr.replace("'", "\\'")
-    html = f"""
-    <div style="font-family:'Segoe UI',Arial,sans-serif;">
-      <button id="btn_{key_html}" type="button" style="
-          background:linear-gradient(135deg,#16a34a,#15803d);
-          color:white;border:none;border-radius:8px;
-          padding:8px 16px;font-weight:700;font-size:13px;
-          cursor:pointer;display:inline-flex;align-items:center;gap:6px;">
-        🎤 Dictar observación por voz
-      </button>
-      <span id="estado_{key_html}" style="font-size:12px;color:#6b7280;margin-left:8px;"></span>
-      <script>
-        (function() {{
-          const btn = document.getElementById("btn_{key_html}");
-          const estado = document.getElementById("estado_{key_html}");
-          const SR = window.webkitSpeechRecognition || window.SpeechRecognition;
-          if (!SR) {{
-            estado.innerText = "⚠️ Tu navegador no soporta dictado por voz (usa Chrome/Edge)";
-            btn.disabled = true;
-            btn.style.opacity = "0.5";
-            return;
-          }}
-          btn.addEventListener("click", function() {{
-            const recognition = new SR();
-            recognition.lang = "es-CO";
-            recognition.interimResults = false;
-            recognition.maxAlternatives = 1;
-            estado.innerText = "🔴 Escuchando... habla ahora";
-            btn.disabled = true;
-            recognition.start();
-
-            recognition.onresult = function(event) {{
-              const texto = event.results[0][0].transcript;
-              try {{
-                const areas = window.parent.document.querySelectorAll('textarea');
-                let encontrado = false;
-                for (const ta of areas) {{
-                  if (ta.placeholder && ta.placeholder.includes('{placeholder_js}')) {{
-                    const setter = Object.getOwnPropertyDescriptor(
-                      window.parent.HTMLTextAreaElement.prototype, 'value').set;
-                    const previo = ta.value ? ta.value + " " : "";
-                    setter.call(ta, previo + texto);
-                    ta.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                    encontrado = true;
-                    break;
-                  }}
-                }}
-                estado.innerText = encontrado
-                  ? "✅ Texto agregado: \\"" + texto + "\\""
-                  : "⚠️ No encontré el campo — copia el texto manualmente: " + texto;
-              }} catch (e) {{
-                estado.innerText = "✅ Reconocido: \\"" + texto + "\\" (cópialo en el campo)";
-              }}
-            }};
-            recognition.onerror = function(event) {{
-              estado.innerText = "⚠️ No se pudo escuchar (" + event.error + "). Intenta de nuevo.";
-            }};
-            recognition.onend = function() {{
-              btn.disabled = false;
-            }};
-          }});
-        }})();
-      </script>
-    </div>
-    """
-    components.html(html, height=45)
-
-
 def nav_tabs(seccion_actual):
-    """Barra de navegación como pestañas usando botones — funciona en celular."""
     SECCIONES = [
         ("info",      "📍 Info del punto"),
         ("residuo",   "📸 Reportar Residuo"),
@@ -946,6 +710,7 @@ def nav_tabs(seccion_actual):
                          use_container_width=True, type=btn_type):
                 st.session_state.seccion = key
                 st.rerun()
+
 
 # ====================================================================
 # 7. BARRA LATERAL
@@ -1007,10 +772,11 @@ st.sidebar.markdown("---")
 st.sidebar.markdown("""
 <div class="ecocom2-footer" style="font-size:11px;padding:8px;background:rgba(16,185,129,0.06);
 border-radius:6px;border:1px solid rgba(74,222,128,0.15);">
-⚙️ <b style="color:#16a34a">EcoCom2 v5.0</b><br>
+⚙️ <b style="color:#16a34a">EcoCom2 v6.0</b><br>
 Territorio INN 2026 | ITM Medellín<br>
 Dev: <b style="color:#16a34a">Brandon Duque</b>
 </div>""", unsafe_allow_html=True)
+
 
 # ====================================================================
 # 8. INICIO Y MAPA
@@ -1232,26 +998,30 @@ font-size:14px;text-align:center;margin-bottom:10px;">
             icon=folium.Icon(color="red", icon="map-marker", prefix="fa")
         ).add_to(mapa)
 
+    # Reportes guardados
     for rep in st.session_state.reportes:
         niv = rep.get("Clasificación", "🟢")
         col = "red" if "🔴" in niv else ("orange" if "🟡" in niv else "green")
         foto_b64 = rep.get("FotoB64", "")
+        audio_b64 = rep.get("NotaVozB64", "")
+        desc = rep.get("Descripcion", "")
         img_html = (f'<br><img src="data:image/jpeg;base64,{foto_b64}" '
                     f'style="width:180px;border-radius:6px;margin-top:6px;">'
                     if foto_b64 else "")
-        obs_txt = rep.get("Observaciones", "")
-        obs_html = f"📝 {obs_txt[:80]}<br>" if obs_txt else ""
+        desc_html = (f'<br>📝 <i>{desc[:120]}</i>' if desc else "")
+        audio_html = (f'<br><audio controls style="width:180px;margin-top:6px;">'
+                      f'<source src="data:audio/wav;base64,{audio_b64}"></audio>'
+                      if audio_b64 else "")
         popup_html = (
             f"<div style='font-family:sans-serif;min-width:190px;'>"
             f"<b style='color:{col}'>{niv}</b><br>"
             f"<b>{rep['Código']}</b><br>"
             f"📍 {rep['Sector']}<br>"
             f"📌 {rep.get('Referencia','')[:40]}<br>"
-            f"{obs_html}"
             f"♻️ {rep['Objetos']} obj | ⚖️ {rep['Peso (Kg)']} kg<br>"
             f"🕐 {rep.get('Fecha','')}<br>"
             f"🔖 {rep.get('Estado','')}"
-            f"{img_html}</div>"
+            f"{desc_html}{img_html}{audio_html}</div>"
         )
         folium.CircleMarker(
             location=[rep["Lat"], rep["Lon"]], radius=12,
@@ -1323,7 +1093,6 @@ font-size:14px;text-align:center;margin-bottom:10px;">
             badge("⚠️ Verifica tu dirección arriba para reportar en este punto.", "warn")
 
     st.markdown("")
-
     st.markdown("")
     seccion = st.session_state.get("seccion", "info")
 
@@ -1336,6 +1105,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
             f'{iconos.get(seccion,"")}</div>',
             unsafe_allow_html=True)
 
+    # ── SECCIÓN: Punto en el mapa ──────────────────────────────────────
     if seccion == "info":
         if not clat:
             st.info("👆 Toca cualquier punto del mapa y usa los botones que aparecen para reportar.")
@@ -1373,18 +1143,17 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                 r_ref = st.text_input("Referencia (edita si quieres):",
                                       value=pdir, key="r_ref")
 
-            # ── OBSERVACIONES — describe lo que ves en la foto ──────────
-            # Campo libre para que el ciudadano cuente detalles que la IA
-            # no puede ver por sí sola (ej. "lleva ahí 3 días", "bloquea
-            # el andén", "hay olor fuerte"). Queda guardado junto al
-            # reporte y es visible para el administrador y en el mapa.
-            r_obs = st.text_area(
-                "📝 Observaciones (opcional):",
-                placeholder="Describe lo que ves en la foto: hace cuánto está ahí, "
-                            "si bloquea el paso, olores, riesgos, etc.",
-                key="r_obs", height=80,
+            # ── Descripción escrita y nota de voz (ambas opcionales) ────
+            st.markdown("**📝 Cuéntanos más (opcional):**")
+            r_desc = st.text_area(
+                "Descripción:",
+                placeholder="Ej: Llevan varios días acumulando basura aquí, "
+                            "los carros de recolección no pasan seguido...",
+                key="r_desc", label_visibility="collapsed", height=80
             )
-            _widget_dictado("Describe lo que ves en la foto", "dictado_r")
+            r_audio = st.audio_input("🎙️ O graba una nota de voz:", key="r_audio")
+            if r_audio:
+                st.caption("✅ Nota de voz grabada — se guardará junto con el reporte.")
 
             r_img = st.file_uploader("📷 Foto del residuo:",
                                      type=["jpg","jpeg","png"], key="r_img")
@@ -1470,14 +1239,13 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         "Fecha": datetime.now().strftime("%Y-%m-%d %H:%M"),
                         "Estado": "🔴 Pendiente",
                         "FotoB64": img_a_b64(img),
-                        "Observaciones": r_obs.strip(),
+                        "Descripcion": r_desc.strip() if r_desc else "",
+                        "NotaVozB64": audio_a_b64(r_audio),
                     }
 
             if st.session_state.get("cache"):
                 r = st.session_state.cache
                 st.markdown(f"**Listo:** {r['Clasificación']} · {r['Objetos']} reciclables · {r['Peso (Kg)']} kg")
-                if r.get("Observaciones"):
-                    st.markdown(f"**📝 Observaciones:** {r['Observaciones']}")
                 cp, cc = st.columns(2)
                 with cp:
                     if st.button("🚀 PUBLICAR EN EL MAPA", type="primary",
@@ -1529,14 +1297,17 @@ font-size:14px;text-align:center;margin-bottom:10px;">
             with cr2:
                 cr_ref = st.text_input("Referencia:", value=pdir, key="cr_ref")
 
-            # ── OBSERVACIONES — igual que en Reportar Residuo ───────────
-            cr_obs = st.text_area(
-                "📝 Observaciones (opcional):",
-                placeholder="Describe la acumulación: hace cuánto está ahí, si genera "
-                            "olores, si bloquea el paso, riesgos para la salud, etc.",
-                key="cr_obs", height=80,
+            # ── Descripción escrita y nota de voz para Punto Crítico ────
+            st.markdown("**📝 Cuéntanos más (opcional):**")
+            cr_desc = st.text_area(
+                "Descripción:",
+                placeholder="Ej: Es un punto crítico recurrente, huele muy mal, "
+                            "hay riesgo para los niños del sector...",
+                key="cr_desc", label_visibility="collapsed", height=80
             )
-            _widget_dictado("Describe la acumulación", "dictado_cr")
+            cr_audio = st.audio_input("🎙️ O graba una nota de voz:", key="cr_audio")
+            if cr_audio:
+                st.caption("✅ Nota de voz grabada — se guardará junto con la alerta.")
 
             cr_img = st.file_uploader("📷 Foto del punto crítico:",
                                       type=["jpg","jpeg","png"], key="cr_img")
@@ -1620,8 +1391,6 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         residuos_f= cc["residuos"]
 
                     metricas(residuos_f, peso_f, nivel_f)
-                    if cr_obs.strip():
-                        st.markdown(f"**📝 Observaciones:** {cr_obs.strip()}")
 
                     st.markdown("")
                     cr_pub, cr_can = st.columns(2)
@@ -1642,7 +1411,8 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                                 "Fecha":         datetime.now().strftime("%Y-%m-%d %H:%M"),
                                 "Estado":        "🔴 Pendiente",
                                 "FotoB64": st.session_state.get("cache_foto_b64", ""),
-                                "Observaciones": cr_obs.strip(),
+                                "Descripcion": cr_desc.strip() if cr_desc else "",
+                                "NotaVozB64": audio_a_b64(cr_audio),
                             }
                             st.session_state.reportes.append(nuevo)
                             st.session_state.mis_codigos.append(nuevo["Código"])
@@ -1739,7 +1509,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
             st.markdown("")
 
             COLS = ["Código","Fecha","Estado","Sector","Referencia",
-                    "Objetos","Peso (Kg)","Clasificación","Observaciones"]
+                    "Descripcion","Objetos","Peso (Kg)","Clasificación"]
             cols_ok = [c for c in COLS if c in df.columns]
             st.dataframe(df[cols_ok], use_container_width=True, hide_index=True)
 
@@ -1753,7 +1523,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
             )
 
 # ====================================================================
-# 8.5 COMUNA EN CIFRAS — Panel público, sin contraseña
+# 8.5 COMUNA EN CIFRAS
 # ====================================================================
 elif menu == "📊 Comuna en Cifras":
     st.title("📊 Comuna 2 en Cifras")
@@ -1822,6 +1592,7 @@ elif menu == "📊 Comuna en Cifras":
             f'</div>', unsafe_allow_html=True)
 
         st.markdown("---")
+
         st.markdown("#### 🏘️ Puntos críticos activos por barrio")
         st.caption("Barrios con reportes 🔴/🟡 que aún no han sido marcados como resueltos — "
                    "útil para priorizar dónde enfocar la limpieza y la sensibilización.")
@@ -1838,6 +1609,7 @@ elif menu == "📊 Comuna en Cifras":
                 st.success("🎉 ¡No hay puntos activos pendientes! Todos los reportes están resueltos.")
 
         st.markdown("---")
+
         st.markdown("#### 📈 Reportes acumulados en el tiempo")
         try:
             df_evol = df_pub.dropna(subset=["_fecha_dt"]).sort_values("_fecha_dt")
@@ -1857,7 +1629,7 @@ elif menu == "📊 Comuna en Cifras":
         )
 
 # ====================================================================
-# 9. PANEL ADMINISTRADOR — Gestión completa de reportes
+# 9. PANEL ADMINISTRADOR
 # ====================================================================
 elif menu == "🛡️ Panel Admin":
 
@@ -1933,9 +1705,6 @@ margin-bottom:8px;">
         "📥 Exportar / Limpiar"
     ])
 
-    # ════════════════════════════════════════════════════════════════
-    # TAB 1: DASHBOARD
-    # ════════════════════════════════════════════════════════════════
     with tab_dash:
         if not reportes:
             st.info("Sin reportes aún. Los reportes de los residentes aparecerán aquí.")
@@ -1981,14 +1750,11 @@ padding:10px 16px;margin-top:12px;font-size:14px;">
                              hide_index=True)
 
             st.markdown("#### 🕐 Últimos reportes registrados")
-            COLS_DASH = ["Código","Fecha","Estado","Sector","Clasificación","Peso (Kg)","Observaciones"]
+            COLS_DASH = ["Código","Fecha","Estado","Sector","Clasificación","Peso (Kg)"]
             cols_ok = [c for c in COLS_DASH if c in df_a.columns]
             st.dataframe(df_a[cols_ok].tail(5).iloc[::-1],
                          use_container_width=True, hide_index=True)
 
-    # ════════════════════════════════════════════════════════════════
-    # TAB 2: MAPA DE CONTROL
-    # ════════════════════════════════════════════════════════════════
     with tab_mapa:
         st.markdown("#### 🗺️ Todos los puntos reportados — mapa de control")
 
@@ -2030,20 +1796,23 @@ padding:10px 16px;margin-top:12px;font-size:14px;">
                     col = "gray"
 
                 foto_b64 = rep.get("FotoB64", "")
+                audio_b64 = rep.get("NotaVozB64", "")
+                desc = rep.get("Descripcion", "")
                 img_html  = (f'<br><img src="data:image/jpeg;base64,{foto_b64}" '
                               f'style="width:160px;border-radius:4px;margin-top:4px;">'
                               if foto_b64 else "")
-                obs_txt_adm = rep.get("Observaciones", "")
-                obs_html_adm = f"📝 {obs_txt_adm[:100]}<br>" if obs_txt_adm else ""
+                desc_html = (f'<br>📝 <i>{desc[:120]}</i>' if desc else "")
+                audio_html = (f'<br><audio controls style="width:160px;margin-top:4px;">'
+                              f'<source src="data:audio/wav;base64,{audio_b64}"></audio>'
+                              if audio_b64 else "")
                 popup_adm = (
                     f"<div style='font-family:sans-serif;min-width:190px;'>"
                     f"<b style='color:{col}'>{niv}</b><br>"
                     f"<b>{rep['Código']}</b><br>"
                     f"📍 {rep.get('Sector','')} · {rep.get('Referencia','')[:35]}<br>"
-                    f"{obs_html_adm}"
                     f"♻️ {rep.get('Objetos',0)} obj | ⚖️ {rep.get('Peso (Kg)',0)} kg<br>"
                     f"🕐 {rep.get('Fecha','')} | 🔖 {est}"
-                    f"{img_html}</div>"
+                    f"{desc_html}{img_html}{audio_html}</div>"
                 )
                 folium.CircleMarker(
                     location=[rep["Lat"], rep["Lon"]], radius=13,
@@ -2056,9 +1825,6 @@ padding:10px 16px;margin-top:12px;font-size:14px;">
             st_folium(mapa_adm, width="100%", height=480, returned_objects=[])
             st.caption(f"Mostrando {total_mostrados} de {len(reportes)} reportes")
 
-    # ════════════════════════════════════════════════════════════════
-    # TAB 3: GESTIÓN DE REPORTES
-    # ════════════════════════════════════════════════════════════════
     with tab_lista:
         st.markdown("#### 🗂️ Gestión individual de reportes")
 
@@ -2112,6 +1878,18 @@ padding:10px 16px;margin-top:12px;font-size:14px;">
                             f'style="max-width:320px;border-radius:8px;margin-bottom:10px;">',
                             unsafe_allow_html=True)
 
+                    desc = rep.get("Descripcion", "")
+                    if desc:
+                        st.markdown(f"**📝 Descripción del ciudadano:**\n\n> {desc}")
+
+                    audio_b64 = rep.get("NotaVozB64", "")
+                    if audio_b64:
+                        st.markdown("**🎙️ Nota de voz:**")
+                        try:
+                            st.audio(base64.b64decode(audio_b64), format="audio/wav")
+                        except Exception:
+                            st.caption("⚠️ No se pudo reproducir la nota de voz.")
+
                     i1, i2 = st.columns(2)
                     with i1:
                         st.markdown(
@@ -2130,15 +1908,6 @@ padding:10px 16px;margin-top:12px;font-size:14px;">
                     st.markdown(
                         f"📍 Coordenadas: `{rep.get('Lat',0):.5f}, {rep.get('Lon',0):.5f}`"
                     )
-
-                    # ── Observaciones del ciudadano ─────────────────────
-                    obs_rep = rep.get("Observaciones", "")
-                    if obs_rep:
-                        st.markdown(
-                            f'<div style="background:rgba(74,222,128,0.08);border-left:3px solid #4ade80;'
-                            f'border-radius:6px;padding:8px 12px;margin:8px 0;font-size:13px;">'
-                            f'📝 <b>Observaciones del ciudadano:</b><br>{obs_rep}</div>',
-                            unsafe_allow_html=True)
 
                     st.markdown("**Cambiar estado:**")
                     idx_est = ESTADOS.index(estado) if estado in ESTADOS else 0
@@ -2171,15 +1940,12 @@ padding:10px 16px;margin-top:12px;font-size:14px;">
                                 "codigo":codigo,"tipo":"eliminar"}
                             st.rerun()
 
-    # ════════════════════════════════════════════════════════════════
-    # TAB 4: EXPORTAR / LIMPIAR
-    # ════════════════════════════════════════════════════════════════
     with tab_export:
         st.markdown("#### 📥 Exportar datos")
 
         if reportes:
             df_exp = pd.DataFrame(reportes)
-            cols_exp = [c for c in df_exp.columns if c != "FotoB64"]
+            cols_exp = [c for c in df_exp.columns if c not in ("FotoB64", "NotaVozB64")]
 
             csv_bytes = df_exp[cols_exp].to_csv(index=False).encode("utf-8")
             st.download_button(
@@ -2367,9 +2133,8 @@ en tiempo real para detectar y clasificar objetos. El sistema:
 1. **Verifica tu dirección** en 🏠 Inicio y Mapa — escribe tu dirección y presiona 🔍 Verificar
 2. **Toca el mapa** en el punto exacto donde están los residuos
 3. **Presiona el botón** "📸 Ir a Reportar Residuo" o "🚨 Ir a Punto Crítico"
-4. **Sube una foto** del residuo y deja que la IA lo analice
-5. **Agrega observaciones** si quieres contar detalles que la foto no muestra
-6. **Publica el reporte** — quedará guardado en el mapa comunitario
+4. **Sube una foto**, agrega una descripción o nota de voz si quieres, y deja que la IA analice
+5. **Publica el reporte** — quedará guardado en el mapa comunitario
 
 > Solo residentes **dentro del polígono de la Comuna 2** pueden publicar reportes.
 > Cualquier persona puede analizar imágenes con la IA.
@@ -2390,7 +2155,7 @@ en tiempo real para detectar y clasificar objetos. El sistema:
     st.markdown("""
 <div style="background:rgba(16,185,129,0.06);border:1px solid rgba(74,222,128,0.2);
 border-radius:10px;padding:16px;text-align:center;color:#9ca3af;font-size:13px;">
-⚙️ <b style="color:#4ade80">EcoCom2 Circular IA v5.0</b><br>
+⚙️ <b style="color:#4ade80">EcoCom2 Circular IA v6.0</b><br>
 Proyecto <b style="color:#4ade80">Territorio INN 2026</b> · Instituto Tecnológico Metropolitano (ITM) · Medellín<br>
 Desarrollado por: <b style="color:#4ade80">Brandon Duque</b> · Comuna 2 Santa Cruz
 </div>
