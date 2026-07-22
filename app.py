@@ -260,6 +260,39 @@ st.markdown("""
         box-shadow: 0 0 0 3px rgba(22,163,74,0.15) !important;
     }
 
+    /* ── Text area (Observaciones): antes heredaba tema oscuro y el
+       texto escrito quedaba invisible (negro sobre negro) ─────────── */
+    div[data-testid="stTextArea"] textarea {
+        border: 2px solid #86efac !important;
+        border-radius: 10px !important; font-size: 15px !important;
+        background: #ffffff !important; color: #14532d !important;
+        padding: 10px 14px !important;
+    }
+    div[data-testid="stTextArea"] textarea::placeholder {
+        color: #9ca3af !important;
+    }
+    div[data-testid="stTextArea"] textarea:focus {
+        border-color: #16a34a !important;
+        box-shadow: 0 0 0 3px rgba(22,163,74,0.15) !important;
+    }
+    /* Etiquetas de los campos (antes casi invisibles sobre fondo claro) */
+    div[data-testid="stTextInput"] label,
+    div[data-testid="stTextArea"] label,
+    div[data-testid="stSelectbox"] label,
+    div[data-testid="stFileUploader"] label {
+        color: #14532d !important;
+        font-weight: 600 !important;
+    }
+
+    /* Captions (ej. "📍 Detectado automáticamente...") — heredaban un
+       gris muy claro casi invisible sobre el fondo crema de la app ─── */
+    div[data-testid="stCaptionContainer"],
+    [data-testid="stCaptionContainer"] p,
+    .stApp small {
+        color: #4b5563 !important;
+        opacity: 1 !important;
+    }
+
     div[data-testid="stSelectbox"] > div > div {
         border: 2px solid #86efac !important;
         border-radius: 10px !important; background: #ffffff !important;
@@ -810,6 +843,92 @@ def metricas(residuos, peso, nivel):
                     unsafe_allow_html=True)
 
 
+def _widget_dictado(placeholder_substr: str, key_html: str):
+    """Botón de '🎤 Dictar' que usa el reconocimiento de voz nativo del
+    navegador (Web Speech API) para llenar el campo de Observaciones
+    hablando en vez de escribiendo.
+
+    Cómo funciona:
+    - No sube audio a ningún servidor: todo el reconocimiento ocurre
+      en el navegador (Chrome / Edge en Android, PC y la mayoría de
+      celulares Android). Safari / iOS y Firefox NO lo soportan todavía.
+    - Al terminar de hablar, el texto reconocido se escribe directo en
+      el campo de Observaciones correspondiente (se identifica por su
+      placeholder, que es único para cada campo).
+    - Es un truco: como el widget vive en un iframe de Streamlit,
+      accedemos al documento del padre (window.parent.document) para
+      encontrar el textarea real y disparamos un evento 'input' para
+      que Streamlit detecte el cambio como si el usuario hubiera escrito.
+    """
+    import streamlit.components.v1 as components
+    placeholder_js = placeholder_substr.replace("'", "\\'")
+    html = f"""
+    <div style="font-family:'Segoe UI',Arial,sans-serif;">
+      <button id="btn_{key_html}" type="button" style="
+          background:linear-gradient(135deg,#16a34a,#15803d);
+          color:white;border:none;border-radius:8px;
+          padding:8px 16px;font-weight:700;font-size:13px;
+          cursor:pointer;display:inline-flex;align-items:center;gap:6px;">
+        🎤 Dictar observación por voz
+      </button>
+      <span id="estado_{key_html}" style="font-size:12px;color:#6b7280;margin-left:8px;"></span>
+      <script>
+        (function() {{
+          const btn = document.getElementById("btn_{key_html}");
+          const estado = document.getElementById("estado_{key_html}");
+          const SR = window.webkitSpeechRecognition || window.SpeechRecognition;
+          if (!SR) {{
+            estado.innerText = "⚠️ Tu navegador no soporta dictado por voz (usa Chrome/Edge)";
+            btn.disabled = true;
+            btn.style.opacity = "0.5";
+            return;
+          }}
+          btn.addEventListener("click", function() {{
+            const recognition = new SR();
+            recognition.lang = "es-CO";
+            recognition.interimResults = false;
+            recognition.maxAlternatives = 1;
+            estado.innerText = "🔴 Escuchando... habla ahora";
+            btn.disabled = true;
+            recognition.start();
+
+            recognition.onresult = function(event) {{
+              const texto = event.results[0][0].transcript;
+              try {{
+                const areas = window.parent.document.querySelectorAll('textarea');
+                let encontrado = false;
+                for (const ta of areas) {{
+                  if (ta.placeholder && ta.placeholder.includes('{placeholder_js}')) {{
+                    const setter = Object.getOwnPropertyDescriptor(
+                      window.parent.HTMLTextAreaElement.prototype, 'value').set;
+                    const previo = ta.value ? ta.value + " " : "";
+                    setter.call(ta, previo + texto);
+                    ta.dispatchEvent(new Event('input', {{ bubbles: true }}));
+                    encontrado = true;
+                    break;
+                  }}
+                }}
+                estado.innerText = encontrado
+                  ? "✅ Texto agregado: \\"" + texto + "\\""
+                  : "⚠️ No encontré el campo — copia el texto manualmente: " + texto;
+              }} catch (e) {{
+                estado.innerText = "✅ Reconocido: \\"" + texto + "\\" (cópialo en el campo)";
+              }}
+            }};
+            recognition.onerror = function(event) {{
+              estado.innerText = "⚠️ No se pudo escuchar (" + event.error + "). Intenta de nuevo.";
+            }};
+            recognition.onend = function() {{
+              btn.disabled = false;
+            }};
+          }});
+        }})();
+      </script>
+    </div>
+    """
+    components.html(html, height=45)
+
+
 def nav_tabs(seccion_actual):
     """Barra de navegación como pestañas usando botones — funciona en celular."""
     SECCIONES = [
@@ -1265,6 +1384,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                             "si bloquea el paso, olores, riesgos, etc.",
                 key="r_obs", height=80,
             )
+            _widget_dictado("Describe lo que ves en la foto", "dictado_r")
 
             r_img = st.file_uploader("📷 Foto del residuo:",
                                      type=["jpg","jpeg","png"], key="r_img")
@@ -1416,6 +1536,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                             "olores, si bloquea el paso, riesgos para la salud, etc.",
                 key="cr_obs", height=80,
             )
+            _widget_dictado("Describe la acumulación", "dictado_cr")
 
             cr_img = st.file_uploader("📷 Foto del punto crítico:",
                                       type=["jpg","jpeg","png"], key="cr_img")
