@@ -15,6 +15,7 @@ from pathlib import Path
 from datetime import datetime
 import base64
 from io import BytesIO
+from streamlit_js_eval import get_geolocation
 
 # ====================================================================
 # PERSISTENCIA — SQLite en vez de JSON en /tmp
@@ -275,19 +276,6 @@ st.markdown("""
         border-color: #16a34a !important;
         box-shadow: 0 0 0 3px rgba(22,163,74,0.15) !important;
     }
-
-    /* ── Input auxiliar oculto que recibe lat,lon desde el botón de GPS.
-       No se muestra al usuario — solo transporta el dato del navegador
-       (JS) hacia Streamlit (Python) reusando un widget normal. ────── */
-    input[placeholder="GPS_HIDDEN_INPUT"] {
-        position: absolute !important;
-        width: 1px !important; height: 1px !important;
-        opacity: 0 !important; pointer-events: none !important;
-    }
-    div:has(> div > div > input[placeholder="GPS_HIDDEN_INPUT"]) {
-        max-height: 0 !important; margin: 0 !important; padding: 0 !important;
-        overflow: hidden !important;
-    }
     /* Etiquetas de los campos (antes casi invisibles sobre fondo claro) */
     div[data-testid="stTextInput"] label,
     div[data-testid="stTextArea"] label,
@@ -511,6 +499,7 @@ for k, v in {
     "mis_codigos": [],      # códigos de reportes publicados en ESTA sesión de navegador
     "gps_procesado": None,  # última lectura de GPS ya procesada (evita loops)
     "gps_lat": None, "gps_lon": None,   # última posición GPS real del dispositivo
+    "gps_solicitado": False,   # True mientras esperamos la respuesta del navegador
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -944,87 +933,6 @@ def _widget_dictado(placeholder_substr: str, key_html: str):
     components.html(html, height=45)
 
 
-def _widget_gps(key_html: str = "gps"):
-    """Botón '📍 Usar mi ubicación GPS' que pide la posición real del
-    dispositivo al navegador (navigator.geolocation) y la entrega a
-    Streamlit escribiéndola en un input oculto (mismo truco que el
-    dictado por voz: encontrar el elemento por su placeholder único,
-    fijar el valor con el setter nativo y disparar 'input' + 'blur'
-    para que Streamlit detecte el cambio y vuelva a ejecutar el script).
-
-    Requiere permiso de ubicación del navegador (aparece un popup la
-    primera vez). Solo funciona sobre HTTPS (o localhost).
-    """
-    import streamlit.components.v1 as components
-    html = f"""
-    <div style="font-family:'Segoe UI',Arial,sans-serif;">
-      <button id="btn_{key_html}" type="button" style="
-          background:linear-gradient(135deg,#16a34a,#15803d);
-          color:white;border:none;border-radius:8px;
-          padding:8px 16px;font-weight:700;font-size:13px;
-          cursor:pointer;display:inline-flex;align-items:center;gap:6px;">
-        📍 Usar mi ubicación GPS
-      </button>
-      <span id="estado_{key_html}" style="font-size:12px;color:#6b7280;margin-left:8px;"></span>
-      <script>
-        (function() {{
-          const btn = document.getElementById("btn_{key_html}");
-          const estado = document.getElementById("estado_{key_html}");
-          if (!navigator.geolocation) {{
-            estado.innerText = "⚠️ Tu navegador no soporta geolocalización";
-            btn.disabled = true;
-            btn.style.opacity = "0.5";
-            return;
-          }}
-          btn.addEventListener("click", function() {{
-            estado.innerText = "📡 Obteniendo tu ubicación...";
-            btn.disabled = true;
-            navigator.geolocation.getCurrentPosition(
-              function(pos) {{
-                const lat = pos.coords.latitude;
-                const lon = pos.coords.longitude;
-                const valor = lat + "," + lon;
-                try {{
-                  const inputs = window.parent.document.querySelectorAll('input');
-                  let encontrado = false;
-                  for (const inp of inputs) {{
-                    if (inp.placeholder === 'GPS_HIDDEN_INPUT') {{
-                      const setter = Object.getOwnPropertyDescriptor(
-                        window.parent.HTMLInputElement.prototype, 'value').set;
-                      setter.call(inp, valor);
-                      inp.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                      inp.dispatchEvent(new Event('change', {{ bubbles: true }}));
-                      inp.blur();
-                      encontrado = true;
-                      break;
-                    }}
-                  }}
-                  estado.innerText = encontrado
-                    ? "✅ Ubicación detectada, verificando..."
-                    : "⚠️ No se pudo comunicar con la app.";
-                }} catch (e) {{
-                  estado.innerText = "⚠️ Error al enviar la ubicación.";
-                }}
-                btn.disabled = false;
-              }},
-              function(err) {{
-                let msg = "⚠️ No pudimos obtener tu ubicación.";
-                if (err.code === 1) msg = "⚠️ Permiso de ubicación denegado.";
-                if (err.code === 2) msg = "⚠️ Ubicación no disponible.";
-                if (err.code === 3) msg = "⚠️ Se agotó el tiempo de espera.";
-                estado.innerText = msg + " Busca tu dirección manualmente.";
-                btn.disabled = false;
-              }},
-              {{ enableHighAccuracy: true, timeout: 10000, maximumAge: 0 }}
-            );
-          }});
-        }})();
-      </script>
-    </div>
-    """
-    components.html(html, height=45)
-
-
 def nav_tabs(seccion_actual):
     """Barra de navegación como pestañas usando botones — funciona en celular."""
     SECCIONES = [
@@ -1288,38 +1196,61 @@ font-size:14px;text-align:center;margin-bottom:10px;">
     # Si el GPS cae FUERA, no autoverificamos nada: dejamos el flujo
     # manual de siempre (buscar dirección / tocar el mapa), tal como
     # ya funcionaba antes.
+    #
+    # Usa streamlit_js_eval.get_geolocation(), un componente real de
+    # Streamlit (con comunicación navegador↔Python probada), en vez de
+    # trucos manuales con JavaScript que no garantizan que el valor
+    # llegue de vuelta a Python.
     st.caption("¿Estás parado(a) frente al residuo ahora mismo? Usa tu ubicación GPS "
                "para verificarte al instante, sin buscar nada.")
-    gps_raw = st.text_input(
-        "gps_hidden", key="gps_raw_input", placeholder="GPS_HIDDEN_INPUT",
-        label_visibility="collapsed",
-    )
-    _widget_gps("gps_dir")
 
-    if gps_raw and gps_raw != st.session_state.get("gps_procesado"):
-        st.session_state.gps_procesado = gps_raw
-        try:
-            glat_str, glon_str = gps_raw.split(",")
-            glat, glon = float(glat_str), float(glon_str)
-            st.session_state.gps_lat = glat
-            st.session_state.gps_lon = glon
-            dentro_gps = POLIGONO_COMUNA2.contains(Point(glon, glat))
-            if dentro_gps:
-                with st.spinner("📍 Estás dentro de la Comuna 2 — verificando dirección..."):
-                    dir_gps, barrio_gps = geocodificar_inversa(glat, glon)
-                set_ubicacion(glat, glon, dir_gps)
-                st.session_state.click_barrio = barrio_gps
-                st.success(f"✅ ¡Verificado por GPS! Estás en: {dir_gps}")
-            else:
-                st.warning(
-                    "🛑 Tu GPS indica que estás **fuera** de la Comuna 2. "
-                    "Puedes ver tu posición en el mapa (punto morado), pero para "
-                    "reportar necesitas buscar tu dirección o tocar el punto "
-                    "manualmente dentro del área piloto."
-                )
-            st.rerun()
-        except Exception:
+    if st.button("📍 Usar mi ubicación GPS", key="btn_gps"):
+        st.session_state.gps_solicitado = True
+
+    if st.session_state.get("gps_solicitado"):
+        with st.spinner("📡 Obteniendo tu ubicación (acepta el permiso del navegador)..."):
+            loc = get_geolocation()
+
+        if loc is None:
+            # El navegador aún no ha respondido — Streamlit reintentará
+            # solo en el próximo ciclo (comportamiento normal del
+            # componente mientras espera el permiso/posición).
             pass
+        elif loc.get("error"):
+            st.session_state.gps_solicitado = False
+            cod_err = loc["error"].get("code")
+            msg = "⚠️ No pudimos obtener tu ubicación."
+            if cod_err == 1:
+                msg = "⚠️ Permiso de ubicación denegado. Actívalo en tu navegador si quieres usar esta opción."
+            elif cod_err == 2:
+                msg = "⚠️ Ubicación no disponible en este dispositivo."
+            elif cod_err == 3:
+                msg = "⚠️ Se agotó el tiempo de espera obteniendo tu ubicación."
+            st.warning(msg + " Busca tu dirección manualmente o toca el mapa.")
+        else:
+            coords = loc.get("coords", {})
+            glat, glon = coords.get("latitude"), coords.get("longitude")
+            clave_gps = f"{glat:.6f},{glon:.6f}" if glat is not None else None
+            if clave_gps and clave_gps != st.session_state.get("gps_procesado"):
+                st.session_state.gps_procesado = clave_gps
+                st.session_state.gps_lat = glat
+                st.session_state.gps_lon = glon
+                st.session_state.gps_solicitado = False
+                dentro_gps = POLIGONO_COMUNA2.contains(Point(glon, glat))
+                if dentro_gps:
+                    with st.spinner("📍 Estás dentro de la Comuna 2 — verificando dirección..."):
+                        dir_gps, barrio_gps = geocodificar_inversa(glat, glon)
+                    set_ubicacion(glat, glon, dir_gps)
+                    st.session_state.click_barrio = barrio_gps
+                    st.success(f"✅ ¡Verificado por GPS! Estás en: {dir_gps}")
+                else:
+                    st.warning(
+                        "🛑 Tu GPS indica que estás **fuera** de la Comuna 2. "
+                        "Puedes ver tu posición en el mapa (pin morado), pero para "
+                        "reportar necesitas buscar tu dirección o tocar el punto "
+                        "manualmente dentro del área piloto."
+                    )
+                st.rerun()
 
     if st.session_state.validado:
         if not st.session_state.fuera:
@@ -1332,7 +1263,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
             for k in ["validado","lat","lon","fuera","direccion",
                       "click_lat","click_lon","click_dir","click_barrio",
                       "punto_lat","punto_lon","cache",
-                      "gps_lat","gps_lon","gps_procesado"]:
+                      "gps_lat","gps_lon","gps_procesado","gps_solicitado"]:
                 st.session_state.pop(k, None)
             st.rerun()
 
