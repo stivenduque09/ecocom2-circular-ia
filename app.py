@@ -40,9 +40,9 @@ DB_PATH = Path(__file__).resolve().parent / "data" / "ecocom2.db"
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 _CAMPOS    = ["Código","Sector","Referencia","Objetos","Peso (Kg)",
-              "Predominante","Clasificación","Lat","Lon","Fecha","Estado","FotoB64","Observaciones","NotaVozB64"]
+              "Predominante","Clasificación","Lat","Lon","Fecha","Estado","FotoB64","Observaciones","NotaVozB64","FotosB64"]
 _COLUMNAS  = ["codigo","sector","referencia","objetos","peso_kg",
-              "predominante","clasificacion","lat","lon","fecha","estado","foto_b64","observaciones","nota_voz_b64"]
+              "predominante","clasificacion","lat","lon","fecha","estado","foto_b64","observaciones","nota_voz_b64","fotos_b64"]
 
 def _conectar_db():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
@@ -67,12 +67,13 @@ def _crear_tabla():
                     estado TEXT,
                     foto_b64 TEXT,
                     observaciones TEXT,
-                    nota_voz_b64 TEXT
+                    nota_voz_b64 TEXT,
+                    fotos_b64 TEXT
                 )
             """)
             # Migración suave: si la tabla ya existía de una versión anterior
             # sin estas columnas, las agregamos sin perder datos.
-            for col_nueva in ("observaciones", "nota_voz_b64"):
+            for col_nueva in ("observaciones", "nota_voz_b64", "fotos_b64"):
                 try:
                     conn.execute(f"ALTER TABLE reportes ADD COLUMN {col_nueva} TEXT")
                 except Exception:
@@ -669,6 +670,15 @@ def img_a_b64(img_pil, max_px=200) -> str:
         return ""
 
 
+def fotos_a_b64_json(lista_imgs_pil, max_px=200) -> str:
+    """Convierte hasta 3 fotos a una lista de miniaturas base64 y la
+    serializa como JSON para guardarla en una sola columna de la base
+    de datos. Se usa para el detalle del reporte (galería completa),
+    mientras que 'FotoB64' sigue guardando solo la primera foto como
+    portada para no tener que tocar los popups del mapa."""
+    return json.dumps([img_a_b64(img, max_px) for img in lista_imgs_pil])
+
+
 def audio_a_b64(audio_uploadedfile) -> str:
     """Convierte la nota de voz grabada (st.audio_input) a base64 para
     guardarla junto al reporte y poder reproducirla después — igual que
@@ -678,6 +688,24 @@ def audio_a_b64(audio_uploadedfile) -> str:
         return base64.b64encode(audio_uploadedfile.getvalue()).decode("utf-8")
     except Exception:
         return ""
+
+
+def _mostrar_galeria(fotos_json: str):
+    """Muestra en miniatura las fotos guardadas de un reporte (hasta 3),
+    a partir del JSON guardado en la columna FotosB64."""
+    if not fotos_json:
+        return
+    try:
+        lista_b64 = json.loads(fotos_json)
+    except Exception:
+        return
+    lista_b64 = [b for b in lista_b64 if b]
+    if not lista_b64:
+        return
+    cols_gal = st.columns(len(lista_b64))
+    for col, b64 in zip(cols_gal, lista_b64):
+        with col:
+            st.image(base64.b64decode(b64), use_container_width=True)
 
 
 def _icono_proyecto(color_respaldo="blue", tam_px=42):
@@ -751,13 +779,11 @@ def _deduplicar_detecciones(objetos, iou_umbral=0.55):
     return conservados
 
 
-def procesar(resultados):
-    """
-    Clasifica la escena según ratio de reciclables:
-    🟢 Verde      ≥60% reciclables  → alta valorización
-    🟡 Amarillo   30-60% mixto      → mezcla
-    🔴 Rojo       <30% reciclables  → acumulación sin valor (como la foto de basura)
-    """
+def _extraer_objetos_imagen(resultados):
+    """Extrae las detecciones (nombre, confianza, caja) de UNA imagen ya
+    analizada por YOLO, aplicando el filtro de confianza para clases
+    desconocidas y la deduplicación entre clases que se solapan (ver
+    _deduplicar_detecciones). Devuelve lista vacía si no hay nada útil."""
     objetos = []
     for r in resultados:
         for box in r.boxes:
@@ -767,21 +793,56 @@ def procesar(resultados):
             objetos.append((nombre, conf, caja))
 
     if not objetos:
-        return [], 0, 0.0, "N/D", "🟢 Sin residuos detectados", 0
+        return []
 
     UMBRAL_CONF_CLASE_DESCONOCIDA = 0.40
     objetos = [
         (nombre, conf, caja) for nombre, conf, caja in objetos
         if nombre in MAT or conf >= UMBRAL_CONF_CLASE_DESCONOCIDA
     ]
-
     if not objetos:
+        return []
+
+    return _deduplicar_detecciones(objetos)
+
+
+def procesar_multi(lista_resultados_por_foto):
+    """
+    Igual que antes, pero recibe una LISTA de resultados YOLO — una
+    entrada por cada foto subida (hasta 3) — y combina las detecciones
+    de todas antes de clasificar la escena.
+
+    Por qué "máximo" y no "suma": si el mismo residuo aparece en las 3
+    fotos desde ángulos distintos, sumar contaría el mismo objeto 3
+    veces. En cambio, tomamos el MAYOR conteo visto en cualquiera de
+    las fotos para cada tipo de material — así, si una foto muestra 2
+    botellas y otra (desde otro ángulo) muestra 3 porque alcanza a ver
+    una que la primera no mostraba, el resultado final refleja las 3.
+    Y si una foto muestra una silla que ninguna otra alcanza a mostrar,
+    esa silla igual queda contabilizada — las fotos se complementan en
+    vez de simplemente sumarse.
+
+    Clasifica la escena según ratio de reciclables:
+    🟢 Verde      ≥60% reciclables  → alta valorización
+    🟡 Amarillo   30-60% mixto      → mezcla
+    🔴 Rojo       <30% reciclables  → acumulación sin valor
+    """
+    objetos_por_foto = [_extraer_objetos_imagen(r) for r in lista_resultados_por_foto]
+    objetos_por_foto = [o for o in objetos_por_foto if o]  # descarta fotos sin detecciones
+
+    if not objetos_por_foto:
         return [], 0, 0.0, "N/D", "🟢 Sin residuos detectados", 0
 
-    objetos = _deduplicar_detecciones(objetos)
-
-    conteo = Counter(o[0] for o in objetos)
-    mejor  = {n: max(c for nn, c, _ in objetos if nn == n) for n in conteo}
+    conteo = Counter()
+    mejor  = {}
+    for objetos_foto in objetos_por_foto:
+        conteo_foto = Counter(o[0] for o in objetos_foto)
+        for nombre, cant in conteo_foto.items():
+            if cant > conteo.get(nombre, 0):
+                conteo[nombre] = cant
+            conf_foto = max(c for n, c, _ in objetos_foto if n == nombre)
+            if nombre not in mejor or conf_foto > mejor[nombre]:
+                mejor[nombre] = conf_foto
 
     tabla, peso_total, residuos, no_rec = [], 0.0, 0, 0
     cnt_mat = Counter()
@@ -1441,29 +1502,38 @@ font-size:14px;text-align:center;margin-bottom:10px;">
             if r_audio:
                 st.audio(r_audio)
 
-            r_img = st.file_uploader("📷 Foto del residuo:",
-                                     type=["jpg","jpeg","png"], key="r_img")
-            if r_img:
-                img = Image.open(r_img)
+            r_imgs_subidas = st.file_uploader(
+                "📷 Fotos del residuo (hasta 3 — varios ángulos ayudan a la IA "
+                "a identificar mejor lo que a veces una sola foto no muestra):",
+                type=["jpg","jpeg","png"], key="r_imgs", accept_multiple_files=True,
+            )
+            if r_imgs_subidas and len(r_imgs_subidas) > 3:
+                st.warning("⚠️ Máximo 3 fotos — solo se van a analizar las primeras 3 que subiste.")
+            r_imgs_subidas = (r_imgs_subidas or [])[:3]
+
+            if r_imgs_subidas:
+                imgs = [Image.open(f) for f in r_imgs_subidas]
                 if st.button("🔍 Analizar con IA", type="primary",
                              use_container_width=True, key="r_analizar"):
-                    with st.spinner("Analizando imagen (conf ≥ 5%)..."):
-                        res = analizar(img)
-                    co, cd = st.columns(2)
-                    with co:
-                        st.markdown("**📷 Original**")
-                        st.image(img, use_container_width=True)
-                    with cd:
-                        st.markdown("**🤖 Detecciones IA**")
-                        st.image(res[0].plot(), use_container_width=True)
+                    with st.spinner(f"Analizando {len(imgs)} foto(s) (conf ≥ 5%)..."):
+                        resultados_por_foto = [analizar(im) for im in imgs]
 
-                    tabla, residuos, peso, tipo, nivel, _ = procesar(res)
+                    for i, (im, res) in enumerate(zip(imgs, resultados_por_foto), start=1):
+                        co, cd = st.columns(2)
+                        with co:
+                            st.markdown(f"**📷 Foto {i} — Original**")
+                            st.image(im, use_container_width=True)
+                        with cd:
+                            st.markdown(f"**🤖 Foto {i} — Detecciones IA**")
+                            st.image(res[0].plot(), use_container_width=True)
+
+                    tabla, residuos, peso, tipo, nivel, _ = procesar_multi(resultados_por_foto)
                     if tabla:
                         df_t = pd.DataFrame(tabla)
                         df_si = df_t[df_t["♻️"] == "✅ Sí"]
                         df_no = df_t[df_t["♻️"] == "❌ No"]
                         if not df_si.empty:
-                            st.markdown("**♻️ Reciclables:**")
+                            st.markdown("**♻️ Reciclables (combinado de todas las fotos):**")
                             st.dataframe(df_si, use_container_width=True, hide_index=True)
                         if not df_no.empty:
                             st.markdown("**⚠️ No aprovechables:**")
@@ -1524,7 +1594,8 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         "Lat": plat, "Lon": plon,
                         "Fecha": datetime.now().strftime("%Y-%m-%d %H:%M"),
                         "Estado": "🔴 Pendiente",
-                        "FotoB64": img_a_b64(img),
+                        "FotoB64": img_a_b64(imgs[0]),
+                        "FotosB64": fotos_a_b64_json(imgs),
                         "Observaciones": r_obs.strip(),
                         "NotaVozB64": audio_a_b64(r_audio) if r_audio else "",
                     }
@@ -1532,6 +1603,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
             if st.session_state.get("cache"):
                 r = st.session_state.cache
                 st.markdown(f"**Listo:** {r['Clasificación']} · {r['Objetos']} reciclables · {r['Peso (Kg)']} kg")
+                _mostrar_galeria(r.get("FotosB64", ""))
                 if r.get("Observaciones"):
                     st.markdown(f"**📝 Observaciones:** {r['Observaciones']}")
                 if r.get("NotaVozB64"):
@@ -1600,31 +1672,41 @@ font-size:14px;text-align:center;margin-bottom:10px;">
             if cr_audio:
                 st.audio(cr_audio)
 
-            cr_img = st.file_uploader("📷 Foto del punto crítico:",
-                                      type=["jpg","jpeg","png"], key="cr_img")
-            if cr_img:
-                img2 = Image.open(cr_img)
+            cr_imgs_subidas = st.file_uploader(
+                "📷 Fotos del punto crítico (hasta 3 — varios ángulos ayudan a la IA "
+                "a identificar mejor lo que a veces una sola foto no muestra):",
+                type=["jpg","jpeg","png"], key="cr_imgs", accept_multiple_files=True,
+            )
+            if cr_imgs_subidas and len(cr_imgs_subidas) > 3:
+                st.warning("⚠️ Máximo 3 fotos — solo se van a analizar las primeras 3 que subiste.")
+            cr_imgs_subidas = (cr_imgs_subidas or [])[:3]
+
+            if cr_imgs_subidas:
+                imgs2 = [Image.open(f) for f in cr_imgs_subidas]
 
                 if st.button("🔍 Evaluar con IA", type="primary",
                              use_container_width=True, key="cr_analizar"):
-                    with st.spinner("Analizando con YOLOv8 (alta resolución)..."):
-                        res2 = analizar(img2, imgsz=960)
-                    st.session_state.cache_foto_b64 = img_a_b64(img2)
+                    with st.spinner(f"Analizando {len(imgs2)} foto(s) con YOLOv8 (alta resolución)..."):
+                        resultados2_por_foto = [analizar(im, imgsz=960) for im in imgs2]
+                    st.session_state.cache_foto_b64 = img_a_b64(imgs2[0])
+                    st.session_state.cache_fotos_b64 = fotos_a_b64_json(imgs2)
 
-                    co2, cd2 = st.columns(2)
-                    with co2:
-                        st.markdown("**📷 Original**")
-                        st.image(img2, use_container_width=True)
-                    with cd2:
-                        st.markdown("**🤖 Detecciones IA**")
-                        st.image(res2[0].plot(), use_container_width=True)
+                    for i, (im, res2) in enumerate(zip(imgs2, resultados2_por_foto), start=1):
+                        co2, cd2 = st.columns(2)
+                        with co2:
+                            st.markdown(f"**📷 Foto {i} — Original**")
+                            st.image(im, use_container_width=True)
+                        with cd2:
+                            st.markdown(f"**🤖 Foto {i} — Detecciones IA**")
+                            st.image(res2[0].plot(), use_container_width=True)
 
-                    tabla2, res2_r, peso2, tipo2, nivel2, total2 = procesar(res2)
+                    tabla2, res2_r, peso2, tipo2, nivel2, total2 = procesar_multi(resultados2_por_foto)
 
                     if tabla2:
                         df_si2 = pd.DataFrame(tabla2)
                         df_si2 = df_si2[df_si2["♻️"] == "✅ Sí"]
                         if not df_si2.empty:
+                            st.markdown("**♻️ Reciclables (combinado de todas las fotos):**")
                             st.dataframe(df_si2, use_container_width=True, hide_index=True)
 
                     st.session_state.cache_critico = {
@@ -1707,6 +1789,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                                 "Fecha":         datetime.now().strftime("%Y-%m-%d %H:%M"),
                                 "Estado":        "🔴 Pendiente",
                                 "FotoB64": st.session_state.get("cache_foto_b64", ""),
+                                "FotosB64": st.session_state.get("cache_fotos_b64", ""),
                                 "Observaciones": cr_obs.strip(),
                                 "NotaVozB64": audio_a_b64(cr_audio) if cr_audio else "",
                             }
@@ -2174,13 +2257,18 @@ padding:10px 16px;margin-top:12px;font-size:14px;">
                     f"{rep.get('Referencia','')[:30]} · {estado}",
                     expanded=False
                 ):
-                    foto_b64 = rep.get("FotoB64","")
-                    if foto_b64:
-                        st.markdown("**📷 Foto del reporte:**")
-                        st.markdown(
-                            f'<img src="data:image/jpeg;base64,{foto_b64}" '
-                            f'style="max-width:320px;border-radius:8px;margin-bottom:10px;">',
-                            unsafe_allow_html=True)
+                    fotos_json_rep = rep.get("FotosB64", "")
+                    if fotos_json_rep:
+                        st.markdown("**📷 Fotos del reporte:**")
+                        _mostrar_galeria(fotos_json_rep)
+                    else:
+                        foto_b64 = rep.get("FotoB64","")
+                        if foto_b64:
+                            st.markdown("**📷 Foto del reporte:**")
+                            st.markdown(
+                                f'<img src="data:image/jpeg;base64,{foto_b64}" '
+                                f'style="max-width:320px;border-radius:8px;margin-bottom:10px;">',
+                                unsafe_allow_html=True)
 
                     i1, i2 = st.columns(2)
                     with i1:
