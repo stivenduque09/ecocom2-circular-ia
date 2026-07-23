@@ -40,9 +40,9 @@ DB_PATH = Path(__file__).resolve().parent / "data" / "ecocom2.db"
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 _CAMPOS    = ["Código","Sector","Referencia","Objetos","Peso (Kg)",
-              "Predominante","Clasificación","Lat","Lon","Fecha","Estado","FotoB64","Observaciones"]
+              "Predominante","Clasificación","Lat","Lon","Fecha","Estado","FotoB64","Observaciones","NotaVozB64"]
 _COLUMNAS  = ["codigo","sector","referencia","objetos","peso_kg",
-              "predominante","clasificacion","lat","lon","fecha","estado","foto_b64","observaciones"]
+              "predominante","clasificacion","lat","lon","fecha","estado","foto_b64","observaciones","nota_voz_b64"]
 
 def _conectar_db():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
@@ -66,15 +66,17 @@ def _crear_tabla():
                     fecha TEXT,
                     estado TEXT,
                     foto_b64 TEXT,
-                    observaciones TEXT
+                    observaciones TEXT,
+                    nota_voz_b64 TEXT
                 )
             """)
             # Migración suave: si la tabla ya existía de una versión anterior
-            # sin la columna "observaciones", la agregamos sin perder datos.
-            try:
-                conn.execute("ALTER TABLE reportes ADD COLUMN observaciones TEXT")
-            except Exception:
-                pass  # la columna ya existe
+            # sin estas columnas, las agregamos sin perder datos.
+            for col_nueva in ("observaciones", "nota_voz_b64"):
+                try:
+                    conn.execute(f"ALTER TABLE reportes ADD COLUMN {col_nueva} TEXT")
+                except Exception:
+                    pass  # la columna ya existe
     except Exception:
         pass
 
@@ -667,6 +669,31 @@ def img_a_b64(img_pil, max_px=200) -> str:
         return ""
 
 
+def audio_a_b64(audio_uploadedfile) -> str:
+    """Convierte la nota de voz grabada (st.audio_input) a base64 para
+    guardarla junto al reporte y poder reproducirla después — igual que
+    una nota de voz de WhatsApp: se graba, se guarda y queda ahí para
+    escucharla cuantas veces se quiera."""
+    try:
+        return base64.b64encode(audio_uploadedfile.getvalue()).decode("utf-8")
+    except Exception:
+        return ""
+
+
+def _icono_proyecto(color_respaldo="blue", tam_px=42):
+    """Ícono para el pin de 'tu dirección verificada': usa el logo del
+    proyecto (logo.png, el mismo archivo que ya se usa en la barra
+    lateral) en vez del ícono genérico de casa. Si el archivo no existe
+    en el servidor, cae de forma segura al pin normal de Font Awesome
+    para que el mapa nunca se rompa por esto."""
+    if os.path.exists("logo.png"):
+        try:
+            return folium.CustomIcon(icon_image="logo.png", icon_size=(tam_px, tam_px))
+        except Exception:
+            pass
+    return folium.Icon(color=color_respaldo, icon="recycle", prefix="fa")
+
+
 def es_residente():
     return st.session_state.validado and not st.session_state.fuera
 
@@ -846,69 +873,6 @@ def metricas(residuos, peso, nivel):
                     f'{nivel}</h3><p style="margin:0;font-size:12px">Clasificación</p></div>',
                     unsafe_allow_html=True)
 
-
-def _dictar_voz(component_key: str, session_flag_key: str, lang: str = "es-CO"):
-    """Botón real '🎤 Dictar observación por voz' que usa el reconocimiento
-    de voz nativo del navegador (Web Speech API).
-
-    A diferencia del intento anterior (que escribía el texto directo en
-    el campo con un truco de JavaScript que NO se sincronizaba de forma
-    confiable con Streamlit), esta versión usa streamlit_js_eval — el
-    mismo protocolo real de componentes que usamos para el GPS — así
-    que el texto reconocido SIEMPRE llega de vuelta a Python.
-
-    Devuelve el texto reconocido (str) solo la primera vez que llega un
-    resultado nuevo; en las siguientes ejecuciones del script devuelve
-    None para no repetirlo (se compara contra session_flag_key).
-
-    Limitación: solo funciona en Chrome / Edge (Web Speech API). En
-    Safari / iOS y Firefox el botón se deshabilita solo con un aviso.
-    No sube audio a ningún servidor — todo el reconocimiento ocurre en
-    el navegador del usuario.
-    """
-    js = f"""
-    new Promise(function(resolve) {{
-      document.body.innerHTML =
-        '<button id="btn_v" type="button" style="background:linear-gradient(135deg,#16a34a,#15803d);' +
-        'color:white;border:none;border-radius:8px;padding:8px 16px;font-weight:700;' +
-        'font-size:13px;cursor:pointer;font-family:Segoe UI,Arial,sans-serif;">' +
-        '🎤 Dictar observación por voz</button>' +
-        '<span id="est_v" style="font-size:12px;color:#6b7280;margin-left:8px;' +
-        'font-family:Segoe UI,Arial,sans-serif;"></span>';
-      var estado = document.getElementById("est_v");
-      var btn = document.getElementById("btn_v");
-      var SR = window.webkitSpeechRecognition || window.SpeechRecognition;
-      if (!SR) {{
-        estado.innerText = "⚠️ Tu navegador no soporta dictado (usa Chrome o Edge)";
-        btn.disabled = true; btn.style.opacity = "0.5";
-        return;
-      }}
-      btn.addEventListener("click", function() {{
-        var recognition = new SR();
-        recognition.lang = "{lang}";
-        recognition.interimResults = false;
-        recognition.maxAlternatives = 1;
-        estado.innerText = "🔴 Escuchando... habla ahora";
-        btn.disabled = true;
-        recognition.start();
-        recognition.onresult = function(event) {{
-          var texto = event.results[0][0].transcript;
-          estado.innerText = "✅ Reconocido: \\"" + texto + "\\"";
-          btn.disabled = false;
-          resolve(texto);
-        }};
-        recognition.onerror = function(event) {{
-          estado.innerText = "⚠️ No se pudo escuchar (" + event.error + "). Intenta de nuevo.";
-          btn.disabled = false;
-        }};
-      }});
-    }})
-    """
-    texto = streamlit_js_eval(js_expressions=js, key=component_key)
-    if texto and texto != st.session_state.get(session_flag_key):
-        st.session_state[session_flag_key] = texto
-        return texto
-    return None
 
 
 def nav_tabs(seccion_actual):
@@ -1285,7 +1249,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
             location=[_lat_home, _lon_home],
             popup=f"🏠 {st.session_state.direccion}",
             tooltip="🏠 Tu dirección verificada",
-            icon=folium.Icon(color=col_pin, icon="home", prefix="fa")
+            icon=_icono_proyecto(col_pin)
         ).add_to(mapa)
 
     # Pin "punto seleccionado" — se omite si coincide con el de la casa
@@ -1321,6 +1285,10 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                     if foto_b64 else "")
         obs_txt = rep.get("Observaciones", "")
         obs_html = f"📝 {obs_txt[:80]}<br>" if obs_txt else ""
+        nota_voz = rep.get("NotaVozB64", "")
+        audio_html = (f'<br><audio controls style="width:180px;height:32px;" '
+                      f'src="data:audio/wav;base64,{nota_voz}"></audio>'
+                      if nota_voz else "")
         popup_html = (
             f"<div style='font-family:sans-serif;min-width:190px;'>"
             f"<b style='color:{col}'>{niv}</b><br>"
@@ -1331,7 +1299,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
             f"♻️ {rep['Objetos']} obj | ⚖️ {rep['Peso (Kg)']} kg<br>"
             f"🕐 {rep.get('Fecha','')}<br>"
             f"🔖 {rep.get('Estado','')}"
-            f"{img_html}</div>"
+            f"{img_html}{audio_html}</div>"
         )
         folium.CircleMarker(
             location=[rep["Lat"], rep["Lon"]], radius=12,
@@ -1458,25 +1426,20 @@ font-size:14px;text-align:center;margin-bottom:10px;">
             # no puede ver por sí sola (ej. "lleva ahí 3 días", "bloquea
             # el andén", "hay olor fuerte"). Queda guardado junto al
             # reporte y es visible para el administrador y en el mapa.
-            #
-            # El botón de voz va ANTES del text_area a propósito: así,
-            # si llega texto nuevo dictado, lo agregamos a session_state
-            # antes de crear el widget (Streamlit no permite modificar
-            # el valor de un widget después de haberlo creado en el
-            # mismo ciclo de ejecución).
-            texto_dictado_r = _dictar_voz("voz_r", "voz_r_procesado")
-            if texto_dictado_r:
-                previo = st.session_state.get("r_obs", "")
-                st.session_state["r_obs"] = (
-                    f"{previo} {texto_dictado_r}".strip() if previo else texto_dictado_r
-                )
-
             r_obs = st.text_area(
                 "📝 Observaciones (opcional):",
                 placeholder="Describe lo que ves en la foto: hace cuánto está ahí, "
                             "si bloquea el paso, olores, riesgos, etc.",
                 key="r_obs", height=80,
             )
+
+            # ── NOTA DE VOZ — se graba, queda ahí y se puede escuchar,
+            # igual que una nota de voz de WhatsApp. Usa el grabador
+            # nativo de Streamlit (st.audio_input): funciona en
+            # cualquier navegador moderno, sin trucos de JavaScript.
+            r_audio = st.audio_input("🎤 Grabar nota de voz (opcional):", key="r_audio")
+            if r_audio:
+                st.audio(r_audio)
 
             r_img = st.file_uploader("📷 Foto del residuo:",
                                      type=["jpg","jpeg","png"], key="r_img")
@@ -1563,6 +1526,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         "Estado": "🔴 Pendiente",
                         "FotoB64": img_a_b64(img),
                         "Observaciones": r_obs.strip(),
+                        "NotaVozB64": audio_a_b64(r_audio) if r_audio else "",
                     }
 
             if st.session_state.get("cache"):
@@ -1570,6 +1534,9 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                 st.markdown(f"**Listo:** {r['Clasificación']} · {r['Objetos']} reciclables · {r['Peso (Kg)']} kg")
                 if r.get("Observaciones"):
                     st.markdown(f"**📝 Observaciones:** {r['Observaciones']}")
+                if r.get("NotaVozB64"):
+                    st.markdown("**🎤 Nota de voz:**")
+                    st.audio(base64.b64decode(r["NotaVozB64"]))
                 cp, cc = st.columns(2)
                 with cp:
                     if st.button("🚀 PUBLICAR EN EL MAPA", type="primary",
@@ -1622,19 +1589,16 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                 cr_ref = st.text_input("Referencia:", value=pdir, key="cr_ref")
 
             # ── OBSERVACIONES — igual que en Reportar Residuo ───────────
-            texto_dictado_cr = _dictar_voz("voz_cr", "voz_cr_procesado")
-            if texto_dictado_cr:
-                previo_cr = st.session_state.get("cr_obs", "")
-                st.session_state["cr_obs"] = (
-                    f"{previo_cr} {texto_dictado_cr}".strip() if previo_cr else texto_dictado_cr
-                )
-
             cr_obs = st.text_area(
                 "📝 Observaciones (opcional):",
                 placeholder="Describe la acumulación: hace cuánto está ahí, si genera "
                             "olores, si bloquea el paso, riesgos para la salud, etc.",
                 key="cr_obs", height=80,
             )
+
+            cr_audio = st.audio_input("🎤 Grabar nota de voz (opcional):", key="cr_audio")
+            if cr_audio:
+                st.audio(cr_audio)
 
             cr_img = st.file_uploader("📷 Foto del punto crítico:",
                                       type=["jpg","jpeg","png"], key="cr_img")
@@ -1720,6 +1684,9 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                     metricas(residuos_f, peso_f, nivel_f)
                     if cr_obs.strip():
                         st.markdown(f"**📝 Observaciones:** {cr_obs.strip()}")
+                    if cr_audio:
+                        st.markdown("**🎤 Nota de voz:**")
+                        st.audio(cr_audio)
 
                     st.markdown("")
                     cr_pub, cr_can = st.columns(2)
@@ -1741,6 +1708,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                                 "Estado":        "🔴 Pendiente",
                                 "FotoB64": st.session_state.get("cache_foto_b64", ""),
                                 "Observaciones": cr_obs.strip(),
+                                "NotaVozB64": audio_a_b64(cr_audio) if cr_audio else "",
                             }
                             st.session_state.reportes.append(nuevo)
                             st.session_state.mis_codigos.append(nuevo["Código"])
@@ -2133,6 +2101,10 @@ padding:10px 16px;margin-top:12px;font-size:14px;">
                               if foto_b64 else "")
                 obs_txt_adm = rep.get("Observaciones", "")
                 obs_html_adm = f"📝 {obs_txt_adm[:100]}<br>" if obs_txt_adm else ""
+                nota_voz_adm = rep.get("NotaVozB64", "")
+                audio_html_adm = (f'<br><audio controls style="width:160px;height:32px;" '
+                                  f'src="data:audio/wav;base64,{nota_voz_adm}"></audio>'
+                                  if nota_voz_adm else "")
                 popup_adm = (
                     f"<div style='font-family:sans-serif;min-width:190px;'>"
                     f"<b style='color:{col}'>{niv}</b><br>"
@@ -2141,7 +2113,7 @@ padding:10px 16px;margin-top:12px;font-size:14px;">
                     f"{obs_html_adm}"
                     f"♻️ {rep.get('Objetos',0)} obj | ⚖️ {rep.get('Peso (Kg)',0)} kg<br>"
                     f"🕐 {rep.get('Fecha','')} | 🔖 {est}"
-                    f"{img_html}</div>"
+                    f"{img_html}{audio_html_adm}</div>"
                 )
                 folium.CircleMarker(
                     location=[rep["Lat"], rep["Lon"]], radius=13,
@@ -2237,6 +2209,15 @@ padding:10px 16px;margin-top:12px;font-size:14px;">
                             f'border-radius:6px;padding:8px 12px;margin:8px 0;font-size:13px;">'
                             f'📝 <b>Observaciones del ciudadano:</b><br>{obs_rep}</div>',
                             unsafe_allow_html=True)
+
+                    # ── Nota de voz del ciudadano ────────────────────────
+                    nota_voz_rep = rep.get("NotaVozB64", "")
+                    if nota_voz_rep:
+                        st.markdown("**🎤 Nota de voz del ciudadano:**")
+                        try:
+                            st.audio(base64.b64decode(nota_voz_rep))
+                        except Exception:
+                            st.caption("⚠️ No se pudo reproducir la nota de voz.")
 
                     st.markdown("**Cambiar estado:**")
                     idx_est = ESTADOS.index(estado) if estado in ESTADOS else 0
