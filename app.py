@@ -301,6 +301,21 @@ st.markdown("""
         border: 2px solid #86efac !important;
         border-radius: 10px !important; background: #ffffff !important;
     }
+    /* Texto del valor seleccionado — antes heredaba blanco sobre
+       blanco y quedaba invisible (solo se veía el punto de color). */
+    div[data-testid="stSelectbox"] div[data-baseweb="select"] * {
+        color: #14532d !important;
+    }
+    /* El menú desplegable de opciones se renderiza aparte (fuera del
+       contenedor del selectbox), así que hay que arreglarlo por
+       separado con una regla global. */
+    ul[role="listbox"], ul[role="listbox"] * {
+        background: #ffffff !important;
+        color: #14532d !important;
+    }
+    li[role="option"]:hover, li[aria-selected="true"] {
+        background: rgba(74,222,128,0.15) !important;
+    }
 
     .stTabs [data-baseweb="tab-list"] {
         background: #dcfce7; border-radius: 10px; padding: 4px;
