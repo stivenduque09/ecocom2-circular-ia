@@ -25,10 +25,10 @@ DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 _CAMPOS    = ["Código","Sector","Referencia","Objetos","Peso (Kg)",
               "Predominante","Clasificación","Lat","Lon","Fecha","Estado","FotoB64",
-              "Observaciones","NotaVozB64"]
+              "Observaciones","NotaVozB64","FotosExtraB64"]
 _COLUMNAS  = ["codigo","sector","referencia","objetos","peso_kg",
               "predominante","clasificacion","lat","lon","fecha","estado","foto_b64",
-              "observaciones","nota_voz_b64"]
+              "observaciones","nota_voz_b64","fotos_extra_b64"]
 
 def _conectar_db():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
@@ -59,7 +59,7 @@ def _crear_tabla():
             # existía de una versión anterior. SQLite no soporta
             # "ADD COLUMN IF NOT EXISTS", así que intentamos y
             # silenciamos el error si la columna ya existe.
-            for col_sql in ["observaciones TEXT", "nota_voz_b64 TEXT"]:
+            for col_sql in ["observaciones TEXT", "nota_voz_b64 TEXT", "fotos_extra_b64 TEXT"]:
                 try:
                     conn.execute(f"ALTER TABLE reportes ADD COLUMN {col_sql}")
                 except Exception:
@@ -631,6 +631,50 @@ def img_a_b64(img_pil, max_px=200) -> str:
         return ""
 
 
+def fotos_extra_a_json(imgs_pil: list, max_px=200) -> str:
+    """Convierte una lista de imágenes PIL (las fotos de APOYO, no la
+    principal) a un JSON con sus miniaturas en base64. Se guardan solo
+    como evidencia visual — nunca se les corre YOLO, por eso no cuentan
+    para el conteo de objetos ni el peso."""
+    try:
+        if not imgs_pil:
+            return ""
+        miniaturas = [img_a_b64(img, max_px=max_px) for img in imgs_pil]
+        miniaturas = [m for m in miniaturas if m]
+        return json.dumps(miniaturas) if miniaturas else ""
+    except Exception:
+        return ""
+
+
+def json_a_fotos_extra(fotos_json: str) -> list:
+    """Decodifica el JSON guardado de vuelta a una lista de strings
+    base64. Tolerante a valores vacíos, None o JSON corrupto."""
+    try:
+        if not fotos_json:
+            return []
+        datos = json.loads(fotos_json)
+        return datos if isinstance(datos, list) else []
+    except Exception:
+        return []
+
+
+def galeria_html(fotos_extra_json: str, ancho_px: int = 90) -> str:
+    """HTML de una fila de miniaturas para las fotos de apoyo — se usa
+    tanto en los popups del mapa como en el historial/panel admin."""
+    fotos = json_a_fotos_extra(fotos_extra_json)
+    if not fotos:
+        return ""
+    imgs = "".join(
+        f'<img src="data:image/jpeg;base64,{f}" '
+        f'style="width:{ancho_px}px;height:{ancho_px}px;object-fit:cover;'
+        f'border-radius:6px;margin:3px 3px 0 0;">'
+        for f in fotos
+    )
+    return (f'<div style="margin-top:6px;">'
+            f'<span style="font-size:11px;color:#9ca3af;">📎 Fotos de apoyo:</span><br>'
+            f'{imgs}</div>')
+
+
 def audio_a_b64(audio_uploadedfile) -> str:
     """Convierte el audio grabado por st.audio_input (WAV) a base64 para
     guardarlo junto al reporte. Es un widget NATIVO de Streamlit — a
@@ -656,6 +700,14 @@ def set_ubicacion(lat, lon, direccion=""):
     st.session_state.validado = True
     st.session_state.fuera = not POLIGONO_COMUNA2.contains(Point(lon, lat))
     st.session_state.direccion = direccion
+
+
+def _abrir_img_subida(uploaded_file) -> Image.Image:
+    """Abre un UploadedFile de Streamlit como imagen PIL leyendo los
+    bytes directamente — evita problemas si el mismo archivo se
+    necesita abrir más de una vez (ej. para mostrar miniaturas y luego
+    volver a abrirlo tras elegir la foto principal)."""
+    return Image.open(BytesIO(uploaded_file.getvalue()))
 
 
 def analizar(img, imgsz=640):
@@ -1206,6 +1258,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
         audio_html = (f'<br><audio controls style="width:180px;margin-top:4px;">'
                       f'<source src="data:audio/wav;base64,{audio_b64}"></audio>'
                       if audio_b64 else "")
+        galeria_extra_html = galeria_html(rep.get("FotosExtraB64", ""), ancho_px=60)
         popup_html = (
             f"<div style='font-family:sans-serif;min-width:190px;'>"
             f"<b style='color:{col}'>{niv}</b><br>"
@@ -1216,7 +1269,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
             f"♻️ {rep['Objetos']} obj | ⚖️ {rep['Peso (Kg)']} kg<br>"
             f"🕐 {rep.get('Fecha','')}<br>"
             f"🔖 {rep.get('Estado','')}"
-            f"{img_html}{audio_html}</div>"
+            f"{img_html}{audio_html}{galeria_extra_html}</div>"
         )
         folium.CircleMarker(
             location=[rep["Lat"], rep["Lon"]], radius=12,
@@ -1353,10 +1406,38 @@ font-size:14px;text-align:center;margin-bottom:10px;">
             if r_audio:
                 st.caption("✅ Nota de voz grabada — se guardará junto con el reporte.")
 
-            r_img = st.file_uploader("📷 Foto del residuo:",
-                                     type=["jpg","jpeg","png"], key="r_img")
-            if r_img:
-                img = Image.open(r_img)
+            r_imgs = st.file_uploader(
+                "📷 Foto(s) del residuo (hasta 3, ej. distintos ángulos):",
+                type=["jpg","jpeg","png"], key="r_imgs",
+                accept_multiple_files=True)
+
+            img = None
+            r_imgs_extra_pil = []
+            if r_imgs:
+                if len(r_imgs) > 3:
+                    st.warning("⚠️ Solo se usarán las primeras 3 fotos que subiste.")
+                    r_imgs = r_imgs[:3]
+
+                if len(r_imgs) == 1:
+                    img = _abrir_img_subida(r_imgs[0])
+                else:
+                    st.caption("📌 Son varias fotos del mismo residuo — elige la que lo "
+                               "muestre MEJOR completo. Solo esa la analiza la IA; las "
+                               "demás quedan guardadas como evidencia adicional.")
+                    cols_mini = st.columns(len(r_imgs))
+                    for i, (col_m, f) in enumerate(zip(cols_mini, r_imgs)):
+                        with col_m:
+                            st.image(_abrir_img_subida(f), use_container_width=True,
+                                     caption=f"Foto {i+1}")
+                    opciones_ppal = [f"Foto {i+1}" for i in range(len(r_imgs))]
+                    sel_ppal = st.radio("📸 Foto principal (la que analiza la IA):",
+                                        opciones_ppal, horizontal=True, key="r_sel_ppal")
+                    idx_ppal = opciones_ppal.index(sel_ppal)
+                    img = _abrir_img_subida(r_imgs[idx_ppal])
+                    r_imgs_extra_pil = [_abrir_img_subida(f) for i, f in enumerate(r_imgs)
+                                        if i != idx_ppal]
+
+            if img is not None:
                 if st.button("🔍 Analizar con IA", type="primary",
                              use_container_width=True, key="r_analizar"):
                     with st.spinner("Analizando imagen (conf ≥ 5%)..."):
@@ -1439,6 +1520,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         "FotoB64": img_a_b64(img),
                         "Observaciones": r_obs.strip(),
                         "NotaVozB64": audio_a_b64(r_audio),
+                        "FotosExtraB64": fotos_extra_a_json(r_imgs_extra_pil),
                     }
 
             if st.session_state.get("cache"):
@@ -1449,6 +1531,8 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                 if r.get("NotaVozB64"):
                     st.markdown("**🎙️ Nota de voz adjunta:**")
                     st.audio(base64.b64decode(r["NotaVozB64"]), format="audio/wav")
+                if r.get("FotosExtraB64"):
+                    st.markdown(galeria_html(r["FotosExtraB64"]), unsafe_allow_html=True)
                 cp, cc = st.columns(2)
                 with cp:
                     if st.button("🚀 PUBLICAR EN EL MAPA", type="primary",
@@ -1511,16 +1595,46 @@ font-size:14px;text-align:center;margin-bottom:10px;">
             if cr_audio:
                 st.caption("✅ Nota de voz grabada — se guardará junto con la alerta.")
 
-            cr_img = st.file_uploader("📷 Foto del punto crítico:",
-                                      type=["jpg","jpeg","png"], key="cr_img")
-            if cr_img:
-                img2 = Image.open(cr_img)
+            cr_imgs = st.file_uploader(
+                "📷 Foto(s) del punto crítico (hasta 3 ángulos del mismo montón):",
+                type=["jpg","jpeg","png"], key="cr_imgs",
+                accept_multiple_files=True)
+
+            img2 = None
+            cr_imgs_extra_pil = []
+            if cr_imgs:
+                if len(cr_imgs) > 3:
+                    st.warning("⚠️ Solo se usarán las primeras 3 fotos que subiste.")
+                    cr_imgs = cr_imgs[:3]
+
+                if len(cr_imgs) == 1:
+                    img2 = _abrir_img_subida(cr_imgs[0])
+                else:
+                    st.caption("📌 Son varios ángulos del MISMO montón — elige la foto "
+                               "que mejor muestre toda la acumulación completa. Solo esa "
+                               "la analiza la IA (así no se cuentan los mismos objetos "
+                               "varias veces); las demás quedan como evidencia adicional.")
+                    cols_mini2 = st.columns(len(cr_imgs))
+                    for i, (col_m, f) in enumerate(zip(cols_mini2, cr_imgs)):
+                        with col_m:
+                            st.image(_abrir_img_subida(f), use_container_width=True,
+                                     caption=f"Foto {i+1}")
+                    opciones_ppal2 = [f"Foto {i+1}" for i in range(len(cr_imgs))]
+                    sel_ppal2 = st.radio("📸 Foto principal (la que analiza la IA):",
+                                         opciones_ppal2, horizontal=True, key="cr_sel_ppal")
+                    idx_ppal2 = opciones_ppal2.index(sel_ppal2)
+                    img2 = _abrir_img_subida(cr_imgs[idx_ppal2])
+                    cr_imgs_extra_pil = [_abrir_img_subida(f) for i, f in enumerate(cr_imgs)
+                                         if i != idx_ppal2]
+
+            if img2 is not None:
 
                 if st.button("🔍 Evaluar con IA", type="primary",
                              use_container_width=True, key="cr_analizar"):
                     with st.spinner("Analizando con YOLOv8 (alta resolución)..."):
                         res2 = analizar(img2, imgsz=960)
                     st.session_state.cache_foto_b64 = img_a_b64(img2)
+                    st.session_state.cache_fotos_extra_b64 = fotos_extra_a_json(cr_imgs_extra_pil)
 
                     co2, cd2 = st.columns(2)
                     with co2:
@@ -1598,6 +1712,9 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                     if cr_audio:
                         st.markdown("**🎙️ Nota de voz adjunta:**")
                         st.audio(cr_audio)
+                    if st.session_state.get("cache_fotos_extra_b64"):
+                        st.markdown(galeria_html(st.session_state["cache_fotos_extra_b64"]),
+                                    unsafe_allow_html=True)
 
                     st.markdown("")
                     cr_pub, cr_can = st.columns(2)
@@ -1620,12 +1737,14 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                                 "FotoB64": st.session_state.get("cache_foto_b64", ""),
                                 "Observaciones": cr_obs.strip(),
                                 "NotaVozB64": audio_a_b64(cr_audio),
+                                "FotosExtraB64": st.session_state.get("cache_fotos_extra_b64", ""),
                             }
                             st.session_state.reportes.append(nuevo)
                             st.session_state.mis_codigos.append(nuevo["Código"])
                             st.session_state.mis_estados_vistos[nuevo["Código"]] = nuevo["Estado"]
                             guardar_reportes_disco(st.session_state.reportes)
                             st.session_state.cache_critico = None
+                            st.session_state.cache_fotos_extra_b64 = None
                             st.session_state.seccion = "historial"
                             for k in ["click_lat","click_lon","click_dir","click_barrio"]:
                                 st.session_state.pop(k, None)
@@ -1635,6 +1754,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         if st.button("❌ Cancelar", use_container_width=True,
                                      key="cr_cancelar"):
                             st.session_state.cache_critico = None
+                            st.session_state.cache_fotos_extra_b64 = None
                             st.rerun()
 
     # ── SECCIÓN: Historial ─────────────────────────────────────────────
@@ -2010,6 +2130,7 @@ padding:10px 16px;margin-top:12px;font-size:14px;">
                 audio_html_adm = (f'<br><audio controls style="width:160px;margin-top:4px;">'
                                   f'<source src="data:audio/wav;base64,{audio_b64_adm}"></audio>'
                                   if audio_b64_adm else "")
+                galeria_adm_html = galeria_html(rep.get("FotosExtraB64", ""), ancho_px=55)
                 popup_adm = (
                     f"<div style='font-family:sans-serif;min-width:190px;'>"
                     f"<b style='color:{col}'>{niv}</b><br>"
@@ -2018,7 +2139,7 @@ padding:10px 16px;margin-top:12px;font-size:14px;">
                     f"{obs_html_adm}"
                     f"♻️ {rep.get('Objetos',0)} obj | ⚖️ {rep.get('Peso (Kg)',0)} kg<br>"
                     f"🕐 {rep.get('Fecha','')} | 🔖 {est}"
-                    f"{img_html}{audio_html_adm}</div>"
+                    f"{img_html}{audio_html_adm}{galeria_adm_html}</div>"
                 )
                 folium.CircleMarker(
                     location=[rep["Lat"], rep["Lon"]], radius=13,
@@ -2078,11 +2199,14 @@ padding:10px 16px;margin-top:12px;font-size:14px;">
                 ):
                     foto_b64 = rep.get("FotoB64","")
                     if foto_b64:
-                        st.markdown("**📷 Foto del reporte:**")
+                        st.markdown("**📷 Foto analizada por la IA:**")
                         st.markdown(
                             f'<img src="data:image/jpeg;base64,{foto_b64}" '
                             f'style="max-width:320px;border-radius:8px;margin-bottom:10px;">',
                             unsafe_allow_html=True)
+                    if rep.get("FotosExtraB64"):
+                        st.markdown(galeria_html(rep["FotosExtraB64"], ancho_px=100),
+                                    unsafe_allow_html=True)
 
                     i1, i2 = st.columns(2)
                     with i1:
