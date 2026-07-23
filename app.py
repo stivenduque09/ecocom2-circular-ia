@@ -338,6 +338,16 @@ st.markdown("""
         background: #ffffff !important;
         margin-bottom: 8px !important;
     }
+    /* El encabezado clickeable (el "summary") es un elemento aparte
+       dentro del expander — no heredaba el fondo blanco de arriba,
+       por eso se veía con el fondo oscuro del tema por defecto y el
+       texto casi invisible encima. */
+    div[data-testid="stExpander"] summary {
+        background: #ffffff !important;
+    }
+    div[data-testid="stExpander"] summary * {
+        color: #14532d !important;
+    }
 
     div[data-testid="stDataFrameContainer"] {
         border: 2px solid #bbf7d0;
@@ -348,18 +358,22 @@ st.markdown("""
         background: #eff6ff !important; border-left: 4px solid #3b82f6 !important;
         color: #1e3a5f !important; border-radius: 8px !important;
     }
+    div[data-testid="stInfo"] * { color: #1e3a5f !important; }
     div[data-testid="stWarning"] {
         background: #fefce8 !important; border-left: 4px solid #f59e0b !important;
         color: #713f12 !important; border-radius: 8px !important;
     }
+    div[data-testid="stWarning"] * { color: #713f12 !important; }
     div[data-testid="stSuccess"] {
         background: #f0fdf4 !important; border-left: 4px solid #16a34a !important;
         color: #14532d !important; border-radius: 8px !important;
     }
+    div[data-testid="stSuccess"] * { color: #14532d !important; }
     div[data-testid="stError"] {
         background: #fef2f2 !important; border-left: 4px solid #dc2626 !important;
         color: #7f1d1d !important; border-radius: 8px !important;
     }
+    div[data-testid="stError"] * { color: #7f1d1d !important; }
 
     div[data-testid="stFileUploader"] {
         background: #f0fdf4 !important; border: 2px dashed #4ade80 !important;
