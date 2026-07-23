@@ -15,7 +15,7 @@ from pathlib import Path
 from datetime import datetime
 import base64
 from io import BytesIO
-from streamlit_js_eval import get_geolocation
+from streamlit_js_eval import get_geolocation, streamlit_js_eval
 
 # ====================================================================
 # PERSISTENCIA — SQLite en vez de JSON en /tmp
@@ -847,90 +847,68 @@ def metricas(residuos, peso, nivel):
                     unsafe_allow_html=True)
 
 
-def _widget_dictado(placeholder_substr: str, key_html: str):
-    """Botón de '🎤 Dictar' que usa el reconocimiento de voz nativo del
-    navegador (Web Speech API) para llenar el campo de Observaciones
-    hablando en vez de escribiendo.
+def _dictar_voz(component_key: str, session_flag_key: str, lang: str = "es-CO"):
+    """Botón real '🎤 Dictar observación por voz' que usa el reconocimiento
+    de voz nativo del navegador (Web Speech API).
 
-    Cómo funciona:
-    - No sube audio a ningún servidor: todo el reconocimiento ocurre
-      en el navegador (Chrome / Edge en Android, PC y la mayoría de
-      celulares Android). Safari / iOS y Firefox NO lo soportan todavía.
-    - Al terminar de hablar, el texto reconocido se escribe directo en
-      el campo de Observaciones correspondiente (se identifica por su
-      placeholder, que es único para cada campo).
-    - Es un truco: como el widget vive en un iframe de Streamlit,
-      accedemos al documento del padre (window.parent.document) para
-      encontrar el textarea real y disparamos un evento 'input' para
-      que Streamlit detecte el cambio como si el usuario hubiera escrito.
-    """
-    import streamlit.components.v1 as components
-    placeholder_js = placeholder_substr.replace("'", "\\'")
-    html = f"""
-    <div style="font-family:'Segoe UI',Arial,sans-serif;">
-      <button id="btn_{key_html}" type="button" style="
-          background:linear-gradient(135deg,#16a34a,#15803d);
-          color:white;border:none;border-radius:8px;
-          padding:8px 16px;font-weight:700;font-size:13px;
-          cursor:pointer;display:inline-flex;align-items:center;gap:6px;">
-        🎤 Dictar observación por voz
-      </button>
-      <span id="estado_{key_html}" style="font-size:12px;color:#6b7280;margin-left:8px;"></span>
-      <script>
-        (function() {{
-          const btn = document.getElementById("btn_{key_html}");
-          const estado = document.getElementById("estado_{key_html}");
-          const SR = window.webkitSpeechRecognition || window.SpeechRecognition;
-          if (!SR) {{
-            estado.innerText = "⚠️ Tu navegador no soporta dictado por voz (usa Chrome/Edge)";
-            btn.disabled = true;
-            btn.style.opacity = "0.5";
-            return;
-          }}
-          btn.addEventListener("click", function() {{
-            const recognition = new SR();
-            recognition.lang = "es-CO";
-            recognition.interimResults = false;
-            recognition.maxAlternatives = 1;
-            estado.innerText = "🔴 Escuchando... habla ahora";
-            btn.disabled = true;
-            recognition.start();
+    A diferencia del intento anterior (que escribía el texto directo en
+    el campo con un truco de JavaScript que NO se sincronizaba de forma
+    confiable con Streamlit), esta versión usa streamlit_js_eval — el
+    mismo protocolo real de componentes que usamos para el GPS — así
+    que el texto reconocido SIEMPRE llega de vuelta a Python.
 
-            recognition.onresult = function(event) {{
-              const texto = event.results[0][0].transcript;
-              try {{
-                const areas = window.parent.document.querySelectorAll('textarea');
-                let encontrado = false;
-                for (const ta of areas) {{
-                  if (ta.placeholder && ta.placeholder.includes('{placeholder_js}')) {{
-                    const setter = Object.getOwnPropertyDescriptor(
-                      window.parent.HTMLTextAreaElement.prototype, 'value').set;
-                    const previo = ta.value ? ta.value + " " : "";
-                    setter.call(ta, previo + texto);
-                    ta.dispatchEvent(new Event('input', {{ bubbles: true }}));
-                    encontrado = true;
-                    break;
-                  }}
-                }}
-                estado.innerText = encontrado
-                  ? "✅ Texto agregado: \\"" + texto + "\\""
-                  : "⚠️ No encontré el campo — copia el texto manualmente: " + texto;
-              }} catch (e) {{
-                estado.innerText = "✅ Reconocido: \\"" + texto + "\\" (cópialo en el campo)";
-              }}
-            }};
-            recognition.onerror = function(event) {{
-              estado.innerText = "⚠️ No se pudo escuchar (" + event.error + "). Intenta de nuevo.";
-            }};
-            recognition.onend = function() {{
-              btn.disabled = false;
-            }};
-          }});
-        }})();
-      </script>
-    </div>
+    Devuelve el texto reconocido (str) solo la primera vez que llega un
+    resultado nuevo; en las siguientes ejecuciones del script devuelve
+    None para no repetirlo (se compara contra session_flag_key).
+
+    Limitación: solo funciona en Chrome / Edge (Web Speech API). En
+    Safari / iOS y Firefox el botón se deshabilita solo con un aviso.
+    No sube audio a ningún servidor — todo el reconocimiento ocurre en
+    el navegador del usuario.
     """
-    components.html(html, height=45)
+    js = f"""
+    new Promise(function(resolve) {{
+      document.body.innerHTML =
+        '<button id="btn_v" type="button" style="background:linear-gradient(135deg,#16a34a,#15803d);' +
+        'color:white;border:none;border-radius:8px;padding:8px 16px;font-weight:700;' +
+        'font-size:13px;cursor:pointer;font-family:Segoe UI,Arial,sans-serif;">' +
+        '🎤 Dictar observación por voz</button>' +
+        '<span id="est_v" style="font-size:12px;color:#6b7280;margin-left:8px;' +
+        'font-family:Segoe UI,Arial,sans-serif;"></span>';
+      var estado = document.getElementById("est_v");
+      var btn = document.getElementById("btn_v");
+      var SR = window.webkitSpeechRecognition || window.SpeechRecognition;
+      if (!SR) {{
+        estado.innerText = "⚠️ Tu navegador no soporta dictado (usa Chrome o Edge)";
+        btn.disabled = true; btn.style.opacity = "0.5";
+        return;
+      }}
+      btn.addEventListener("click", function() {{
+        var recognition = new SR();
+        recognition.lang = "{lang}";
+        recognition.interimResults = false;
+        recognition.maxAlternatives = 1;
+        estado.innerText = "🔴 Escuchando... habla ahora";
+        btn.disabled = true;
+        recognition.start();
+        recognition.onresult = function(event) {{
+          var texto = event.results[0][0].transcript;
+          estado.innerText = "✅ Reconocido: \\"" + texto + "\\"";
+          btn.disabled = false;
+          resolve(texto);
+        }};
+        recognition.onerror = function(event) {{
+          estado.innerText = "⚠️ No se pudo escuchar (" + event.error + "). Intenta de nuevo.";
+          btn.disabled = false;
+        }};
+      }});
+    }})
+    """
+    texto = streamlit_js_eval(js_expressions=js, key=component_key)
+    if texto and texto != st.session_state.get(session_flag_key):
+        st.session_state[session_flag_key] = texto
+        return texto
+    return None
 
 
 def nav_tabs(seccion_actual):
@@ -1480,13 +1458,25 @@ font-size:14px;text-align:center;margin-bottom:10px;">
             # no puede ver por sí sola (ej. "lleva ahí 3 días", "bloquea
             # el andén", "hay olor fuerte"). Queda guardado junto al
             # reporte y es visible para el administrador y en el mapa.
+            #
+            # El botón de voz va ANTES del text_area a propósito: así,
+            # si llega texto nuevo dictado, lo agregamos a session_state
+            # antes de crear el widget (Streamlit no permite modificar
+            # el valor de un widget después de haberlo creado en el
+            # mismo ciclo de ejecución).
+            texto_dictado_r = _dictar_voz("voz_r", "voz_r_procesado")
+            if texto_dictado_r:
+                previo = st.session_state.get("r_obs", "")
+                st.session_state["r_obs"] = (
+                    f"{previo} {texto_dictado_r}".strip() if previo else texto_dictado_r
+                )
+
             r_obs = st.text_area(
                 "📝 Observaciones (opcional):",
                 placeholder="Describe lo que ves en la foto: hace cuánto está ahí, "
                             "si bloquea el paso, olores, riesgos, etc.",
                 key="r_obs", height=80,
             )
-            _widget_dictado("Describe lo que ves en la foto", "dictado_r")
 
             r_img = st.file_uploader("📷 Foto del residuo:",
                                      type=["jpg","jpeg","png"], key="r_img")
@@ -1632,13 +1622,19 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                 cr_ref = st.text_input("Referencia:", value=pdir, key="cr_ref")
 
             # ── OBSERVACIONES — igual que en Reportar Residuo ───────────
+            texto_dictado_cr = _dictar_voz("voz_cr", "voz_cr_procesado")
+            if texto_dictado_cr:
+                previo_cr = st.session_state.get("cr_obs", "")
+                st.session_state["cr_obs"] = (
+                    f"{previo_cr} {texto_dictado_cr}".strip() if previo_cr else texto_dictado_cr
+                )
+
             cr_obs = st.text_area(
                 "📝 Observaciones (opcional):",
                 placeholder="Describe la acumulación: hace cuánto está ahí, si genera "
                             "olores, si bloquea el paso, riesgos para la salud, etc.",
                 key="cr_obs", height=80,
             )
-            _widget_dictado("Describe la acumulación", "dictado_cr")
 
             cr_img = st.file_uploader("📷 Foto del punto crítico:",
                                       type=["jpg","jpeg","png"], key="cr_img")
