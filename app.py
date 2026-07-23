@@ -309,18 +309,27 @@ st.markdown("""
         background: #ffffff !important;
     }
 
-    .stTabs [data-baseweb="tab-list"] {
-        background: #dcfce7; border-radius: 10px; padding: 4px;
-        gap: 4px;
+    [data-baseweb="tab-list"] {
+        background: #dcfce7 !important; border-radius: 10px !important; padding: 4px !important;
+        gap: 4px !important;
     }
-    .stTabs [data-baseweb="tab"] {
-        background: transparent; border-radius: 8px;
-        color: #166534 !important; font-weight: 600;
-        padding: 8px 14px;
+    [data-baseweb="tab"] {
+        background: transparent !important; border-radius: 8px !important;
+        font-weight: 600 !important;
+        padding: 8px 14px !important;
     }
-    .stTabs [aria-selected="true"] {
-        background: #16a34a !important; color: white !important;
-        border-radius: 8px;
+    /* El texto de cada pestaña vive en un <p> anidado dentro del botón,
+       no directamente en el botón — por eso el "color" de arriba no
+       alcanzaba a pintarlo. El "*" cubre ese <p> y cualquier otro hijo. */
+    [data-baseweb="tab"] * {
+        color: #166534 !important;
+    }
+    [data-baseweb="tab"][aria-selected="true"] {
+        background: #16a34a !important;
+        border-radius: 8px !important;
+    }
+    [data-baseweb="tab"][aria-selected="true"] * {
+        color: #ffffff !important;
     }
 
     div[data-testid="stExpander"] {
@@ -963,19 +972,26 @@ font-size:14px;text-align:center;margin-bottom:10px;">
 </div>""", unsafe_allow_html=True)
 
         for msg in st.session_state.agente_msgs[-6:]:
+            # Convertimos saltos de línea reales a <br> — dentro de HTML,
+            # un "\n" normal se ignora visualmente; sin este cambio el
+            # saludo de bienvenida (que tiene un salto doble) se veía
+            # todo pegado en una sola línea.
+            contenido_html = msg["content"].replace("\n", "<br>")
             if msg["role"] == "assistant":
                 st.markdown(
                     f'<div style="background:#f0fdf4;border:1px solid #bbf7d0;'
                     f'border-radius:10px;padding:10px;font-size:13px;'
-                    f'color:#14532d !important;margin-bottom:6px;">'
-                    f'🤖 {msg["content"]}</div>',
+                    f'margin-bottom:6px;">'
+                    f'<span style="color:#14532d !important;">'
+                    f'🤖 {contenido_html}</span></div>',
                     unsafe_allow_html=True)
             else:
                 st.markdown(
                     f'<div style="background:#dcfce7;border-radius:10px;'
-                    f'padding:8px 10px;font-size:13px;color:#166534 !important;'
+                    f'padding:8px 10px;font-size:13px;'
                     f'text-align:right;margin-bottom:6px;">'
-                    f'👤 {msg["content"]}</div>',
+                    f'<span style="color:#166534 !important;">'
+                    f'👤 {contenido_html}</span></div>',
                     unsafe_allow_html=True)
 
         pregunta = st.text_input(
