@@ -287,6 +287,27 @@ st.markdown("""
         border: 2px solid #86efac !important;
         border-radius: 10px !important; background: #ffffff !important;
     }
+    /* Texto del valor seleccionado (ej. "La Frontera") — heredaba el
+       color claro del tema, invisible sobre el fondo blanco de arriba.
+       El "*" cubre el value-container y cualquier span interno que
+       use BaseWeb (la librería de componentes de Streamlit). */
+    div[data-testid="stSelectbox"] * {
+        color: #14532d !important;
+    }
+    /* La flecha del desplegable es un ícono SVG, no texto — se pinta
+       con "fill", no con "color", así que necesita su propia regla. */
+    div[data-testid="stSelectbox"] svg {
+        fill: #14532d !important;
+    }
+    /* La LISTA de opciones (al hacer clic para desplegar) se pinta en
+       un popover aparte, fuera del contenedor del selectbox — por eso
+       necesita su propia regla, si no, tendría el mismo problema de
+       texto invisible en cuanto el usuario la abriera. */
+    div[data-baseweb="popover"] li,
+    div[data-baseweb="menu"] * {
+        color: #14532d !important;
+        background: #ffffff !important;
+    }
 
     .stTabs [data-baseweb="tab-list"] {
         background: #dcfce7; border-radius: 10px; padding: 4px;
