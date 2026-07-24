@@ -673,6 +673,31 @@ def geocodificar_inversa(lat: float, lon: float):
         return f"{lat:.5f}, {lon:.5f}", None
 
 
+def marcar_zona_critica(img_pil, texto="🚨 ZONA CRÍTICA — revisar acumulación completa"):
+    """Cuando la IA no logra separar objetos individuales (0 detecciones)
+    pero el punto igual queda clasificado como 🔴 crítico por la
+    clasificación manual, resaltamos la foto COMPLETA con un marco y
+    una etiqueta — así quien la vea en el mapa (residente o admin)
+    entiende de inmediato que hay que revisar toda la zona, sin
+    depender de cajas de detección que en estos casos no existen."""
+    from PIL import ImageDraw, ImageFont
+    img = img_pil.convert("RGB").copy()
+    draw = ImageDraw.Draw(img)
+    w, h = img.size
+    grosor = max(6, int(min(w, h) * 0.02))
+    for i in range(grosor):
+        draw.rectangle([i, i, w - 1 - i, h - 1 - i], outline=(220, 38, 38))
+    alto_franja = max(30, int(h * 0.09))
+    draw.rectangle([0, h - alto_franja, w, h], fill=(220, 38, 38))
+    try:
+        fuente = ImageFont.load_default(size=max(14, int(alto_franja * 0.45)))
+    except TypeError:
+        fuente = ImageFont.load_default()
+    draw.text((12, h - alto_franja + alto_franja * 0.25), texto,
+              fill=(255, 255, 255), font=fuente)
+    return img
+
+
 def img_a_b64(img_pil, max_px=200) -> str:
     try:
         thumb = img_pil.copy()
@@ -769,7 +794,7 @@ def analizar(img, imgsz=640):
         with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
             img.save(tmp.name)
             tmp_path = tmp.name
-        return modelo(tmp_path, conf=0.15, imgsz=imgsz)
+        return modelo(tmp_path, conf=0.25, imgsz=imgsz)
     finally:
         if tmp_path and os.path.exists(tmp_path):
             try:
@@ -1493,7 +1518,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
             if img is not None:
                 if st.button("🔍 Analizar con IA", type="primary",
                              use_container_width=True, key="r_analizar"):
-                    with st.spinner("Analizando imagen (conf ≥ 5%)..."):
+                    with st.spinner("Analizando imagen (conf ≥ 25%)..."):
                         res = analizar(img)
                     co, cd = st.columns(2)
                     with co:
@@ -1514,6 +1539,8 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         if not df_no.empty:
                             st.markdown("**⚠️ No aprovechables:**")
                             st.dataframe(df_no, use_container_width=True, hide_index=True)
+
+                    img_foto_final = img
 
                     if residuos == 0 and len(tabla) == 0:
                         st.warning(
@@ -1555,6 +1582,10 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         }
                         nivel, tipo, peso = MAP_MANUAL[tipo_manual]
                         residuos = cant_manual if "reciclable" in tipo_manual.lower() else 0
+                        if "🔴" in nivel:
+                            img_foto_final = marcar_zona_critica(img)
+                            st.caption("🚨 La foto se marcará con un aviso de zona crítica "
+                                       "para que el administrador la identifique fácil en el mapa.")
                         metricas(residuos, peso, nivel)
                     else:
                         metricas(residuos, peso, nivel)
@@ -1570,7 +1601,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         "Lat": plat, "Lon": plon,
                         "Fecha": datetime.now().strftime("%Y-%m-%d %H:%M"),
                         "Estado": "🔴 Pendiente",
-                        "FotoB64": img_a_b64(img),
+                        "FotoB64": img_a_b64(img_foto_final),
                         "Observaciones": r_obs.strip(),
                         "NotaVozB64": audio_a_b64(r_audio),
                         "FotosExtraB64": fotos_extra_a_json(r_imgs_extra_pil),
@@ -1752,6 +1783,10 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         nivel_f, tipo_f, peso_f = MAP_MC[tipo_mc]
                         total_f = cant_mc
                         residuos_f = 0
+                        if "🔴" in nivel_f:
+                            st.session_state.cache_foto_b64 = img_a_b64(marcar_zona_critica(img2))
+                            st.caption("🚨 La foto se marcará con un aviso de zona crítica "
+                                       "para que el administrador la identifique fácil en el mapa.")
                     else:
                         nivel_f   = cc["nivel"]
                         tipo_f    = cc["tipo"]
