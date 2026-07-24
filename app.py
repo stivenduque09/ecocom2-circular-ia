@@ -402,6 +402,21 @@ st.markdown("""
     text-align: right !important;
 }
 
+/* Burbujas del chat EcoBot — usamos [data-testid="stSidebar"] + clase
+   (más específico que el "[data-testid=stSidebar] *" de arriba) para
+   garantizar que el texto SIEMPRE gane esa pelea de especificidad y
+   no vuelva a quedar invisible sobre el fondo. */
+[data-testid="stSidebar"] .ecobot-bubble-bot,
+[data-testid="stSidebar"] .ecobot-bubble-bot * {
+    color: #14532d !important;
+    background: #f0fdf4 !important;
+}
+[data-testid="stSidebar"] .ecobot-bubble-user,
+[data-testid="stSidebar"] .ecobot-bubble-user * {
+    color: #166534 !important;
+    background: #dcfce7 !important;
+}
+
 .chat-container{
     background: #ffffff !important;
     border: 2px solid #86efac !important;
@@ -987,19 +1002,25 @@ def metricas(residuos, peso, nivel):
 
 def nav_tabs(seccion_actual):
     SECCIONES = [
-        ("info",      "📍 Info del punto"),
-        ("residuo",   "📸 Reportar Residuo"),
-        ("critico",   "🚨 Punto Crítico"),
-        ("historial", "📋 Historial"),
+        ("info",         "📍 Info del punto"),
+        ("residuo",      "📸 Reportar Residuo"),
+        ("critico",      "🚨 Punto Crítico"),
+        ("historial",    "📋 Historial"),
+        ("mis_reportes", "👤 Mis Reportes"),
     ]
     cols = st.columns(len(SECCIONES))
     for col, (key, label) in zip(cols, SECCIONES):
         with col:
-            es_activa = seccion_actual == key
+            es_activa = seccion_actual == key or (key == "mis_reportes" and seccion_actual == "historial"
+                                                    and st.session_state.get("hist_solo_mios_default"))
             btn_type = "primary" if es_activa else "secondary"
             if st.button(label, key=f"nav_{key}",
                          use_container_width=True, type=btn_type):
-                st.session_state.seccion = key
+                if key == "mis_reportes":
+                    st.session_state.seccion = "historial"
+                    st.session_state.hist_solo_mios_default = True
+                else:
+                    st.session_state.seccion = key
                 st.rerun()
 
 # ====================================================================
@@ -1167,19 +1188,17 @@ font-size:14px;text-align:center;margin-bottom:10px;">
             contenido_html = msg["content"].replace("\n", "<br>")
             if msg["role"] == "assistant":
                 st.markdown(
-                    f'<div style="background:#f0fdf4;border:1px solid #bbf7d0;'
+                    f'<div class="ecobot-bubble-bot" style="border:1px solid #bbf7d0;'
                     f'border-radius:10px;padding:10px;font-size:13px;'
                     f'margin-bottom:6px;">'
-                    f'<span style="color:#14532d !important;">'
-                    f'🤖 {contenido_html}</span></div>',
+                    f'🤖 {contenido_html}</div>',
                     unsafe_allow_html=True)
             else:
                 st.markdown(
-                    f'<div style="background:#dcfce7;border-radius:10px;'
+                    f'<div class="ecobot-bubble-user" style="border-radius:10px;'
                     f'padding:8px 10px;font-size:13px;'
                     f'text-align:right;margin-bottom:6px;">'
-                    f'<span style="color:#166534 !important;">'
-                    f'👤 {contenido_html}</span></div>',
+                    f'👤 {contenido_html}</div>',
                     unsafe_allow_html=True)
 
         pregunta = st.text_input(
@@ -1465,6 +1484,9 @@ font-size:14px;text-align:center;margin-bottom:10px;">
     st.markdown("")
     st.markdown("")
     seccion = st.session_state.get("seccion", "info")
+
+    nav_tabs(seccion)
+    st.markdown("")
 
     if seccion != "info":
         iconos = {"residuo": "📸 Reportar Residuo", "critico": "🚨 Punto Crítico",
