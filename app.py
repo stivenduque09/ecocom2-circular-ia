@@ -1520,17 +1520,35 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                              use_container_width=True, key="r_analizar"):
                     with st.spinner("Analizando imagen (conf ≥ 25%)..."):
                         res = analizar(img)
+                    tabla, residuos, peso, tipo, nivel, _ = procesar(res)
+                    st.session_state.cache_analisis_r = {
+                        "res_plot": res[0].plot(),
+                        "tabla": tabla,
+                        "residuos": residuos,
+                        "peso": peso,
+                        "tipo": tipo,
+                        "nivel": nivel,
+                        "ia_detecto": not (residuos == 0 and len(tabla) == 0),
+                    }
+
+                # ── Este bloque va FUERA del botón a propósito: si estuviera
+                # adentro, en cuanto tocas el selectbox o el slider de abajo
+                # Streamlit vuelve a correr todo el script con el botón en
+                # False y este bloque completo desaparecería, guardando el
+                # reporte con los valores por defecto de la primera corrida
+                # en vez de con lo que realmente elegiste.
+                if st.session_state.get("cache_analisis_r"):
+                    ca = st.session_state.cache_analisis_r
                     co, cd = st.columns(2)
                     with co:
                         st.markdown("**📷 Original**")
                         st.image(img, use_container_width=True)
                     with cd:
                         st.markdown("**🤖 Detecciones IA**")
-                        st.image(res[0].plot(), use_container_width=True)
+                        st.image(ca["res_plot"], use_container_width=True)
 
-                    tabla, residuos, peso, tipo, nivel, _ = procesar(res)
-                    if tabla:
-                        df_t = pd.DataFrame(tabla)
+                    if ca["tabla"]:
+                        df_t = pd.DataFrame(ca["tabla"])
                         df_si = df_t[df_t["♻️"] == "✅ Sí"]
                         df_no = df_t[df_t["♻️"] == "❌ No"]
                         if not df_si.empty:
@@ -1541,8 +1559,10 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                             st.dataframe(df_no, use_container_width=True, hide_index=True)
 
                     img_foto_final = img
+                    residuos_f, peso_f, tipo_f, nivel_f = (
+                        ca["residuos"], ca["peso"], ca["tipo"], ca["nivel"])
 
-                    if residuos == 0 and len(tabla) == 0:
+                    if not ca["ia_detecto"]:
                         st.warning(
                             "⚠️ La IA no reconoció objetos específicos. "
                             "Esto ocurre con escombros, basura mezclada o bolsas oscuras. "
@@ -1580,24 +1600,24 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                                 ("🟡 Punto amarillo — Residuos mixtos",
                                  "Mixto", round(cant_manual * 1.0, 1)),
                         }
-                        nivel, tipo, peso = MAP_MANUAL[tipo_manual]
-                        residuos = cant_manual if "reciclable" in tipo_manual.lower() else 0
-                        if "🔴" in nivel:
+                        nivel_f, tipo_f, peso_f = MAP_MANUAL[tipo_manual]
+                        residuos_f = cant_manual if "reciclable" in tipo_manual.lower() else 0
+                        if "🔴" in nivel_f:
                             img_foto_final = marcar_zona_critica(img)
                             st.caption("🚨 La foto se marcará con un aviso de zona crítica "
                                        "para que el administrador la identifique fácil en el mapa.")
-                        metricas(residuos, peso, nivel)
+                        metricas(residuos_f, peso_f, nivel_f)
                     else:
-                        metricas(residuos, peso, nivel)
+                        metricas(residuos_f, peso_f, nivel_f)
 
                     st.session_state.cache = {
                         "Código":        f"REP-{len(st.session_state.reportes)+200}",
                         "Sector":        r_barrio,
                         "Referencia":    r_ref,
-                        "Objetos":       residuos,
-                        "Peso (Kg)":     peso,
-                        "Predominante":  tipo,
-                        "Clasificación": nivel,
+                        "Objetos":       residuos_f,
+                        "Peso (Kg)":     peso_f,
+                        "Predominante":  tipo_f,
+                        "Clasificación": nivel_f,
                         "Lat": plat, "Lon": plon,
                         "Fecha": datetime.now().strftime("%Y-%m-%d %H:%M"),
                         "Estado": "🔴 Pendiente",
@@ -1626,7 +1646,9 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         st.session_state.mis_estados_vistos[r["Código"]] = r["Estado"]
                         guardar_reportes_disco(st.session_state.reportes)
                         st.session_state.cache = None
+                        st.session_state.cache_analisis_r = None
                         st.session_state.seccion = "historial"
+                        st.session_state.hist_solo_mios_default = True
                         for k in ["click_lat","click_lon","click_dir","click_barrio"]:
                             st.session_state.pop(k, None)
                         st.success("✅ ¡Publicado! Guardado permanentemente en el mapa.")
@@ -1634,6 +1656,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                 with cc:
                     if st.button("❌ Cancelar", use_container_width=True, key="r_cancelar"):
                         st.session_state.cache = None
+                        st.session_state.cache_analisis_r = None
                         st.rerun()
 
     # ── SECCIÓN: Punto Crítico ─────────────────────────────────────────
@@ -1834,6 +1857,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                             st.session_state.cache_critico = None
                             st.session_state.cache_fotos_extra_b64 = None
                             st.session_state.seccion = "historial"
+                            st.session_state.hist_solo_mios_default = True
                             for k in ["click_lat","click_lon","click_dir","click_barrio"]:
                                 st.session_state.pop(k, None)
                             st.success("✅ ¡Alerta registrada permanentemente!")
@@ -1890,7 +1914,8 @@ font-size:14px;text-align:center;margin-bottom:10px;">
 
         solo_mios = st.checkbox(
             "📍 Mostrar solo mis reportes",
-            value=False,
+            value=st.session_state.pop("hist_solo_mios_default", False),
+            key="hist_solo_mios",
             help=("Reportes publicados en ESTA sesión del navegador. La app "
                   "todavía no tiene cuentas de usuario, así que esta lista se "
                   "reinicia si cierras o refrescas la página.")
