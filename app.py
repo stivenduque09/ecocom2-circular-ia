@@ -25,10 +25,10 @@ DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 _CAMPOS    = ["Código","Sector","Referencia","Objetos","Peso (Kg)",
               "Predominante","Clasificación","Lat","Lon","Fecha","Estado","FotoB64",
-              "Observaciones","NotaVozB64","FotosExtraB64"]
+              "Observaciones","NotaVozB64","FotosExtraB64","CodigoResidente"]
 _COLUMNAS  = ["codigo","sector","referencia","objetos","peso_kg",
               "predominante","clasificacion","lat","lon","fecha","estado","foto_b64",
-              "observaciones","nota_voz_b64","fotos_extra_b64"]
+              "observaciones","nota_voz_b64","fotos_extra_b64","residente_codigo"]
 
 def _conectar_db():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
@@ -59,7 +59,8 @@ def _crear_tabla():
             # existía de una versión anterior. SQLite no soporta
             # "ADD COLUMN IF NOT EXISTS", así que intentamos y
             # silenciamos el error si la columna ya existe.
-            for col_sql in ["observaciones TEXT", "nota_voz_b64 TEXT", "fotos_extra_b64 TEXT"]:
+            for col_sql in ["observaciones TEXT", "nota_voz_b64 TEXT",
+                            "fotos_extra_b64 TEXT", "residente_codigo TEXT"]:
                 try:
                     conn.execute(f"ALTER TABLE reportes ADD COLUMN {col_sql}")
                 except Exception:
@@ -768,6 +769,49 @@ def audio_a_b64(audio_uploadedfile) -> str:
         return ""
 
 
+def campo_codigo_residente(key: str) -> str:
+    """Campo opcional de código o teléfono del residente — NO es un
+    login real ni una contraseña, solo un identificador que la persona
+    puede volver a escribir después (en otro navegador o sesión) para
+    encontrar sus propios reportes en el Historial. Se guarda en
+    session_state para no tener que reescribirlo en cada reporte
+    dentro de la misma visita."""
+    valor = st.text_input(
+        "📱 Tu código o teléfono (opcional):",
+        value=st.session_state.get("mi_codigo_residente", ""),
+        placeholder="Ej. tu número de celular — para recuperar tus reportes después",
+        key=key,
+        help="No es una contraseña: sirve para que más adelante puedas buscar "
+             "tus propios reportes en el Historial, incluso si cierras el "
+             "navegador. Cualquiera que conozca este código podría ver esos "
+             "reportes, así que no escribas datos sensibles."
+    )
+    if valor.strip():
+        st.session_state.mi_codigo_residente = valor.strip()
+    return valor.strip()
+
+
+def verificar_api_key() -> bool:
+    """Chequea si la API key de Anthropic está configurada en
+    st.secrets. Se usa para avisarle al ADMIN (no a los residentes)
+    si el chatbot EcoBot va a funcionar en modo 'sin conexión'."""
+    try:
+        return bool(st.secrets.get("ANTHROPIC_API_KEY", "").strip())
+    except Exception:
+        return False
+
+
+def tamano_bd_mb() -> float:
+    """Tamaño actual del archivo SQLite en MB — como las fotos y notas
+    de voz van codificadas dentro de la misma base de datos (no en
+    archivos externos tipo S3), esto ayuda a vigilar que no crezca sin
+    control con hosting gratuito de espacio limitado."""
+    try:
+        return round(DB_PATH.stat().st_size / (1024 * 1024), 2)
+    except Exception:
+        return 0.0
+
+
 def es_residente():
     return st.session_state.validado and not st.session_state.fuera
 
@@ -1467,6 +1511,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
             with r2:
                 r_ref = st.text_input("Referencia (edita si quieres):",
                                       value=pdir, key="r_ref")
+                r_codigo = campo_codigo_residente("r_codigo_residente")
 
             # ── OBSERVACIONES: texto o solo voz ──────────────────────────
             # Dos formas independientes de contar lo que ves — usa una,
@@ -1625,6 +1670,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         "Observaciones": r_obs.strip(),
                         "NotaVozB64": audio_a_b64(r_audio),
                         "FotosExtraB64": fotos_extra_a_json(r_imgs_extra_pil),
+                        "CodigoResidente": r_codigo,
                     }
 
             if st.session_state.get("cache"):
@@ -1690,6 +1736,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                     st.caption(f"📍 Detectado automáticamente: {_barrio_sugerido_cr} · puedes cambiarlo si no es correcto")
             with cr2:
                 cr_ref = st.text_input("Referencia:", value=pdir, key="cr_ref")
+                cr_codigo = campo_codigo_residente("cr_codigo_residente")
 
             # ── OBSERVACIONES: texto o solo voz (igual que Reportar Residuo) ──
             cr_obs = st.text_area(
@@ -1849,6 +1896,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                                 "Observaciones": cr_obs.strip(),
                                 "NotaVozB64": audio_a_b64(cr_audio),
                                 "FotosExtraB64": st.session_state.get("cache_fotos_extra_b64", ""),
+                                "CodigoResidente": cr_codigo,
                             }
                             st.session_state.reportes.append(nuevo)
                             st.session_state.mis_codigos.append(nuevo["Código"])
@@ -1912,6 +1960,14 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                 f'✅ {n_resueltos_mios} resueltos'
                 f'</div>', unsafe_allow_html=True)
 
+        busq_codigo = st.text_input(
+            "🔎 O busca tus reportes por código/teléfono (funciona aunque cambies "
+            "de navegador o dispositivo, a diferencia de la casilla de abajo):",
+            value=st.session_state.get("mi_codigo_residente", ""),
+            key="hist_busqueda_codigo",
+            placeholder="Escribe el mismo código/teléfono que usaste al reportar"
+        )
+
         solo_mios = st.checkbox(
             "📍 Mostrar solo mis reportes",
             value=st.session_state.pop("hist_solo_mios_default", False),
@@ -1920,13 +1976,21 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                   "todavía no tiene cuentas de usuario, así que esta lista se "
                   "reinicia si cierras o refrescas la página.")
         )
-        reportes_mostrar = (
-            [r for r in st.session_state.reportes if r["Código"] in st.session_state.mis_codigos]
-            if solo_mios else st.session_state.reportes
-        )
+        if busq_codigo.strip():
+            reportes_mostrar = [
+                r for r in st.session_state.reportes
+                if r.get("CodigoResidente", "").strip().lower() == busq_codigo.strip().lower()
+            ]
+        elif solo_mios:
+            reportes_mostrar = [r for r in st.session_state.reportes if r["Código"] in st.session_state.mis_codigos]
+        else:
+            reportes_mostrar = st.session_state.reportes
 
         if not reportes_mostrar:
-            if solo_mios:
+            if busq_codigo.strip():
+                st.info("No encontré reportes con ese código/teléfono. Revisa que esté "
+                        "escrito igual a como lo pusiste al reportar.")
+            elif solo_mios:
                 st.info("Aún no has publicado ningún reporte en esta sesión.")
             else:
                 st.info("Sin reportes aún. Toca el mapa y usa '📸 Reportar Residuo' para el primero.")
@@ -2144,6 +2208,33 @@ margin-bottom:8px;">
     ])
 
     with tab_dash:
+        st.markdown("#### ⚙️ Estado del sistema")
+        est1, est2 = st.columns(2)
+        with est1:
+            if verificar_api_key():
+                st.markdown(
+                    '<div class="badge-ok" style="font-size:13px;">'
+                    '✅ API key de Anthropic configurada<br>'
+                    '<span style="font-weight:normal">EcoBot puede responder con IA.</span></div>',
+                    unsafe_allow_html=True)
+            else:
+                st.markdown(
+                    '<div class="badge-err" style="font-size:13px;">'
+                    '⚠️ ANTHROPIC_API_KEY no configurada<br>'
+                    '<span style="font-weight:normal">EcoBot está en modo "sin conexión" — '
+                    'configúrala en Settings → Secrets de tu hosting.</span></div>',
+                    unsafe_allow_html=True)
+        with est2:
+            tam_mb = tamano_bd_mb()
+            color_tam = "badge-ok" if tam_mb < 200 else ("badge-warn" if tam_mb < 500 else "badge-err")
+            st.markdown(
+                f'<div class="{color_tam}" style="font-size:13px;">'
+                f'💾 Base de datos: {tam_mb} MB<br>'
+                f'<span style="font-weight:normal">Fotos y audio van codificados aquí adentro — '
+                f'usa "Eliminar resueltos" si crece mucho.</span></div>',
+                unsafe_allow_html=True)
+        st.markdown("")
+
         if not reportes:
             st.info("Sin reportes aún. Los reportes de los residentes aparecerán aquí.")
         else:
