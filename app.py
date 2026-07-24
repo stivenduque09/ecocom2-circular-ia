@@ -1,5 +1,5 @@
 import streamlit as st
-from ultralytics import YOLO
+from ultralytics import YOLO, YOLOE
 from PIL import Image
 import tempfile
 from collections import Counter
@@ -493,61 +493,114 @@ if "mis_estados_vistos" not in st.session_state:
     st.session_state.mis_estados_vistos = {}
 
 # ====================================================================
-# 4. MODELO YOLO
+# 4. MODELO YOLO — YOLOE (vocabulario abierto)
 # ====================================================================
+# YOLOE es la evolución de YOLO-World dentro de Ultralytics: mismo
+# concepto (darle las clases EN TEXTO LIBRE sin reentrenar nada), pero
+# usa un codificador de texto que se descarga desde GitHub — no depende
+# de un servidor externo de OpenAI/Microsoft que en algunos entornos
+# de despliegue puede estar bloqueado. Gracias a esto reconoce objetos
+# que YOLOv8 "clásico" (80 clases fijas de COCO) no podía: sillas y
+# muebles de madera artesanales, colchones, escombros, chatarra, etc.
+#
+# ⚠️ Primera ejecución: descarga el modelo (~26MB) una sola vez, se
+# queda en caché para arranques siguientes. Requiere `ultralytics`
+# actualizado (`pip install -U ultralytics`, versión con soporte YOLOE).
+CLASES_DETECCION = [
+    # ── Reciclables típicos (equivalentes a lo que ya cubría COCO) ──
+    "plastic bottle", "plastic cup", "plastic chair", "plastic bench",
+    "plastic bucket", "plastic bowl", "plastic toy", "frisbee",
+    "garbage bag", "backpack", "suitcase", "book", "newspaper",
+    "cardboard box", "glass bottle", "glass jar", "aluminum can",
+    "knife", "fork", "spoon", "scissors", "cell phone", "laptop",
+    "keyboard", "computer mouse", "remote control", "television",
+    "clock", "banana", "apple", "orange", "broccoli", "carrot",
+    "potted plant", "food waste", "wooden table", "couch", "bed",
+    "umbrella", "tie",
+    # ── Objetos que YOLOv8 clásico NO reconocía y son comunes en la comuna ──
+    "wooden chair", "wooden stool", "broken wooden furniture",
+    "mattress", "construction rubble", "pile of rubble",
+    "pile of garbage bags", "scrap metal", "old tire",
+    "broken appliance", "styrofoam waste", "pile of plastic bags",
+    "wood planks", "broken glass", "electronic waste",
+    "abandoned furniture", "cardboard boxes pile",
+    # ── Distractores — para que NO se confundan con residuos ──
+    "person", "dog", "cat", "car", "bus", "truck", "bicycle",
+    "motorcycle", "traffic light", "stop sign", "bird", "toothbrush",
+]
+
 @st.cache_resource
 def cargar_modelo():
-    return YOLO("yolov8m.pt")
+    m = YOLOE("yoloe-11s-seg.pt")
+    embeddings = m.get_text_pe(CLASES_DETECCION)
+    m.set_classes(CLASES_DETECCION, embeddings)
+    return m
 modelo = cargar_modelo()
 
 # ====================================================================
 # 5. MATERIALES
 # ====================================================================
 MAT = {
-    "bottle":         ("Botella plástica",         "Plástico",    0.05, True),
-    "cup":            ("Vaso / Recipiente plástico","Plástico",    0.03, True),
-    "chair":          ("Silla plástica",            "Plástico",    2.00, True),
-    "bench":          ("Banco plástico",            "Plástico",    2.50, True),
-    "bucket":         ("Balde plástico",            "Plástico",    0.50, True),
-    "bowl":           ("Recipiente plástico",       "Plástico",    0.15, True),
-    "toy":            ("Juguete plástico",          "Plástico",    0.50, True),
-    "frisbee":        ("Disco plástico",            "Plástico",    0.10, True),
-    "handbag":        ("Bolsa de basura / Bolso",   "Plástico",    0.40, True),
-    "backpack":       ("Bolsa / Mochila",           "Textil",      0.50, True),
-    "suitcase":       ("Bolsa grande / Maleta",     "Textil",      1.00, True),
-    "book":           ("Libro / Cuaderno",          "Papel",       0.30, True),
-    "newspaper":      ("Periódico / Papel",         "Papel",       0.10, True),
-    "box":            ("Caja de cartón",            "Cartón",      0.30, True),
-    "wine glass":     ("Botella / Copa de vidrio",  "Vidrio",      0.20, True),
-    "vase":           ("Frasco / Jarrón de vidrio", "Vidrio",      0.80, True),
-    "can":            ("Lata de aluminio",          "Aluminio",    0.02, True),
-    "knife":          ("Cuchillo / Utensilio metal","Metal",       0.10, True),
-    "fork":           ("Tenedor / Utensilio metal", "Metal",       0.05, True),
-    "spoon":          ("Cuchara / Utensilio metal", "Metal",       0.05, True),
-    "scissors":       ("Tijeras",                   "Metal",       0.10, True),
-    "cell phone":     ("Celular",                   "Electrónico", 0.20, True),
-    "laptop":         ("Portátil",                  "Electrónico", 2.50, True),
-    "keyboard":       ("Teclado",                   "Electrónico", 0.60, True),
-    "mouse":          ("Ratón de computador",       "Electrónico", 0.10, True),
-    "remote":         ("Control remoto",            "Electrónico", 0.20, True),
-    "tv":             ("Televisor",                 "Electrónico", 8.00, True),
-    "clock":          ("Reloj",                     "Electrónico", 0.30, True),
-    "banana":         ("Banano",                    "Orgánico",    0.10, True),
-    "apple":          ("Manzana",                   "Orgánico",    0.15, True),
-    "orange":         ("Naranja",                   "Orgánico",    0.20, True),
-    "broccoli":       ("Brócoli",                   "Orgánico",    0.25, True),
-    "carrot":         ("Zanahoria",                 "Orgánico",    0.10, True),
-    "potted plant":   ("Planta / Matero",           "Orgánico",    1.00, True),
-    "pizza":          ("Residuo de comida",         "Orgánico",    0.30, True),
-    "sandwich":       ("Residuo de comida",         "Orgánico",    0.20, True),
-    "hot dog":        ("Residuo de comida",         "Orgánico",    0.15, True),
-    "cake":           ("Residuo de comida",         "Orgánico",    0.20, True),
-    "donut":          ("Residuo de comida",         "Orgánico",    0.10, True),
-    "dining table":   ("Mesa / Madera",             "Madera",     12.00, True),
-    "couch":          ("Sofá / Mueble",             "Mixto",      15.00, True),
-    "bed":            ("Cama / Colchón",            "Mixto",      20.00, True),
-    "umbrella":       ("Paraguas",                  "Mixto",       0.50, True),
-    "tie":            ("Corbata / Textil",          "Textil",      0.10, True),
+    # ── Reciclables típicos ──
+    "plastic bottle":        ("Botella plástica",           "Plástico",    0.05, True),
+    "plastic cup":           ("Vaso / Recipiente plástico", "Plástico",    0.03, True),
+    "plastic chair":         ("Silla plástica",             "Plástico",    2.00, True),
+    "plastic bench":         ("Banco plástico",             "Plástico",    2.50, True),
+    "plastic bucket":        ("Balde plástico",             "Plástico",    0.50, True),
+    "plastic bowl":          ("Recipiente plástico",        "Plástico",    0.15, True),
+    "plastic toy":           ("Juguete plástico",           "Plástico",    0.50, True),
+    "frisbee":               ("Disco plástico",             "Plástico",    0.10, True),
+    "garbage bag":           ("Bolsa de basura",            "Plástico",    0.40, True),
+    "backpack":              ("Bolsa / Mochila",            "Textil",      0.50, True),
+    "suitcase":              ("Bolsa grande / Maleta",      "Textil",      1.00, True),
+    "book":                  ("Libro / Cuaderno",           "Papel",       0.30, True),
+    "newspaper":             ("Periódico / Papel",          "Papel",       0.10, True),
+    "cardboard box":         ("Caja de cartón",             "Cartón",      0.30, True),
+    "glass bottle":          ("Botella de vidrio",          "Vidrio",      0.20, True),
+    "glass jar":             ("Frasco de vidrio",           "Vidrio",      0.80, True),
+    "aluminum can":          ("Lata de aluminio",           "Aluminio",    0.02, True),
+    "knife":                 ("Cuchillo / Utensilio metal", "Metal",       0.10, True),
+    "fork":                  ("Tenedor / Utensilio metal",  "Metal",       0.05, True),
+    "spoon":                 ("Cuchara / Utensilio metal",  "Metal",       0.05, True),
+    "scissors":              ("Tijeras",                    "Metal",       0.10, True),
+    "cell phone":            ("Celular",                    "Electrónico", 0.20, True),
+    "laptop":                ("Portátil",                   "Electrónico", 2.50, True),
+    "keyboard":              ("Teclado",                    "Electrónico", 0.60, True),
+    "computer mouse":        ("Ratón de computador",        "Electrónico", 0.10, True),
+    "remote control":        ("Control remoto",             "Electrónico", 0.20, True),
+    "television":            ("Televisor",                  "Electrónico", 8.00, True),
+    "clock":                 ("Reloj",                      "Electrónico", 0.30, True),
+    "banana":                ("Banano",                     "Orgánico",    0.10, True),
+    "apple":                 ("Manzana",                    "Orgánico",    0.15, True),
+    "orange":                ("Naranja",                    "Orgánico",    0.20, True),
+    "broccoli":              ("Brócoli",                    "Orgánico",    0.25, True),
+    "carrot":                ("Zanahoria",                  "Orgánico",    0.10, True),
+    "potted plant":          ("Planta / Matero",            "Orgánico",    1.00, True),
+    "food waste":            ("Residuo de comida",          "Orgánico",    0.25, True),
+    "wooden table":          ("Mesa / Madera",              "Madera",     12.00, True),
+    "couch":                 ("Sofá / Mueble",               "Mixto",     15.00, True),
+    "bed":                   ("Cama / Colchón",             "Mixto",      20.00, True),
+    "umbrella":              ("Paraguas",                   "Mixto",       0.50, True),
+    "tie":                   ("Corbata / Textil",           "Textil",      0.10, True),
+    # ── Antes invisibles para la IA — ahora reconocidos por texto libre ──
+    "wooden chair":          ("Silla de madera",            "Madera",      3.00, True),
+    "wooden stool":          ("Banco / Taburete de madera",  "Madera",     2.00, True),
+    "broken wooden furniture":("Mueble de madera roto",      "Madera",     8.00, True),
+    "mattress":              ("Colchón",                    "Mixto",      20.00, True),
+    "construction rubble":   ("Escombros de construcción",  "Escombros",  15.00, False),
+    "pile of rubble":        ("Montón de escombros",        "Escombros",  20.00, False),
+    "pile of garbage bags":  ("Montón de bolsas de basura",  "Residuo mixto",5.00, False),
+    "scrap metal":           ("Chatarra metálica",          "Metal",       2.00, True),
+    "old tire":              ("Llanta usada",               "Caucho",      8.00, False),
+    "broken appliance":      ("Electrodoméstico dañado",     "Electrónico",10.00, True),
+    "styrofoam waste":       ("Icopor / Poliestireno",       "Plástico",   0.20, True),
+    "pile of plastic bags":  ("Montón de bolsas plásticas",  "Plástico",   1.00, True),
+    "wood planks":           ("Tablas / Madera suelta",      "Madera",     4.00, True),
+    "broken glass":          ("Vidrio roto",                "Vidrio",      0.50, False),
+    "electronic waste":      ("Chatarra electrónica",       "Electrónico", 3.00, True),
+    "abandoned furniture":   ("Mueble abandonado",          "Mixto",      15.00, True),
+    "cardboard boxes pile":  ("Montón de cajas de cartón",   "Cartón",     2.00, True),
+    # ── Distractores (no cuentan como residuo) ──
     "person":         ("Persona",     "—", 0, False),
     "dog":            ("Perro",       "—", 0, False),
     "cat":            ("Gato",        "—", 0, False),
