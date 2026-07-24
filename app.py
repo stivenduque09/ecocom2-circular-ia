@@ -1002,25 +1002,18 @@ def metricas(residuos, peso, nivel):
 
 def nav_tabs(seccion_actual):
     SECCIONES = [
-        ("info",         "📍 Info del punto"),
-        ("residuo",      "📸 Reportar Residuo"),
-        ("critico",      "🚨 Punto Crítico"),
-        ("historial",    "📋 Historial"),
-        ("mis_reportes", "👤 Mis Reportes"),
+        ("residuo",   "📸 Reportar Residuo"),
+        ("critico",   "🚨 Punto Crítico"),
+        ("historial", "👤 Mi Historial"),
     ]
     cols = st.columns(len(SECCIONES))
     for col, (key, label) in zip(cols, SECCIONES):
         with col:
-            es_activa = seccion_actual == key or (key == "mis_reportes" and seccion_actual == "historial"
-                                                    and st.session_state.get("hist_solo_mios_default"))
+            es_activa = seccion_actual == key
             btn_type = "primary" if es_activa else "secondary"
             if st.button(label, key=f"nav_{key}",
                          use_container_width=True, type=btn_type):
-                if key == "mis_reportes":
-                    st.session_state.seccion = "historial"
-                    st.session_state.hist_solo_mios_default = True
-                else:
-                    st.session_state.seccion = key
+                st.session_state.seccion = key
                 st.rerun()
 
 # ====================================================================
@@ -1456,28 +1449,14 @@ font-size:14px;text-align:center;margin-bottom:10px;">
             unsafe_allow_html=True)
 
         if dentro_clk and es_residente():
-            st.markdown("")
             st.session_state.punto_para_reporte = {
                 "lat": clat, "lon": clon, "dir": cdir
             }
-            bc1, bc2, bc3 = st.columns([2, 2, 1])
-            with bc1:
-                if st.button("📸 Reportar Residuo",
-                             type="primary", use_container_width=True, key="btn_ir_rep"):
-                    st.session_state.seccion = "residuo"
-                    st.rerun()
-            with bc2:
-                if st.button("🚨 Punto Crítico",
-                             use_container_width=True, key="btn_ir_crit"):
-                    st.session_state.seccion = "critico"
-                    st.rerun()
-            with bc3:
-                if st.button("✖", use_container_width=True, key="btn_quit",
-                             help="Quitar punto seleccionado"):
-                    for k in ["click_lat","click_lon","click_dir","click_barrio",
-                               "cache","punto_para_reporte"]:
-                        st.session_state.pop(k, None)
-                    st.rerun()
+            if st.button("✖ Quitar punto seleccionado", key="btn_quit"):
+                for k in ["click_lat","click_lon","click_dir","click_barrio",
+                           "cache","punto_para_reporte"]:
+                    st.session_state.pop(k, None)
+                st.rerun()
         elif clat and not es_residente():
             badge("⚠️ Verifica tu dirección arriba para reportar en este punto.", "warn")
 
@@ -1488,18 +1467,9 @@ font-size:14px;text-align:center;margin-bottom:10px;">
     nav_tabs(seccion)
     st.markdown("")
 
-    if seccion != "info":
-        iconos = {"residuo": "📸 Reportar Residuo", "critico": "🚨 Punto Crítico",
-                  "historial": "📋 Historial"}
-        st.markdown(
-            f'<div style="border-bottom:2px solid #4ade80;padding:6px 0 4px 0;'
-            f'color:#4ade80;font-weight:bold;font-size:15px;margin-bottom:12px;">'
-            f'{iconos.get(seccion,"")}</div>',
-            unsafe_allow_html=True)
-
     if seccion == "info":
         if not clat:
-            st.info("👆 Toca cualquier punto del mapa y usa los botones que aparecen para reportar.")
+            st.info("👆 Toca cualquier punto del mapa y luego usa los botones de arriba para reportar.")
 
     # ── SECCIÓN: Reportar Residuo ──────────────────────────────────────
     elif seccion == "residuo":
@@ -1716,7 +1686,6 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         st.session_state.cache = None
                         st.session_state.cache_analisis_r = None
                         st.session_state.seccion = "historial"
-                        st.session_state.hist_solo_mios_default = True
                         for k in ["click_lat","click_lon","click_dir","click_barrio"]:
                             st.session_state.pop(k, None)
                         st.success("✅ ¡Publicado! Guardado permanentemente en el mapa.")
@@ -1927,7 +1896,6 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                             st.session_state.cache_critico = None
                             st.session_state.cache_fotos_extra_b64 = None
                             st.session_state.seccion = "historial"
-                            st.session_state.hist_solo_mios_default = True
                             for k in ["click_lat","click_lon","click_dir","click_barrio"]:
                                 st.session_state.pop(k, None)
                             st.success("✅ ¡Alerta registrada permanentemente!")
@@ -1941,7 +1909,9 @@ font-size:14px;text-align:center;margin-bottom:10px;">
 
     # ── SECCIÓN: Historial ─────────────────────────────────────────────
     elif seccion == "historial":
-        st.markdown("### 📋 Historial de Reportes")
+        st.markdown("### 👤 Mi Historial")
+        st.caption("Tus propios reportes. Para ver estadísticas de toda la Comuna 2, "
+                   "usa la página **📊 Comuna en Cifras** en el menú de la izquierda.")
 
         mis_reportes_actuales = [
             r for r in st.session_state.reportes
@@ -1969,53 +1939,42 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         f"**en proceso de recolección**. Ya está siendo atendido."
                     )
 
-        if mis_reportes_actuales:
-            n_total_mios = len(mis_reportes_actuales)
-            n_resueltos_mios = sum(1 for r in mis_reportes_actuales if "Resuelto" in r.get("Estado",""))
-            n_proceso_mios   = sum(1 for r in mis_reportes_actuales if "proceso"  in r.get("Estado",""))
-            n_pend_mios      = n_total_mios - n_resueltos_mios - n_proceso_mios
-            st.markdown(
-                f'<div style="background:rgba(74,222,128,0.08);border:1px solid #4ade80;'
-                f'border-radius:10px;padding:10px 16px;margin-bottom:10px;font-size:13px;">'
-                f'👤 <b>Tus reportes en esta sesión:</b> {n_total_mios} total · '
-                f'🔴 {n_pend_mios} pendientes · 🟡 {n_proceso_mios} en proceso · '
-                f'✅ {n_resueltos_mios} resueltos'
-                f'</div>', unsafe_allow_html=True)
-
         busq_codigo = st.text_input(
-            "🔎 O busca tus reportes por código/teléfono (funciona aunque cambies "
-            "de navegador o dispositivo, a diferencia de la casilla de abajo):",
+            "🔎 Si reportaste desde otro navegador o dispositivo, busca por "
+            "código/teléfono (si lo escribiste al reportar):",
             value=st.session_state.get("mi_codigo_residente", ""),
             key="hist_busqueda_codigo",
             placeholder="Escribe el mismo código/teléfono que usaste al reportar"
         )
 
-        solo_mios = st.checkbox(
-            "📍 Mostrar solo mis reportes",
-            value=st.session_state.pop("hist_solo_mios_default", False),
-            key="hist_solo_mios",
-            help=("Reportes publicados en ESTA sesión del navegador. La app "
-                  "todavía no tiene cuentas de usuario, así que esta lista se "
-                  "reinicia si cierras o refrescas la página.")
-        )
         if busq_codigo.strip():
             reportes_mostrar = [
                 r for r in st.session_state.reportes
                 if r.get("CodigoResidente", "").strip().lower() == busq_codigo.strip().lower()
             ]
-        elif solo_mios:
-            reportes_mostrar = [r for r in st.session_state.reportes if r["Código"] in st.session_state.mis_codigos]
         else:
-            reportes_mostrar = st.session_state.reportes
+            reportes_mostrar = mis_reportes_actuales
+
+        if reportes_mostrar:
+            n_total_mios = len(reportes_mostrar)
+            n_resueltos_mios = sum(1 for r in reportes_mostrar if "Resuelto" in r.get("Estado",""))
+            n_proceso_mios   = sum(1 for r in reportes_mostrar if "proceso"  in r.get("Estado",""))
+            n_pend_mios      = n_total_mios - n_resueltos_mios - n_proceso_mios
+            st.markdown(
+                f'<div style="background:rgba(74,222,128,0.08);border:1px solid #4ade80;'
+                f'border-radius:10px;padding:10px 16px;margin-bottom:10px;font-size:13px;">'
+                f'👤 <b>Tus reportes:</b> {n_total_mios} total · '
+                f'🔴 {n_pend_mios} pendientes · 🟡 {n_proceso_mios} en proceso · '
+                f'✅ {n_resueltos_mios} resueltos'
+                f'</div>', unsafe_allow_html=True)
 
         if not reportes_mostrar:
             if busq_codigo.strip():
                 st.info("No encontré reportes con ese código/teléfono. Revisa que esté "
                         "escrito igual a como lo pusiste al reportar.")
-            elif solo_mios:
-                st.info("Aún no has publicado ningún reporte en esta sesión.")
             else:
-                st.info("Sin reportes aún. Toca el mapa y usa '📸 Reportar Residuo' para el primero.")
+                st.info("Aún no has publicado ningún reporte. Toca el mapa y usa "
+                        "'📸 Reportar Residuo' para el primero.")
         else:
             df = pd.DataFrame(reportes_mostrar)
 
