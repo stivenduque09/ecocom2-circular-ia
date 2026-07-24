@@ -9,3 +9,4 @@ pandas
 pillow
 requests
 streamlit-js-eval
+git+https://github.com/ultralytics/CLIP.git
