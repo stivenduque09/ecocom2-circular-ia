@@ -876,6 +876,34 @@ def distancia_metros(lat1, lon1, lat2, lon2) -> float:
     return R * 2 * atan2(sqrt(a), sqrt(1 - a))
 
 
+def buscar_foto_reciclada(lat, lon, phash_nuevo, radio_max_valido_m=40, umbral_hash=6):
+    """A diferencia de buscar_posible_duplicado (que busca CERCANÍA +
+    parecido para pescar el mismo reporte hecho 2 veces en el mismo
+    punto), esta busca la MISMA foto usada en un punto LEJANO del
+    mapa. Una foto casi idéntica a más de 40m no puede ser el mismo
+    montón de basura real — es señal de que alguien está reciclando
+    la misma imagen (o una bajada de internet) para inflar reportes
+    falsos en varios puntos. Por eso el umbral de parecido es más
+    estricto (6, no 10) y no revisa solo los reportes activos: incluso
+    si el otro reporte ya está resuelto, la misma foto en otro lugar
+    sigue siendo sospechosa."""
+    if not phash_nuevo or lat is None or lon is None:
+        return None
+    for r in st.session_state.reportes:
+        if not r.get("PHash") or r.get("Lat") is None:
+            continue
+        d_hash = distancia_hash(phash_nuevo, r["PHash"])
+        if d_hash > umbral_hash:
+            continue
+        try:
+            d_m = distancia_metros(lat, lon, r["Lat"], r["Lon"])
+        except Exception:
+            continue
+        if d_m > radio_max_valido_m:
+            return r, round(d_m, 1), d_hash
+    return None
+
+
 def buscar_posible_duplicado(lat, lon, phash_nuevo, radio_m=30, umbral_hash=10):
     """Busca entre los reportes ACTIVOS (no resueltos) uno que esté muy
     cerca en el mapa Y tenga una foto muy parecida — esa combinación es
@@ -902,6 +930,23 @@ def buscar_posible_duplicado(lat, lon, phash_nuevo, radio_m=30, umbral_hash=10):
     return mejor
 
 
+def aviso_foto_reciclada(resultado) -> bool:
+    """A diferencia de aviso_duplicado, esta NO deja opción de publicar
+    de todas formas — si la misma foto ya se usó en un punto lejano,
+    algo no cuadra, y forzamos a subir una foto real de este punto."""
+    if not resultado:
+        return True
+    rep_existente, d_m, _ = resultado
+    st.error(
+        f"🚫 **Esta foto ya se usó en el reporte {rep_existente['Código']}, "
+        f"a {d_m}m de aquí** ({rep_existente.get('Sector','')}, "
+        f"{rep_existente.get('Fecha','')}). Un mismo residuo no puede estar "
+        f"en dos puntos distintos del mapa — sube una foto tomada en ESTE "
+        f"punto para poder publicar."
+    )
+    return False
+
+
 def aviso_duplicado(resultado, key_confirmar: str) -> bool:
     """Muestra el aviso de posible duplicado y devuelve True si está
     bien publicar (no hay duplicado, o el usuario confirmó que quiere
@@ -919,6 +964,7 @@ def aviso_duplicado(resultado, key_confirmar: str) -> bool:
         "Sé que es un punto o residuo distinto — publicar de todas formas",
         key=key_confirmar
     )
+
 
 
 def es_residente():
@@ -1788,8 +1834,12 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                 if r.get("FotosExtraB64"):
                     st.markdown(galeria_html(r["FotosExtraB64"]), unsafe_allow_html=True)
 
-                dup_r = buscar_posible_duplicado(r["Lat"], r["Lon"], r.get("PHash", ""))
-                ok_publicar_r = aviso_duplicado(dup_r, "r_confirmar_duplicado")
+                foto_recic_r = buscar_foto_reciclada(r["Lat"], r["Lon"], r.get("PHash", ""))
+                if foto_recic_r:
+                    ok_publicar_r = aviso_foto_reciclada(foto_recic_r)
+                else:
+                    dup_r = buscar_posible_duplicado(r["Lat"], r["Lon"], r.get("PHash", ""))
+                    ok_publicar_r = aviso_duplicado(dup_r, "r_confirmar_duplicado")
 
                 cp, cc = st.columns(2)
                 with cp:
@@ -1983,9 +2033,14 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         st.markdown(galeria_html(st.session_state["cache_fotos_extra_b64"]),
                                     unsafe_allow_html=True)
 
-                    dup_cr = buscar_posible_duplicado(
+                    foto_recic_cr = buscar_foto_reciclada(
                         cc["Lat"], cc["Lon"], st.session_state.get("cache_phash", ""))
-                    ok_publicar_cr = aviso_duplicado(dup_cr, "cr_confirmar_duplicado")
+                    if foto_recic_cr:
+                        ok_publicar_cr = aviso_foto_reciclada(foto_recic_cr)
+                    else:
+                        dup_cr = buscar_posible_duplicado(
+                            cc["Lat"], cc["Lon"], st.session_state.get("cache_phash", ""))
+                        ok_publicar_cr = aviso_duplicado(dup_cr, "cr_confirmar_duplicado")
 
                     st.markdown("")
                     cr_pub, cr_can = st.columns(2)
