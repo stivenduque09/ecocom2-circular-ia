@@ -380,6 +380,20 @@ st.markdown("""
         background: #f0fdf4 !important; border: 2px dashed #4ade80 !important;
         border-radius: 12px !important; padding: 16px !important;
     }
+    /* "Drag and drop file here / Limit 200MB per file..." es texto
+       técnico de Streamlit que no le sirve a alguien reportando desde
+       el celular — lo ocultamos y dejamos solo el botón "Browse files"
+       junto con la instrucción propia que ya ponemos en cada campo. */
+    div[data-testid="stFileUploaderDropzoneInstructions"] div span,
+    div[data-testid="stFileUploaderDropzoneInstructions"] small {
+        display: none !important;
+    }
+    div[data-testid="stFileUploaderDropzoneInstructions"]::before {
+        content: "📷 Toca para tomar o subir una foto";
+        color: #14532d;
+        font-size: 14px;
+        font-weight: 600;
+    }
 
 .chat-burbuja-bot {
     background: #99FFFF !important;
@@ -1043,8 +1057,25 @@ else:
 
 st.sidebar.markdown("---")
 
-PAGINAS = ["🏠 Inicio y Mapa", "📊 Comuna en Cifras", "🛡️ Panel Admin", "ℹ️ Información"]
-menu = st.sidebar.radio("Menú", PAGINAS)
+PAGINAS = ["🏠 Reportar y Ver Mapa", "ℹ️ Información"]
+menu_elegido = st.sidebar.radio("Menú", PAGINAS)
+
+with st.sidebar.expander("⚙️ Más opciones"):
+    st.caption("Estadísticas públicas y gestión — para curiosos y administración.")
+    if st.button("📊 Comuna en Cifras", use_container_width=True, key="ir_cifras"):
+        st.session_state.menu_extra = "📊 Comuna en Cifras"
+        st.rerun()
+    if st.button("🛡️ Panel Admin", use_container_width=True, key="ir_admin"):
+        st.session_state.menu_extra = "🛡️ Panel Admin"
+        st.rerun()
+    if st.session_state.get("menu_extra") and st.button(
+            "⬅️ Volver al inicio", use_container_width=True, key="ir_inicio"):
+        st.session_state.menu_extra = None
+        st.rerun()
+
+menu = st.session_state.get("menu_extra") or menu_elegido
+if menu == "🏠 Reportar y Ver Mapa":
+    menu = "🏠 Inicio y Mapa"  # nombre interno sin cambiar el resto de la lógica
 
 st.sidebar.markdown("---")
 es_admin = st.session_state.get("admin_ok", False)
@@ -1233,37 +1264,37 @@ font-size:14px;text-align:center;margin-bottom:10px;">
 
     dir_auto = st.session_state.get("click_dir") or st.session_state.get("direccion") or ""
 
-    with st.form(key="form_direccion", clear_on_submit=False):
-        c_inp, c_btn = st.columns([5, 1])
-        with c_inp:
-            dir_inp = st.text_input(
-                "📍 Dirección:",
-                value=dir_auto,
-                placeholder="Toca el mapa o escribe tu dirección en la Comuna 2...",
-                label_visibility="collapsed",
-                key="dir_campo",
-            )
-        with c_btn:
-            verificar_clicked = st.form_submit_button(
-                "🔍 Verificar", type="primary", use_container_width=True)
-
-    if verificar_clicked:
-        if dir_inp.strip():
-            with st.spinner("Buscando..."):
-                lat, lon, addr = geocodificar(dir_inp.strip())
-            if lat:
-                set_ubicacion(lat, lon, addr)
-                st.rerun()
-            else:
-                st.error("❌ No encontré esa dirección. Intenta: Cra 50 #107-62, Andalucía")
-        else:
-            st.warning("Escribe o toca el mapa para obtener una dirección.")
-
-    st.caption("¿Estás parado(a) frente al residuo ahora mismo? Usa tu ubicación GPS "
-               "para verificarte al instante, sin buscar nada.")
-
-    if st.button("📍 Usar mi ubicación GPS", key="btn_gps"):
+    if st.button("📍 Usar mi ubicación (GPS)", key="btn_gps",
+                 type="primary", use_container_width=True):
         st.session_state.gps_solicitado = True
+
+    with st.expander("¿No tienes GPS o prefieres escribir tu dirección?"):
+        with st.form(key="form_direccion", clear_on_submit=False):
+            c_inp, c_btn = st.columns([5, 1])
+            with c_inp:
+                dir_inp = st.text_input(
+                    "📍 Dirección:",
+                    value=dir_auto,
+                    placeholder="Ej. Cra 50 #107-62, Andalucía",
+                    label_visibility="collapsed",
+                    key="dir_campo",
+                )
+            with c_btn:
+                verificar_clicked = st.form_submit_button(
+                    "🔍 Verificar", type="primary", use_container_width=True)
+            st.caption("También puedes tocar directamente el mapa de abajo.")
+
+        if verificar_clicked:
+            if dir_inp.strip():
+                with st.spinner("Buscando..."):
+                    lat, lon, addr = geocodificar(dir_inp.strip())
+                if lat:
+                    set_ubicacion(lat, lon, addr)
+                    st.rerun()
+                else:
+                    st.error("❌ No encontré esa dirección. Intenta: Cra 50 #107-62, Andalucía")
+            else:
+                st.warning("Escribe o toca el mapa para obtener una dirección.")
 
     if st.session_state.get("gps_solicitado"):
         with st.spinner("📡 Obteniendo tu ubicación (acepta el permiso del navegador)..."):
