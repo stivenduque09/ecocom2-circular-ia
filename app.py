@@ -16,6 +16,8 @@ from datetime import datetime
 import base64
 from io import BytesIO
 from streamlit_js_eval import get_geolocation
+import imagehash
+from math import radians, sin, cos, sqrt, atan2
 
 # ====================================================================
 # PERSISTENCIA — SQLite en vez de JSON en /tmp
@@ -25,10 +27,10 @@ DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 _CAMPOS    = ["Código","Sector","Referencia","Objetos","Peso (Kg)",
               "Predominante","Clasificación","Lat","Lon","Fecha","Estado","FotoB64",
-              "Observaciones","NotaVozB64","FotosExtraB64","CodigoResidente"]
+              "Observaciones","NotaVozB64","FotosExtraB64","CodigoResidente","PHash"]
 _COLUMNAS  = ["codigo","sector","referencia","objetos","peso_kg",
               "predominante","clasificacion","lat","lon","fecha","estado","foto_b64",
-              "observaciones","nota_voz_b64","fotos_extra_b64","residente_codigo"]
+              "observaciones","nota_voz_b64","fotos_extra_b64","residente_codigo","phash"]
 
 def _conectar_db():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
@@ -60,7 +62,8 @@ def _crear_tabla():
             # "ADD COLUMN IF NOT EXISTS", así que intentamos y
             # silenciamos el error si la columna ya existe.
             for col_sql in ["observaciones TEXT", "nota_voz_b64 TEXT",
-                            "fotos_extra_b64 TEXT", "residente_codigo TEXT"]:
+                            "fotos_extra_b64 TEXT", "residente_codigo TEXT",
+                            "phash TEXT"]:
                 try:
                     conn.execute(f"ALTER TABLE reportes ADD COLUMN {col_sql}")
                 except Exception:
@@ -839,6 +842,83 @@ def tamano_bd_mb() -> float:
         return round(DB_PATH.stat().st_size / (1024 * 1024), 2)
     except Exception:
         return 0.0
+
+
+def calcular_phash(img_pil) -> str:
+    """Hash perceptual de la imagen — a diferencia de un hash normal,
+    dos fotos casi idénticas (misma foto recomprimida, con un poco más
+    de brillo, etc.) dan un hash muy parecido, mientras que fotos de
+    sitios distintos dan hashes muy diferentes. No usa IA, es pura
+    comparación matemática de la estructura de la imagen."""
+    try:
+        return str(imagehash.phash(img_pil.convert("RGB")))
+    except Exception:
+        return ""
+
+
+def distancia_hash(hash_a: str, hash_b: str) -> int:
+    """Distancia de Hamming entre dos phash — entre más bajo, más se
+    parecen las fotos. 0 = prácticamente idénticas; 20+ = distintas."""
+    try:
+        return imagehash.hex_to_hash(hash_a) - imagehash.hex_to_hash(hash_b)
+    except Exception:
+        return 999
+
+
+def distancia_metros(lat1, lon1, lat2, lon2) -> float:
+    """Distancia aproximada en metros entre dos coordenadas (fórmula
+    de Haversine) — para saber si dos reportes están en el mismo punto
+    físico del barrio."""
+    R = 6371000
+    dlat = radians(lat2 - lat1)
+    dlon = radians(lon2 - lon1)
+    a = sin(dlat / 2) ** 2 + cos(radians(lat1)) * cos(radians(lat2)) * sin(dlon / 2) ** 2
+    return R * 2 * atan2(sqrt(a), sqrt(1 - a))
+
+
+def buscar_posible_duplicado(lat, lon, phash_nuevo, radio_m=30, umbral_hash=10):
+    """Busca entre los reportes ACTIVOS (no resueltos) uno que esté muy
+    cerca en el mapa Y tenga una foto muy parecida — esa combinación es
+    la señal de que probablemente sea el mismo residuo reportado dos
+    veces, no dos residuos distintos que por casualidad se ven similar
+    (ej. dos montones de cartón en barrios distintos)."""
+    if not phash_nuevo or lat is None or lon is None:
+        return None
+    mejor = None
+    for r in st.session_state.reportes:
+        if "Resuelto" in r.get("Estado", ""):
+            continue
+        if not r.get("PHash") or r.get("Lat") is None:
+            continue
+        try:
+            d_m = distancia_metros(lat, lon, r["Lat"], r["Lon"])
+        except Exception:
+            continue
+        if d_m > radio_m:
+            continue
+        d_hash = distancia_hash(phash_nuevo, r["PHash"])
+        if d_hash <= umbral_hash and (mejor is None or d_hash < mejor[2]):
+            mejor = (r, round(d_m, 1), d_hash)
+    return mejor
+
+
+def aviso_duplicado(resultado, key_confirmar: str) -> bool:
+    """Muestra el aviso de posible duplicado y devuelve True si está
+    bien publicar (no hay duplicado, o el usuario confirmó que quiere
+    publicar de todas formas)."""
+    if not resultado:
+        return True
+    rep_existente, d_m, d_hash = resultado
+    st.warning(
+        f"⚠️ **Posible reporte duplicado.** Encontré el reporte "
+        f"**{rep_existente['Código']}** a solo {d_m}m de aquí, publicado el "
+        f"{rep_existente.get('Fecha','')} ({rep_existente.get('Estado','')}), "
+        f"con una foto muy parecida a la que acabas de subir."
+    )
+    return st.checkbox(
+        "Sé que es un punto o residuo distinto — publicar de todas formas",
+        key=key_confirmar
+    )
 
 
 def es_residente():
@@ -1694,6 +1774,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         "NotaVozB64": audio_a_b64(r_audio),
                         "FotosExtraB64": fotos_extra_a_json(r_imgs_extra_pil),
                         "CodigoResidente": r_codigo,
+                        "PHash": calcular_phash(img),
                     }
 
             if st.session_state.get("cache"):
@@ -1706,10 +1787,15 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                     st.audio(base64.b64decode(r["NotaVozB64"]), format="audio/wav")
                 if r.get("FotosExtraB64"):
                     st.markdown(galeria_html(r["FotosExtraB64"]), unsafe_allow_html=True)
+
+                dup_r = buscar_posible_duplicado(r["Lat"], r["Lon"], r.get("PHash", ""))
+                ok_publicar_r = aviso_duplicado(dup_r, "r_confirmar_duplicado")
+
                 cp, cc = st.columns(2)
                 with cp:
                     if st.button("🚀 PUBLICAR EN EL MAPA", type="primary",
-                                 use_container_width=True, key="r_publicar"):
+                                 use_container_width=True, key="r_publicar",
+                                 disabled=not ok_publicar_r):
                         st.session_state.reportes.append(r)
                         st.session_state.mis_codigos.append(r["Código"])
                         st.session_state.mis_estados_vistos[r["Código"]] = r["Estado"]
@@ -1810,6 +1896,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                     with st.spinner("Analizando con YOLOv8 (alta resolución)..."):
                         res2 = analizar(img2, imgsz=960)
                     st.session_state.cache_foto_b64 = img_a_b64(img2)
+                    st.session_state.cache_phash = calcular_phash(img2)
                     st.session_state.cache_fotos_extra_b64 = fotos_extra_a_json(cr_imgs_extra_pil)
 
                     co2, cd2 = st.columns(2)
@@ -1896,12 +1983,16 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         st.markdown(galeria_html(st.session_state["cache_fotos_extra_b64"]),
                                     unsafe_allow_html=True)
 
+                    dup_cr = buscar_posible_duplicado(
+                        cc["Lat"], cc["Lon"], st.session_state.get("cache_phash", ""))
+                    ok_publicar_cr = aviso_duplicado(dup_cr, "cr_confirmar_duplicado")
+
                     st.markdown("")
                     cr_pub, cr_can = st.columns(2)
                     with cr_pub:
                         if st.button("🚨 REGISTRAR ALERTA EN EL MAPA",
                                      type="primary", use_container_width=True,
-                                     key="cr_registrar"):
+                                     key="cr_registrar", disabled=not ok_publicar_cr):
                             nuevo = {
                                 "Código":        f"CRIT-{len(st.session_state.reportes)+500}",
                                 "Sector":        cr_barrio,
@@ -1919,6 +2010,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                                 "NotaVozB64": audio_a_b64(cr_audio),
                                 "FotosExtraB64": st.session_state.get("cache_fotos_extra_b64", ""),
                                 "CodigoResidente": cr_codigo,
+                                "PHash": st.session_state.get("cache_phash", ""),
                             }
                             st.session_state.reportes.append(nuevo)
                             st.session_state.mis_codigos.append(nuevo["Código"])
@@ -1926,6 +2018,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                             guardar_reportes_disco(st.session_state.reportes)
                             st.session_state.cache_critico = None
                             st.session_state.cache_fotos_extra_b64 = None
+                            st.session_state.cache_phash = None
                             st.session_state.seccion = "historial"
                             for k in ["click_lat","click_lon","click_dir","click_barrio"]:
                                 st.session_state.pop(k, None)
@@ -1936,6 +2029,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                                      key="cr_cancelar"):
                             st.session_state.cache_critico = None
                             st.session_state.cache_fotos_extra_b64 = None
+                            st.session_state.cache_phash = None
                             st.rerun()
 
     # ── SECCIÓN: Historial ─────────────────────────────────────────────
