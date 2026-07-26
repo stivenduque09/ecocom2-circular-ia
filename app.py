@@ -8,6 +8,7 @@ from streamlit_folium import st_folium
 import pandas as pd
 from shapely.geometry import Point, Polygon
 import json, os
+from urllib.parse import quote as url_quote
 import sqlite3
 import unicodedata
 import difflib
@@ -1028,6 +1029,33 @@ def aviso_duplicado(resultado, key_confirmar: str) -> bool:
         key=key_confirmar
     )
 
+
+
+def extraer_telefono_whatsapp(codigo_residente: str):
+    """Si lo que el residente dejó en 'código/teléfono' parece un
+    número de celular real, lo devuelve limpio y listo para wa.me
+    (con indicativo de Colombia si hace falta). Si parece un código
+    inventado (letras, muy corto, etc.), devuelve None — no forzamos
+    nada, es una detección simple por conveniencia."""
+    if not codigo_residente:
+        return None
+    digitos = "".join(c for c in codigo_residente if c.isdigit())
+    if len(digitos) == 10 and digitos.startswith(("3",)):
+        return "57" + digitos
+    if len(digitos) == 12 and digitos.startswith("57"):
+        return digitos
+    return None
+
+
+def link_whatsapp(telefono: str, mensaje: str) -> str:
+    return f"https://wa.me/{telefono}?text={url_quote(mensaje)}"
+
+
+def boton_whatsapp_html(url: str, texto: str) -> str:
+    return (f'<a href="{url}" target="_blank" style="display:inline-block;'
+            f'background:#25D366;color:white !important;text-decoration:none;'
+            f'padding:10px 16px;border-radius:8px;font-weight:700;font-size:14px;'
+            f'text-align:center;width:100%;box-sizing:border-box;">{texto}</a>')
 
 
 def es_residente():
@@ -2203,6 +2231,15 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         f"🎉 ¡Tu reporte **{cod}** ({r.get('Sector','')}) fue **resuelto**! "
                         f"Gracias por reportarlo — tu acción ayudó a limpiar tu barrio."
                     )
+                    msg_logro = (
+                        f"🎉 ¡Reporté un punto de residuos en {r.get('Sector','')} - Comuna 2 "
+                        f"con EcoCom2 Circular IA y ya lo resolvieron! Tú también puedes "
+                        f"reportar en tu cuadra 🌱♻️"
+                    )
+                    st.markdown(
+                        boton_whatsapp_html(link_whatsapp("", msg_logro),
+                                             "📲 Compartir este logro"),
+                        unsafe_allow_html=True)
                 elif "proceso" in actual:
                     st.info(
                         f"🚚 Tu reporte **{cod}** ({r.get('Sector','')}) pasó a "
@@ -2377,6 +2414,32 @@ elif menu == "📊 Comuna en Cifras":
             f'⚖️ <b style="color:#7c3aed">Carga total estimada reportada: {peso_pub:.1f} kg</b> '
             f'en {total_pub} reportes desde el inicio del proyecto.'
             f'</div>', unsafe_allow_html=True)
+
+        msg_compartir = (
+            f"♻️ ¡La Comuna 2 - Santa Cruz está actuando! Entre todos hemos reportado "
+            f"{total_pub} puntos de residuos y ya resolvimos {resueltos_pub}, con "
+            f"{peso_pub:.0f} kg de carga identificada. Súmate en EcoCom2 Circular IA 🌱"
+        )
+        st.markdown(
+            boton_whatsapp_html(link_whatsapp("", msg_compartir),
+                                 "📲 Compartir estas cifras por WhatsApp"),
+            unsafe_allow_html=True)
+
+        st.markdown("---")
+        st.markdown("#### 🏆 Barrios más comprometidos")
+        st.caption("Ranking por reportes ✅ RESUELTOS — el reconocimiento va para los "
+                   "barrios que más han logrado limpiar, no solo reportar.")
+        if "Sector" in df_pub.columns and "Estado" in df_pub.columns:
+            df_resueltos_barrio = df_pub[df_pub["Estado"].str.contains("Resuelto", na=False)]
+            if not df_resueltos_barrio.empty:
+                ranking_pos = (df_resueltos_barrio.groupby("Sector").size()
+                               .reset_index(name="Puntos resueltos ✅")
+                               .sort_values("Puntos resueltos ✅", ascending=False))
+                ranking_pos.insert(0, "🏆", ["🥇","🥈","🥉"] + [""] * max(0, len(ranking_pos) - 3))
+                st.dataframe(ranking_pos, use_container_width=True, hide_index=True)
+            else:
+                st.info("Todavía no hay puntos resueltos — ¡el primer barrio en lograrlo "
+                        "aparecerá aquí como líder!")
 
         st.markdown("---")
         st.markdown("#### 🏘️ Puntos críticos activos por barrio")
@@ -2760,6 +2823,20 @@ padding:10px 16px;margin-top:12px;font-size:14px;">
                             st.session_state.adm_accion_pendiente={
                                 "codigo":codigo,"tipo":"eliminar"}
                             st.rerun()
+
+                    tel_wa = extraer_telefono_whatsapp(rep.get("CodigoResidente", ""))
+                    if tel_wa:
+                        msg_wa = (
+                            f"Hola! Tu reporte {codigo} en {rep.get('Sector','')} "
+                            f"({rep.get('Referencia','')[:40]}) está ahora: {estado}. "
+                            f"— EcoCom2 Circular IA"
+                        )
+                        st.markdown(
+                            boton_whatsapp_html(link_whatsapp(tel_wa, msg_wa),
+                                                 "📲 Notificar al residente por WhatsApp"),
+                            unsafe_allow_html=True)
+                    else:
+                        st.caption("📲 Este residente no dejó un teléfono válido para notificar.")
 
     with tab_export:
         st.markdown("#### 📥 Exportar datos")
