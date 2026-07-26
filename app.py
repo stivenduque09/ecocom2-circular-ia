@@ -27,10 +27,12 @@ DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 _CAMPOS    = ["Código","Sector","Referencia","Objetos","Peso (Kg)",
               "Predominante","Clasificación","Lat","Lon","Fecha","Estado","FotoB64",
-              "Observaciones","NotaVozB64","FotosExtraB64","CodigoResidente","PHash"]
+              "Observaciones","NotaVozB64","FotosExtraB64","CodigoResidente","PHash",
+              "Confirmaciones"]
 _COLUMNAS  = ["codigo","sector","referencia","objetos","peso_kg",
               "predominante","clasificacion","lat","lon","fecha","estado","foto_b64",
-              "observaciones","nota_voz_b64","fotos_extra_b64","residente_codigo","phash"]
+              "observaciones","nota_voz_b64","fotos_extra_b64","residente_codigo","phash",
+              "confirmaciones"]
 
 def _conectar_db():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
@@ -63,7 +65,7 @@ def _crear_tabla():
             # silenciamos el error si la columna ya existe.
             for col_sql in ["observaciones TEXT", "nota_voz_b64 TEXT",
                             "fotos_extra_b64 TEXT", "residente_codigo TEXT",
-                            "phash TEXT"]:
+                            "phash TEXT", "confirmaciones INTEGER DEFAULT 0"]:
                 try:
                     conn.execute(f"ALTER TABLE reportes ADD COLUMN {col_sql}")
                 except Exception:
@@ -876,6 +878,67 @@ def distancia_metros(lat1, lon1, lat2, lon2) -> float:
     return R * 2 * atan2(sqrt(a), sqrt(1 - a))
 
 
+LIMITE_REPORTES_DIA = 8
+
+def contar_reportes_hoy(codigo_residente: str) -> int:
+    """Cuenta reportes de HOY para aplicar el límite anti-spam. Con
+    código/teléfono, el conteo es real (persiste en la base de datos).
+    Sin código, usamos un contador de la sesión actual — más débil
+    (se reinicia si cierra el navegador), pero evita al menos el clic
+    repetido en cadena sin necesidad de pedir datos a nadie."""
+    hoy = datetime.now().strftime("%Y-%m-%d")
+    if codigo_residente.strip():
+        return sum(
+            1 for r in st.session_state.reportes
+            if r.get("CodigoResidente", "").strip().lower() == codigo_residente.strip().lower()
+            and r.get("Fecha", "").startswith(hoy)
+        )
+    return st.session_state.get("reportes_hoy_sesion", 0)
+
+
+def verificar_limite_reportes(codigo_residente: str) -> bool:
+    """Protección simple contra spam/inundación de reportes falsos:
+    máximo LIMITE_REPORTES_DIA reportes por día."""
+    n = contar_reportes_hoy(codigo_residente)
+    if n >= LIMITE_REPORTES_DIA:
+        if codigo_residente.strip():
+            st.error(
+                f"🚫 Ya alcanzaste el límite de {LIMITE_REPORTES_DIA} reportes hoy "
+                f"con este código/teléfono. Si es una emergencia real, contacta "
+                f"directamente a la administración."
+            )
+        else:
+            st.error(
+                f"🚫 Ya publicaste {LIMITE_REPORTES_DIA} reportes en esta sesión. "
+                f"Espera a mañana, o escribe tu código/teléfono arriba para un "
+                f"conteo más preciso en vez de por sesión del navegador."
+            )
+        return False
+    return True
+
+
+def verificar_fecha_exif(img_pil, dias_max=20):
+    """Revisa la fecha EXIF de la foto (cuándo la tomó la cámara/celular
+    realmente), si el archivo la trae. Muchas fotos NO tienen este dato
+    (capturas de pantalla, reenvíos de WhatsApp que lo borran, etc.),
+    así que si no está disponible simplemente no decimos nada — esto
+    es un aviso adicional, no una verificación garantizada."""
+    try:
+        exif = img_pil._getexif()
+        if not exif:
+            return None
+        fecha_str = exif.get(36867) or exif.get(306)  # DateTimeOriginal / DateTime
+        if not fecha_str:
+            return None
+        fecha_foto = datetime.strptime(fecha_str, "%Y:%m:%d %H:%M:%S")
+        dias = (datetime.now() - fecha_foto).days
+        if dias > dias_max:
+            return fecha_foto, dias
+        return None
+    except Exception:
+        return None
+
+
 def buscar_foto_reciclada(lat, lon, phash_nuevo, radio_max_valido_m=40, umbral_hash=6):
     """A diferencia de buscar_posible_duplicado (que busca CERCANÍA +
     parecido para pescar el mismo reporte hecho 2 veces en el mismo
@@ -1276,17 +1339,20 @@ Pasos para reportar:
 6. Presiona Publicar
 
 Redirige preguntas no relacionadas al tema de residuos."""
+        if not verificar_api_key():
+            return ("🤖 El asistente con IA no está disponible en este momento "
+                    "(falta configuración del administrador). Aquí va la ayuda "
+                    "rápida: 1️⃣ Verifica dirección 2️⃣ Toca el mapa "
+                    "3️⃣ Sube foto 4️⃣ Publica.")
         try:
             import requests
-            api_key = ""
-            try:
-                api_key = st.secrets.get("ANTHROPIC_API_KEY", "")
-            except Exception:
-                pass
+            api_key = st.secrets.get("ANTHROPIC_API_KEY", "")
 
-            headers = {"Content-Type": "application/json"}
-            if api_key:
-                headers["x-api-key"] = api_key
+            headers = {
+                "Content-Type": "application/json",
+                "x-api-key": api_key,
+                "anthropic-version": "2023-06-01",
+            }
 
             mensajes_api = [
                 {"role": m["role"], "content": m["content"]}
@@ -1296,7 +1362,7 @@ Redirige preguntas no relacionadas al tema de residuos."""
                 "https://api.anthropic.com/v1/messages",
                 headers=headers,
                 json={
-                    "model": "claude-sonnet-4-6",
+                    "model": "claude-haiku-4-5-20251001",
                     "max_tokens": 250,
                     "system": SISTEMA_AGENTE,
                     "messages": mensajes_api,
@@ -1709,6 +1775,14 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                     r_imgs_extra_pil = [_abrir_img_subida(f) for i, f in enumerate(r_imgs)
                                         if i != idx_ppal]
 
+                if img is not None:
+                    exif_r = verificar_fecha_exif(img)
+                    if exif_r:
+                        fecha_foto_r, dias_r = exif_r
+                        st.warning(f"📅 Esta foto parece haber sido tomada el "
+                                   f"{fecha_foto_r:%d/%m/%Y} — hace {dias_r} días. "
+                                   f"Si el residuo ya cambió, sube una foto más reciente.")
+
             if img is not None:
                 if st.button("🔍 Analizar con IA", type="primary",
                              use_container_width=True, key="r_analizar"):
@@ -1821,6 +1895,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         "FotosExtraB64": fotos_extra_a_json(r_imgs_extra_pil),
                         "CodigoResidente": r_codigo,
                         "PHash": calcular_phash(img),
+                        "Confirmaciones": 0,
                     }
 
             if st.session_state.get("cache"):
@@ -1834,12 +1909,14 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                 if r.get("FotosExtraB64"):
                     st.markdown(galeria_html(r["FotosExtraB64"]), unsafe_allow_html=True)
 
+                ok_limite_r = verificar_limite_reportes(r_codigo)
                 foto_recic_r = buscar_foto_reciclada(r["Lat"], r["Lon"], r.get("PHash", ""))
                 if foto_recic_r:
                     ok_publicar_r = aviso_foto_reciclada(foto_recic_r)
                 else:
                     dup_r = buscar_posible_duplicado(r["Lat"], r["Lon"], r.get("PHash", ""))
                     ok_publicar_r = aviso_duplicado(dup_r, "r_confirmar_duplicado")
+                ok_publicar_r = ok_publicar_r and ok_limite_r
 
                 cp, cc = st.columns(2)
                 with cp:
@@ -1849,6 +1926,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         st.session_state.reportes.append(r)
                         st.session_state.mis_codigos.append(r["Código"])
                         st.session_state.mis_estados_vistos[r["Código"]] = r["Estado"]
+                        st.session_state.reportes_hoy_sesion = st.session_state.get("reportes_hoy_sesion", 0) + 1
                         guardar_reportes_disco(st.session_state.reportes)
                         st.session_state.cache = None
                         st.session_state.cache_analisis_r = None
@@ -1938,6 +2016,14 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                     img2 = _abrir_img_subida(cr_imgs[idx_ppal2])
                     cr_imgs_extra_pil = [_abrir_img_subida(f) for i, f in enumerate(cr_imgs)
                                          if i != idx_ppal2]
+
+                if img2 is not None:
+                    exif_cr = verificar_fecha_exif(img2)
+                    if exif_cr:
+                        fecha_foto_cr, dias_cr = exif_cr
+                        st.warning(f"📅 Esta foto parece haber sido tomada el "
+                                   f"{fecha_foto_cr:%d/%m/%Y} — hace {dias_cr} días. "
+                                   f"Si la acumulación ya cambió, sube una foto más reciente.")
 
             if img2 is not None:
 
@@ -2033,6 +2119,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         st.markdown(galeria_html(st.session_state["cache_fotos_extra_b64"]),
                                     unsafe_allow_html=True)
 
+                    ok_limite_cr = verificar_limite_reportes(cr_codigo)
                     foto_recic_cr = buscar_foto_reciclada(
                         cc["Lat"], cc["Lon"], st.session_state.get("cache_phash", ""))
                     if foto_recic_cr:
@@ -2041,6 +2128,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         dup_cr = buscar_posible_duplicado(
                             cc["Lat"], cc["Lon"], st.session_state.get("cache_phash", ""))
                         ok_publicar_cr = aviso_duplicado(dup_cr, "cr_confirmar_duplicado")
+                    ok_publicar_cr = ok_publicar_cr and ok_limite_cr
 
                     st.markdown("")
                     cr_pub, cr_can = st.columns(2)
@@ -2066,10 +2154,12 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                                 "FotosExtraB64": st.session_state.get("cache_fotos_extra_b64", ""),
                                 "CodigoResidente": cr_codigo,
                                 "PHash": st.session_state.get("cache_phash", ""),
+                                "Confirmaciones": 0,
                             }
                             st.session_state.reportes.append(nuevo)
                             st.session_state.mis_codigos.append(nuevo["Código"])
                             st.session_state.mis_estados_vistos[nuevo["Código"]] = nuevo["Estado"]
+                            st.session_state.reportes_hoy_sesion = st.session_state.get("reportes_hoy_sesion", 0) + 1
                             guardar_reportes_disco(st.session_state.reportes)
                             st.session_state.cache_critico = None
                             st.session_state.cache_fotos_extra_b64 = None
@@ -2186,6 +2276,38 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                 mime="text/csv",
                 use_container_width=True,
             )
+
+        st.markdown("---")
+        with st.expander("👍 Confirmar reportes activos de la comunidad"):
+            st.caption(
+                "Si pasaste por alguno de estos puntos y el residuo sigue ahí, "
+                "confírmalo — ayuda a la administración a priorizar. Cada persona "
+                "solo puede confirmar un reporte una vez por sesión."
+            )
+            activos = [r for r in st.session_state.reportes if "Resuelto" not in r.get("Estado", "")]
+            if "confirmados_sesion" not in st.session_state:
+                st.session_state.confirmados_sesion = set()
+            if not activos:
+                st.info("No hay reportes activos en este momento.")
+            for r in activos[-15:][::-1]:
+                cod = r["Código"]
+                c_info, c_btn = st.columns([4, 1])
+                with c_info:
+                    st.markdown(
+                        f"**{cod}** · {r.get('Sector','')} · {r.get('Clasificación','')} · "
+                        f"👍 {r.get('Confirmaciones', 0)} confirmaciones"
+                    )
+                with c_btn:
+                    ya_confirmado = cod in st.session_state.confirmados_sesion
+                    if st.button("👍 Confirmar", key=f"confirmar_{cod}",
+                                 disabled=ya_confirmado, use_container_width=True):
+                        for rep in st.session_state.reportes:
+                            if rep["Código"] == cod:
+                                rep["Confirmaciones"] = rep.get("Confirmaciones", 0) + 1
+                                break
+                        st.session_state.confirmados_sesion.add(cod)
+                        guardar_reportes_disco(st.session_state.reportes)
+                        st.rerun()
 
 # ====================================================================
 # 8.5 COMUNA EN CIFRAS — Panel público, sin contraseña
