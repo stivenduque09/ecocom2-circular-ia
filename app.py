@@ -1,6 +1,6 @@
 import streamlit as st
 from ultralytics import YOLO, YOLOE
-from PIL import Image
+from PIL import Image, ImageFilter
 import tempfile
 from collections import Counter
 import folium
@@ -823,6 +823,8 @@ def campo_codigo_residente(key: str) -> str:
     )
     if valor.strip():
         st.session_state.mi_codigo_residente = valor.strip()
+    st.caption("🔒 Ver el aviso completo de tratamiento de datos en "
+               "ℹ️ Información → 'Aviso de Tratamiento de Datos Personales'.")
     return valor.strip()
 
 
@@ -845,6 +847,37 @@ def tamano_bd_mb() -> float:
         return round(DB_PATH.stat().st_size / (1024 * 1024), 2)
     except Exception:
         return 0.0
+
+
+def difuminar_personas(img_pil, resultados_yolo, nombre_clase="person"):
+    """Difumina automáticamente cualquier persona detectada en la foto
+    antes de guardarla — protege a vecinos o menores que puedan quedar
+    de fondo sin querer en un reporte que va a quedar público en el
+    mapa. No corre un modelo aparte: reutiliza la MISMA detección que
+    ya se calculó para clasificar el residuo, así no cuesta tiempo
+    extra ni una segunda pasada de IA."""
+    try:
+        img = img_pil.convert("RGB").copy()
+        hubo_personas = False
+        for r in resultados_yolo:
+            nombres = r.names if hasattr(r, "names") else modelo.names
+            for box in r.boxes:
+                idx = int(box.cls[0])
+                if nombres.get(idx) != nombre_clase:
+                    continue
+                hubo_personas = True
+                x1, y1, x2, y2 = [int(v) for v in box.xyxy[0].tolist()]
+                x1, y1 = max(0, x1), max(0, y1)
+                x2, y2 = min(img.width, x2), min(img.height, y2)
+                if x2 <= x1 or y2 <= y1:
+                    continue
+                region = img.crop((x1, y1, x2, y2))
+                radio = max(10, (x2 - x1) // 5)
+                region = region.filter(ImageFilter.GaussianBlur(radius=radio))
+                img.paste(region, (x1, y1))
+        return img, hubo_personas
+    except Exception:
+        return img_pil, False
 
 
 def calcular_phash(img_pil) -> str:
@@ -1776,6 +1809,8 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                 "📷 Foto(s) del residuo (hasta 3, ej. distintos ángulos):",
                 type=["jpg","jpeg","png"], key="r_imgs",
                 accept_multiple_files=True)
+            st.caption("🙈 Evita incluir personas en la foto. Si aparecen, las "
+                       "difuminamos automáticamente antes de publicar.")
 
             img = None
             r_imgs_extra_pil = []
@@ -1817,6 +1852,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                     with st.spinner("Analizando imagen (conf ≥ 25%)..."):
                         res = analizar(img)
                     tabla, residuos, peso, tipo, nivel, _ = procesar(res)
+                    img_blur, hubo_personas_r = difuminar_personas(img, res)
                     st.session_state.cache_analisis_r = {
                         "res_plot": res[0].plot(),
                         "tabla": tabla,
@@ -1825,6 +1861,8 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         "tipo": tipo,
                         "nivel": nivel,
                         "ia_detecto": not (residuos == 0 and len(tabla) == 0),
+                        "img_blur": img_blur,
+                        "hubo_personas": hubo_personas_r,
                     }
 
                 # ── Este bloque va FUERA del botón a propósito: si estuviera
@@ -1835,10 +1873,14 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                 # en vez de con lo que realmente elegiste.
                 if st.session_state.get("cache_analisis_r"):
                     ca = st.session_state.cache_analisis_r
+                    img_mostrar = ca.get("img_blur", img)
+                    if ca.get("hubo_personas"):
+                        st.info("🙈 Detectamos personas en la foto y las difuminamos "
+                                 "automáticamente antes de guardarla, para proteger su privacidad.")
                     co, cd = st.columns(2)
                     with co:
                         st.markdown("**📷 Original**")
-                        st.image(img, use_container_width=True)
+                        st.image(img_mostrar, use_container_width=True)
                     with cd:
                         st.markdown("**🤖 Detecciones IA**")
                         st.image(ca["res_plot"], use_container_width=True)
@@ -1854,7 +1896,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                             st.markdown("**⚠️ No aprovechables:**")
                             st.dataframe(df_no, use_container_width=True, hide_index=True)
 
-                    img_foto_final = img
+                    img_foto_final = img_mostrar
                     residuos_f, peso_f, tipo_f, nivel_f = (
                         ca["residuos"], ca["peso"], ca["tipo"], ca["nivel"])
 
@@ -1899,7 +1941,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         nivel_f, tipo_f, peso_f = MAP_MANUAL[tipo_manual]
                         residuos_f = cant_manual if "reciclable" in tipo_manual.lower() else 0
                         if "🔴" in nivel_f:
-                            img_foto_final = marcar_zona_critica(img)
+                            img_foto_final = marcar_zona_critica(img_mostrar)
                             st.caption("🚨 La foto se marcará con un aviso de zona crítica "
                                        "para que el administrador la identifique fácil en el mapa.")
                         metricas(residuos_f, peso_f, nivel_f)
@@ -1922,7 +1964,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         "NotaVozB64": audio_a_b64(r_audio),
                         "FotosExtraB64": fotos_extra_a_json(r_imgs_extra_pil),
                         "CodigoResidente": r_codigo,
-                        "PHash": calcular_phash(img),
+                        "PHash": calcular_phash(img_mostrar),
                         "Confirmaciones": 0,
                     }
 
@@ -2017,6 +2059,8 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                 "📷 Foto(s) del punto crítico (hasta 3 ángulos del mismo montón):",
                 type=["jpg","jpeg","png"], key="cr_imgs",
                 accept_multiple_files=True)
+            st.caption("🙈 Evita incluir personas en la foto. Si aparecen, las "
+                       "difuminamos automáticamente antes de publicar.")
 
             img2 = None
             cr_imgs_extra_pil = []
@@ -2059,14 +2103,21 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                              use_container_width=True, key="cr_analizar"):
                     with st.spinner("Analizando con YOLOv8 (alta resolución)..."):
                         res2 = analizar(img2, imgsz=960)
-                    st.session_state.cache_foto_b64 = img_a_b64(img2)
-                    st.session_state.cache_phash = calcular_phash(img2)
+                    img2_blur, hubo_personas_cr = difuminar_personas(img2, res2)
+                    st.session_state.cache_img_blur = img2_blur
+                    st.session_state.hubo_personas_cr = hubo_personas_cr
+                    st.session_state.cache_foto_b64 = img_a_b64(img2_blur)
+                    st.session_state.cache_phash = calcular_phash(img2_blur)
                     st.session_state.cache_fotos_extra_b64 = fotos_extra_a_json(cr_imgs_extra_pil)
+
+                    if hubo_personas_cr:
+                        st.info("🙈 Detectamos personas en la foto y las difuminamos "
+                                 "automáticamente antes de guardarla, para proteger su privacidad.")
 
                     co2, cd2 = st.columns(2)
                     with co2:
                         st.markdown("**📷 Original**")
-                        st.image(img2, use_container_width=True)
+                        st.image(img2_blur, use_container_width=True)
                     with cd2:
                         st.markdown("**🤖 Detecciones IA**")
                         st.image(res2[0].plot(), use_container_width=True)
@@ -2127,7 +2178,8 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         total_f = cant_mc
                         residuos_f = 0
                         if "🔴" in nivel_f:
-                            st.session_state.cache_foto_b64 = img_a_b64(marcar_zona_critica(img2))
+                            st.session_state.cache_foto_b64 = img_a_b64(
+                                marcar_zona_critica(st.session_state.get("cache_img_blur", img2)))
                             st.caption("🚨 La foto se marcará con un aviso de zona crítica "
                                        "para que el administrador la identifique fácil en el mapa.")
                     else:
@@ -2192,6 +2244,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                             st.session_state.cache_critico = None
                             st.session_state.cache_fotos_extra_b64 = None
                             st.session_state.cache_phash = None
+                            st.session_state.cache_img_blur = None
                             st.session_state.seccion = "historial"
                             for k in ["click_lat","click_lon","click_dir","click_barrio"]:
                                 st.session_state.pop(k, None)
@@ -2203,6 +2256,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                             st.session_state.cache_critico = None
                             st.session_state.cache_fotos_extra_b64 = None
                             st.session_state.cache_phash = None
+                            st.session_state.cache_img_blur = None
                             st.rerun()
 
     # ── SECCIÓN: Historial ─────────────────────────────────────────────
@@ -3049,6 +3103,48 @@ en tiempo real para detectar y clasificar objetos. El sistema:
     with bc2:
         for b in BARRIOS[mitad+1:]:
             st.markdown(f"- 📍 **{b}**")
+
+    st.markdown("---")
+    st.markdown("## 🔒 Aviso de Tratamiento de Datos Personales")
+    st.markdown("""
+En cumplimiento de la **Ley 1581 de 2012 (Habeas Data)** y sus decretos reglamentarios,
+EcoCom2 Circular IA informa lo siguiente sobre los datos que recoge:
+
+**¿Qué datos recogemos?**
+- Fotos que subes al reportar un residuo (pueden mostrar el sitio, objetos y, si no
+  tienes cuidado, personas — por eso difuminamos automáticamente cualquier rostro/persona
+  que la IA detecte antes de publicar la foto).
+- Ubicación aproximada del punto reportado (coordenadas del mapa o la dirección que escribas).
+- Código o teléfono, **solo si tú decides escribirlo** — es opcional.
+- Observaciones de texto o notas de voz que agregues voluntariamente.
+
+**¿Para qué los usamos?**
+- Mostrar el reporte en el mapa comunitario, para que la administración y otros
+  residentes puedan verlo y darle seguimiento.
+- Si dejaste un teléfono, permitir que la administración te notifique por WhatsApp
+  cuando el estado de tu reporte cambie, y que tú mismo puedas buscar tus reportes
+  después desde otro dispositivo.
+
+**¿Quién puede ver estos datos?**
+La foto, el sector, la clasificación y el estado del reporte son **públicos** — cualquiera
+que entre a la app puede verlos en el mapa. El código/teléfono que dejes **no se muestra
+públicamente** en el mapa ni en las estadísticas, pero técnicamente cualquiera que lo
+supiera podría usarlo para buscar tus reportes en "Mi Historial" — por eso te
+recomendamos no usar información sensible ahí.
+
+**¿Cuánto tiempo se guardan?**
+Mientras el proyecto piloto esté activo. Puedes pedir que se elimine un reporte tuyo
+(foto incluida) contactando a la administración.
+
+**Tus derechos como titular de los datos**
+Puedes conocer, actualizar, rectificar o solicitar la eliminación de tus datos en
+cualquier momento, contactando al desarrollador del proyecto.
+
+*Este es un aviso informativo básico para un proyecto piloto académico
+(Territorio INN 2026, ITM Medellín) y no reemplaza una política de datos formal
+revisada por un abogado — si el proyecto crece más allá de la fase piloto, se
+recomienda formalizarla.*
+""")
 
     st.markdown("---")
     st.markdown("""
