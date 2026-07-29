@@ -4,6 +4,7 @@ from PIL import Image, ImageFilter
 import tempfile
 from collections import Counter
 import folium
+from folium.plugins import HeatMap
 from streamlit_folium import st_folium
 import pandas as pd
 from shapely.geometry import Point, Polygon
@@ -518,6 +519,8 @@ for k, v in {
     "gps_procesado": None,
     "gps_lat": None, "gps_lon": None,
     "gps_solicitado": False,
+    "tutorial_visto": False,
+    "tutorial_paso": 0,
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -1264,6 +1267,85 @@ def metricas(residuos, peso, nivel):
                     unsafe_allow_html=True)
 
 
+PASOS_TUTORIAL = [
+    {
+        "emoji": "👋",
+        "titulo": "¡Bienvenido a EcoCom2 Circular IA!",
+        "texto": "Entre todos podemos mantener la Comuna 2 más limpia. Te mostramos "
+                 "en 4 pasos rápidos cómo funciona — toma 30 segundos.",
+    },
+    {
+        "emoji": "📍",
+        "titulo": "1. Verifica tu dirección",
+        "texto": "Usa el botón grande de GPS, o escribe tu dirección si prefieres. "
+                 "Solo residentes DENTRO de la Comuna 2 pueden publicar reportes — "
+                 "cualquiera puede ver el mapa.",
+    },
+    {
+        "emoji": "📸",
+        "titulo": "2. Reporta un residuo",
+        "texto": "Toca el mapa donde está el residuo, sube una foto, y la IA la "
+                 "analiza sola — te dice si es reciclable y qué tan urgente es "
+                 "(🟢 🟡 🔴).",
+    },
+    {
+        "emoji": "👍",
+        "titulo": "3. Confirma los reportes de tus vecinos",
+        "texto": "Si pasas por un punto ya reportado y el residuo sigue ahí, "
+                 "confírmalo desde '👤 Mi Historial' — ayuda a la administración "
+                 "a priorizar dónde actuar primero.",
+    },
+]
+
+
+def mostrar_tutorial():
+    paso = st.session_state.get("tutorial_paso", 0)
+    paso = max(0, min(paso, len(PASOS_TUTORIAL) - 1))
+    info = PASOS_TUTORIAL[paso]
+
+    st.markdown(
+        f'<div style="background:linear-gradient(135deg,rgba(74,222,128,0.15),rgba(22,163,74,0.08));'
+        f'border:2px solid #4ade80;border-radius:16px;padding:28px 24px;'
+        f'text-align:center;margin-bottom:10px;">'
+        f'<div style="font-size:48px;margin-bottom:8px;">{info["emoji"]}</div>'
+        f'<div style="font-size:19px;font-weight:800;color:#166534;margin-bottom:8px;">'
+        f'{info["titulo"]}</div>'
+        f'<div style="font-size:14px;color:#374151;max-width:480px;margin:0 auto;'
+        f'line-height:1.5;">{info["texto"]}</div>'
+        f'</div>', unsafe_allow_html=True)
+
+    puntos = "".join(
+        "●" if i == paso else "○" for i in range(len(PASOS_TUTORIAL))
+    )
+    st.markdown(
+        f'<div style="text-align:center;color:#4ade80;font-size:16px;'
+        f'letter-spacing:6px;margin-bottom:10px;">{puntos}</div>',
+        unsafe_allow_html=True)
+
+    tb1, tb2, tb3 = st.columns([1, 1, 1])
+    with tb1:
+        if paso > 0:
+            if st.button("⬅️ Anterior", use_container_width=True, key="tut_prev"):
+                st.session_state.tutorial_paso = paso - 1
+                st.rerun()
+    with tb2:
+        if st.button("Saltar tutorial", use_container_width=True, key="tut_skip"):
+            st.session_state.tutorial_visto = True
+            st.rerun()
+    with tb3:
+        if paso < len(PASOS_TUTORIAL) - 1:
+            if st.button("Siguiente ➡️", type="primary",
+                         use_container_width=True, key="tut_next"):
+                st.session_state.tutorial_paso = paso + 1
+                st.rerun()
+        else:
+            if st.button("✅ ¡Entendido, empezar!", type="primary",
+                         use_container_width=True, key="tut_finish"):
+                st.session_state.tutorial_visto = True
+                st.rerun()
+    st.markdown("---")
+
+
 def nav_tabs(seccion_actual):
     SECCIONES = [
         ("residuo",   "📸 Reportar Residuo"),
@@ -1353,6 +1435,12 @@ else:
         st.session_state.admin_ok = False
         st.rerun()
 
+if st.sidebar.button("🎬 Ver tutorial de nuevo", use_container_width=True, key="ver_tutorial_de_nuevo"):
+    st.session_state.tutorial_visto = False
+    st.session_state.tutorial_paso = 0
+    st.session_state.menu_extra = None
+    st.rerun()
+
 st.sidebar.markdown("---")
 st.sidebar.markdown("""
 <div class="ecocom2-footer" style="font-size:11px;padding:8px;background:rgba(16,185,129,0.06);
@@ -1368,6 +1456,9 @@ Dev: <b style="color:#16a34a">Brandon Duque</b>
 if menu == "🏠 Inicio y Mapa":
     st.title("♻️ EcoCom2 Circular IA")
     st.caption("Gestión inteligente de residuos — Solo residentes de la **Comuna 2** pueden publicar reportes.")
+
+    if not st.session_state.get("tutorial_visto", False):
+        mostrar_tutorial()
 
     if "agente_msgs" not in st.session_state:
         st.session_state.agente_msgs = [
@@ -1613,6 +1704,13 @@ font-size:14px;text-align:center;margin-bottom:10px;">
     st.markdown("### 🗺️ Toca el punto exacto del residuo en el mapa")
     st.caption("Al tocar, la dirección aparece automáticamente arriba y puedes reportar directo.")
 
+    vista_mapa = st.radio(
+        "Vista del mapa:", ["📍 Puntos individuales", "🔥 Mapa de calor"],
+        horizontal=True, key="vista_mapa_principal",
+        help="El mapa de calor te ayuda a ver de un vistazo las zonas con más "
+             "problemas, sin tener que contar puntos uno por uno."
+    )
+
     lat_c = st.session_state.get("lat") or st.session_state.get("gps_lat") or LAT_C
     lon_c = st.session_state.get("lon") or st.session_state.get("gps_lon") or LON_C
 
@@ -1663,38 +1761,57 @@ font-size:14px;text-align:center;margin-bottom:10px;">
             icon=folium.Icon(color="purple", icon="crosshairs", prefix="fa")
         ).add_to(mapa)
 
-    for rep in st.session_state.reportes:
-        niv = rep.get("Clasificación", "🟢")
-        col = "red" if "🔴" in niv else ("orange" if "🟡" in niv else "green")
-        foto_b64 = rep.get("FotoB64", "")
-        img_html = (f'<br><img src="data:image/jpeg;base64,{foto_b64}" '
-                    f'style="width:180px;border-radius:6px;margin-top:6px;">'
-                    if foto_b64 else "")
-        obs_txt = rep.get("Observaciones", "")
-        obs_html = f"📝 {obs_txt[:80]}<br>" if obs_txt else ""
-        audio_b64 = rep.get("NotaVozB64", "")
-        audio_html = (f'<br><audio controls style="width:180px;margin-top:4px;">'
-                      f'<source src="data:audio/wav;base64,{audio_b64}"></audio>'
-                      if audio_b64 else "")
-        galeria_extra_html = galeria_html(rep.get("FotosExtraB64", ""), ancho_px=60)
-        popup_html = (
-            f"<div style='font-family:sans-serif;min-width:190px;'>"
-            f"<b style='color:{col}'>{niv}</b><br>"
-            f"<b>{rep['Código']}</b><br>"
-            f"📍 {rep['Sector']}<br>"
-            f"📌 {rep.get('Referencia','')[:40]}<br>"
-            f"{obs_html}"
-            f"♻️ {rep['Objetos']} obj | ⚖️ {rep['Peso (Kg)']} kg<br>"
-            f"🕐 {rep.get('Fecha','')}<br>"
-            f"🔖 {rep.get('Estado','')}"
-            f"{img_html}{audio_html}{galeria_extra_html}</div>"
-        )
-        folium.CircleMarker(
-            location=[rep["Lat"], rep["Lon"]], radius=12,
-            color=col, fill=True, fill_color=col, fill_opacity=0.85,
-            popup=folium.Popup(popup_html, max_width=220),
-            tooltip=f"{rep['Código']} — {niv}"
-        ).add_to(mapa)
+    if vista_mapa == "🔥 Mapa de calor":
+        PESO_CALOR = {"🔴": 1.0, "🟡": 0.6, "🟢": 0.3}
+        datos_calor = []
+        for rep in st.session_state.reportes:
+            niv = rep.get("Clasificación", "")
+            p = PESO_CALOR["🔴"] if "🔴" in niv else (PESO_CALOR["🟡"] if "🟡" in niv else PESO_CALOR["🟢"])
+            if "Resuelto" in rep.get("Estado", ""):
+                p *= 0.25  # los resueltos casi no pesan, pero no desaparecen del mapa
+            if rep.get("Lat") is not None and rep.get("Lon") is not None:
+                datos_calor.append([rep["Lat"], rep["Lon"], p])
+        if datos_calor:
+            HeatMap(datos_calor, radius=24, blur=20, max_zoom=16,
+                    gradient={0.2: "#4ade80", 0.5: "#fbbf24", 0.8: "#f87171", 1.0: "#dc2626"}
+                    ).add_to(mapa)
+        else:
+            st.info("Aún no hay reportes para mostrar en el mapa de calor.")
+        st.caption("🔴 Zonas rojas = más puntos críticos concentrados. Los reportes "
+                   "ya resueltos pesan mucho menos, así que no distorsionan el mapa.")
+    else:
+        for rep in st.session_state.reportes:
+            niv = rep.get("Clasificación", "🟢")
+            col = "red" if "🔴" in niv else ("orange" if "🟡" in niv else "green")
+            foto_b64 = rep.get("FotoB64", "")
+            img_html = (f'<br><img src="data:image/jpeg;base64,{foto_b64}" '
+                        f'style="width:180px;border-radius:6px;margin-top:6px;">'
+                        if foto_b64 else "")
+            obs_txt = rep.get("Observaciones", "")
+            obs_html = f"📝 {obs_txt[:80]}<br>" if obs_txt else ""
+            audio_b64 = rep.get("NotaVozB64", "")
+            audio_html = (f'<br><audio controls style="width:180px;margin-top:4px;">'
+                          f'<source src="data:audio/wav;base64,{audio_b64}"></audio>'
+                          if audio_b64 else "")
+            galeria_extra_html = galeria_html(rep.get("FotosExtraB64", ""), ancho_px=60)
+            popup_html = (
+                f"<div style='font-family:sans-serif;min-width:190px;'>"
+                f"<b style='color:{col}'>{niv}</b><br>"
+                f"<b>{rep['Código']}</b><br>"
+                f"📍 {rep['Sector']}<br>"
+                f"📌 {rep.get('Referencia','')[:40]}<br>"
+                f"{obs_html}"
+                f"♻️ {rep['Objetos']} obj | ⚖️ {rep['Peso (Kg)']} kg<br>"
+                f"🕐 {rep.get('Fecha','')}<br>"
+                f"🔖 {rep.get('Estado','')}"
+                f"{img_html}{audio_html}{galeria_extra_html}</div>"
+            )
+            folium.CircleMarker(
+                location=[rep["Lat"], rep["Lon"]], radius=12,
+                color=col, fill=True, fill_color=col, fill_opacity=0.85,
+                popup=folium.Popup(popup_html, max_width=220),
+                tooltip=f"{rep['Código']} — {niv}"
+            ).add_to(mapa)
 
     mapa_data = st_folium(mapa, width="100%", height=340,
                           returned_objects=["last_clicked"])
@@ -2690,7 +2807,7 @@ padding:10px 16px;margin-top:12px;font-size:14px;">
         if not reportes:
             st.info("Sin reportes aún.")
         else:
-            fm1, fm2 = st.columns(2)
+            fm1, fm2, fm3 = st.columns(3)
             with fm1:
                 f_estado = st.selectbox("Filtrar por estado:",
                     ["Todos","🔴 Pendiente","🟡 En proceso","✅ Resuelto"],
@@ -2699,6 +2816,10 @@ padding:10px 16px;margin-top:12px;font-size:14px;">
                 f_nivel = st.selectbox("Filtrar por criticidad:",
                     ["Todos","🔴 Crítico","🟡 Amarillo","🟢 Verde"],
                     key="adm_f_nivel")
+            with fm3:
+                vista_mapa_adm = st.radio(
+                    "Vista:", ["📍 Puntos", "🔥 Mapa de calor"],
+                    key="vista_mapa_admin", horizontal=True)
 
             mapa_adm = folium.Map(location=[LAT_C, LON_C],
                                   zoom_start=14, tiles="CartoDB positron")
@@ -2707,7 +2828,7 @@ padding:10px 16px;margin-top:12px;font-size:14px;">
             folium.Polygon(locations=coords_p, color="#4ade80", weight=2,
                            fill=True, fill_color="#4ade80", fill_opacity=0.06).add_to(mapa_adm)
 
-            total_mostrados = 0
+            reportes_filtrados = []
             for rep in reportes:
                 est = rep.get("Estado", "")
                 niv = rep.get("Clasificación", "")
@@ -2719,39 +2840,61 @@ padding:10px 16px;margin-top:12px;font-size:14px;">
                     if f_nivel == "🔴 Crítico"  and "crítico"  not in niv.lower(): continue
                     if f_nivel == "🟡 Amarillo" and "amarillo" not in niv.lower(): continue
                     if f_nivel == "🟢 Verde"    and "verde"    not in niv.lower(): continue
+                reportes_filtrados.append(rep)
 
-                col = "red" if "🔴" in niv else ("orange" if "🟡" in niv else "green")
-                if "Resuelto" in est:
-                    col = "gray"
+            total_mostrados = 0
+            if vista_mapa_adm == "🔥 Mapa de calor":
+                PESO_CALOR_ADM = {"🔴": 1.0, "🟡": 0.6, "🟢": 0.3}
+                datos_calor_adm = []
+                for rep in reportes_filtrados:
+                    niv = rep.get("Clasificación", "")
+                    p = (PESO_CALOR_ADM["🔴"] if "🔴" in niv else
+                         PESO_CALOR_ADM["🟡"] if "🟡" in niv else PESO_CALOR_ADM["🟢"])
+                    if "Resuelto" in rep.get("Estado", ""):
+                        p *= 0.25
+                    if rep.get("Lat") is not None and rep.get("Lon") is not None:
+                        datos_calor_adm.append([rep["Lat"], rep["Lon"], p])
+                        total_mostrados += 1
+                if datos_calor_adm:
+                    HeatMap(datos_calor_adm, radius=24, blur=20, max_zoom=16,
+                            gradient={0.2: "#4ade80", 0.5: "#fbbf24", 0.8: "#f87171", 1.0: "#dc2626"}
+                            ).add_to(mapa_adm)
+            else:
+                for rep in reportes_filtrados:
+                    est = rep.get("Estado", "")
+                    niv = rep.get("Clasificación", "")
+                    col = "red" if "🔴" in niv else ("orange" if "🟡" in niv else "green")
+                    if "Resuelto" in est:
+                        col = "gray"
 
-                foto_b64 = rep.get("FotoB64", "")
-                img_html  = (f'<br><img src="data:image/jpeg;base64,{foto_b64}" '
-                              f'style="width:160px;border-radius:4px;margin-top:4px;">'
-                              if foto_b64 else "")
-                obs_txt_adm = rep.get("Observaciones", "")
-                obs_html_adm = f"📝 {obs_txt_adm[:100]}<br>" if obs_txt_adm else ""
-                audio_b64_adm = rep.get("NotaVozB64", "")
-                audio_html_adm = (f'<br><audio controls style="width:160px;margin-top:4px;">'
-                                  f'<source src="data:audio/wav;base64,{audio_b64_adm}"></audio>'
-                                  if audio_b64_adm else "")
-                galeria_adm_html = galeria_html(rep.get("FotosExtraB64", ""), ancho_px=55)
-                popup_adm = (
-                    f"<div style='font-family:sans-serif;min-width:190px;'>"
-                    f"<b style='color:{col}'>{niv}</b><br>"
-                    f"<b>{rep['Código']}</b><br>"
-                    f"📍 {rep.get('Sector','')} · {rep.get('Referencia','')[:35]}<br>"
-                    f"{obs_html_adm}"
-                    f"♻️ {rep.get('Objetos',0)} obj | ⚖️ {rep.get('Peso (Kg)',0)} kg<br>"
-                    f"🕐 {rep.get('Fecha','')} | 🔖 {est}"
-                    f"{img_html}{audio_html_adm}{galeria_adm_html}</div>"
-                )
-                folium.CircleMarker(
-                    location=[rep["Lat"], rep["Lon"]], radius=13,
-                    color=col, fill=True, fill_color=col, fill_opacity=0.85,
-                    popup=folium.Popup(popup_adm, max_width=220),
-                    tooltip=f"{rep['Código']} | {est}"
-                ).add_to(mapa_adm)
-                total_mostrados += 1
+                    foto_b64 = rep.get("FotoB64", "")
+                    img_html  = (f'<br><img src="data:image/jpeg;base64,{foto_b64}" '
+                                  f'style="width:160px;border-radius:4px;margin-top:4px;">'
+                                  if foto_b64 else "")
+                    obs_txt_adm = rep.get("Observaciones", "")
+                    obs_html_adm = f"📝 {obs_txt_adm[:100]}<br>" if obs_txt_adm else ""
+                    audio_b64_adm = rep.get("NotaVozB64", "")
+                    audio_html_adm = (f'<br><audio controls style="width:160px;margin-top:4px;">'
+                                      f'<source src="data:audio/wav;base64,{audio_b64_adm}"></audio>'
+                                      if audio_b64_adm else "")
+                    galeria_adm_html = galeria_html(rep.get("FotosExtraB64", ""), ancho_px=55)
+                    popup_adm = (
+                        f"<div style='font-family:sans-serif;min-width:190px;'>"
+                        f"<b style='color:{col}'>{niv}</b><br>"
+                        f"<b>{rep['Código']}</b><br>"
+                        f"📍 {rep.get('Sector','')} · {rep.get('Referencia','')[:35]}<br>"
+                        f"{obs_html_adm}"
+                        f"♻️ {rep.get('Objetos',0)} obj | ⚖️ {rep.get('Peso (Kg)',0)} kg<br>"
+                        f"🕐 {rep.get('Fecha','')} | 🔖 {est}"
+                        f"{img_html}{audio_html_adm}{galeria_adm_html}</div>"
+                    )
+                    folium.CircleMarker(
+                        location=[rep["Lat"], rep["Lon"]], radius=13,
+                        color=col, fill=True, fill_color=col, fill_opacity=0.85,
+                        popup=folium.Popup(popup_adm, max_width=220),
+                        tooltip=f"{rep['Código']} | {est}"
+                    ).add_to(mapa_adm)
+                    total_mostrados += 1
 
             st_folium(mapa_adm, width="100%", height=480, returned_objects=[])
             st.caption(f"Mostrando {total_mostrados} de {len(reportes)} reportes")
