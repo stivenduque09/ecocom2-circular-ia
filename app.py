@@ -90,9 +90,13 @@ def cargar_reportes_disco():
     except Exception:
         return []
 
-def guardar_reportes_disco(reportes):
-    """Reescribe toda la tabla con la lista actual (mismo comportamiento
-    que el guardado completo del JSON anterior)."""
+def _guardar_sqlite(reportes):
+    """Escribe la lista de reportes en la base SQLite local — esto es lo
+    que ya existía, y sigue siendo la copia 'rápida' que usa la app en
+    cada sesión. El problema es que este archivo vive en el disco del
+    contenedor de Streamlit Cloud, que se borra por completo cada vez
+    que la app se reinicia (por inactividad o por un nuevo despliegue).
+    Por eso guardar_reportes_disco() también respalda en GitHub."""
     try:
         with _conectar_db() as conn:
             conn.execute("DELETE FROM reportes")
@@ -103,6 +107,104 @@ def guardar_reportes_disco(reportes):
             )
     except Exception:
         pass
+
+
+RESPALDO_PATH_REPO = "data_backup/reportes_backup.json"
+# Campos livianos para el respaldo — a propósito NO incluye FotoB64,
+# NotaVozB64 ni FotosExtraB64 (pesan mucho en base64 y harían crecer el
+# historial de git muy rápido). Si el contenedor se borra por completo,
+# el respaldo recupera el 100% de la ubicación/estado/clasificación de
+# cada reporte — solo se pierden las imágenes, no los datos operativos.
+_CAMPOS_RESPALDO = ["Código","Sector","Referencia","Objetos","Peso (Kg)",
+                    "Predominante","Clasificación","Lat","Lon","Fecha","Estado",
+                    "Observaciones","CodigoResidente","Confirmaciones"]
+
+
+def _github_config():
+    """Lee la configuración del respaldo desde st.secrets. Si no está
+    configurada, devuelve (None, None, None) — el respaldo queda
+    simplemente desactivado, sin romper nada del resto de la app."""
+    try:
+        token = st.secrets.get("GITHUB_TOKEN", "").strip()
+        repo = st.secrets.get("GITHUB_REPO", "").strip()
+        branch = st.secrets.get("GITHUB_BRANCH", "main").strip() or "main"
+        if token and repo:
+            return token, repo, branch
+    except Exception:
+        pass
+    return None, None, None
+
+
+def respaldar_en_github(reportes: list):
+    """Sube un respaldo liviano de los reportes (sin fotos/audio) a un
+    archivo JSON dentro del propio repositorio de GitHub. Como Streamlit
+    Cloud clona el repo desde cero en cada reinicio, este respaldo
+    sobrevive aunque el disco del contenedor se borre por completo."""
+    token, repo, branch = _github_config()
+    if not token:
+        return
+    try:
+        import requests
+        reportes_ligeros = [
+            {c: r.get(c) for c in _CAMPOS_RESPALDO} for r in reportes
+        ]
+        contenido = json.dumps(reportes_ligeros, ensure_ascii=False, indent=2)
+        contenido_b64 = base64.b64encode(contenido.encode("utf-8")).decode("utf-8")
+
+        url = f"https://api.github.com/repos/{repo}/contents/{RESPALDO_PATH_REPO}"
+        headers = {"Authorization": f"token {token}",
+                   "Accept": "application/vnd.github+json"}
+
+        r_get = requests.get(url, headers=headers, params={"ref": branch}, timeout=10)
+        sha = r_get.json().get("sha") if r_get.status_code == 200 else None
+
+        payload = {
+            "message": f"🔄 Respaldo automático EcoCom2 — {datetime.now():%Y-%m-%d %H:%M}",
+            "content": contenido_b64,
+            "branch": branch,
+        }
+        if sha:
+            payload["sha"] = sha
+
+        requests.put(url, headers=headers, json=payload, timeout=10)
+    except Exception:
+        pass  # el respaldo nunca debe romper el flujo normal de la app
+
+
+def restaurar_desde_github_si_vacio():
+    """Si la app arrancó con la base de datos local vacía (señal de que
+    el contenedor se reinició y se borró el disco), intenta recuperar
+    el último respaldo guardado en GitHub para no perder el historial
+    completo de reportes de la comunidad."""
+    if st.session_state.get("reportes"):
+        return
+    token, repo, branch = _github_config()
+    if not token:
+        return
+    try:
+        import requests
+        url = f"https://api.github.com/repos/{repo}/contents/{RESPALDO_PATH_REPO}"
+        headers = {"Authorization": f"token {token}",
+                   "Accept": "application/vnd.github+json"}
+        r = requests.get(url, headers=headers, params={"ref": branch}, timeout=10)
+        if r.status_code != 200:
+            return
+        contenido_b64 = r.json().get("content", "")
+        contenido = base64.b64decode(contenido_b64).decode("utf-8")
+        reportes_restaurados = json.loads(contenido)
+        if reportes_restaurados:
+            st.session_state.reportes = reportes_restaurados
+            _guardar_sqlite(reportes_restaurados)
+    except Exception:
+        pass
+
+
+def guardar_reportes_disco(reportes):
+    """Guarda en SQLite local (rápido, para uso normal de la app) Y
+    respalda en GitHub (lento pero sobrevive a un reinicio completo del
+    contenedor de Streamlit Cloud)."""
+    _guardar_sqlite(reportes)
+    respaldar_en_github(reportes)
 
 # ====================================================================
 # 1. CONFIGURACIÓN
@@ -530,6 +632,7 @@ for k, v in {
 
 if "reportes" not in st.session_state:
     st.session_state.reportes = cargar_reportes_disco()
+    restaurar_desde_github_si_vacio()
 
 if "mis_estados_vistos" not in st.session_state:
     st.session_state.mis_estados_vistos = {}
@@ -2820,7 +2923,7 @@ margin-bottom:8px;">
 
     with tab_dash:
         st.markdown("#### ⚙️ Estado del sistema")
-        est1, est2 = st.columns(2)
+        est1, est2, est3 = st.columns(3)
         with est1:
             if verificar_api_key():
                 st.markdown(
@@ -2844,6 +2947,22 @@ margin-bottom:8px;">
                 f'<span style="font-weight:normal">Fotos y audio van codificados aquí adentro — '
                 f'usa "Eliminar resueltos" si crece mucho.</span></div>',
                 unsafe_allow_html=True)
+        with est3:
+            _tok_gh, _repo_gh, _branch_gh = _github_config()
+            if _tok_gh:
+                st.markdown(
+                    f'<div class="badge-ok" style="font-size:13px;">'
+                    f'✅ Respaldo en GitHub activo<br>'
+                    f'<span style="font-weight:normal">Repo: {_repo_gh} · rama {_branch_gh}. '
+                    f'Los reportes sobreviven a un reinicio del contenedor.</span></div>',
+                    unsafe_allow_html=True)
+            else:
+                st.markdown(
+                    '<div class="badge-err" style="font-size:13px;">'
+                    '⚠️ Sin respaldo en GitHub<br>'
+                    '<span style="font-weight:normal">Si el contenedor se reinicia, se pierden '
+                    'todos los reportes. Configura GITHUB_TOKEN y GITHUB_REPO en Secrets.</span></div>',
+                    unsafe_allow_html=True)
         st.markdown("")
 
         if not reportes:
