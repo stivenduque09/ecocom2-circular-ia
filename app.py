@@ -20,6 +20,8 @@ from io import BytesIO
 from streamlit_js_eval import get_geolocation
 import imagehash
 from math import radians, sin, cos, sqrt, atan2
+import re
+import time
 
 # ====================================================================
 # PERSISTENCIA — SQLite en vez de JSON en /tmp
@@ -521,6 +523,7 @@ for k, v in {
     "gps_solicitado": False,
     "tutorial_visto": False,
     "tutorial_paso": 0,
+    "dir_candidatos": None,
 }.items():
     if k not in st.session_state:
         st.session_state[k] = v
@@ -646,17 +649,63 @@ MAT = {
 # ====================================================================
 # 6. HELPERS
 # ====================================================================
+_ABREVIATURAS_CO = {
+    r"\bcra\.?\b": "Carrera", r"\bcr\.?\b": "Carrera",
+    r"\bkra\.?\b": "Carrera", r"\bkr\.?\b": "Carrera",
+    r"\bcl\.?\b": "Calle", r"\bcll\.?\b": "Calle", r"\bclle\.?\b": "Calle",
+    r"\bdg\.?\b": "Diagonal",
+    r"\btv\.?\b": "Transversal", r"\btrans\.?\b": "Transversal",
+    r"\bcq\.?\b": "Circular",
+    r"\bav\.?\b": "Avenida", r"\bavda\.?\b": "Avenida",
+}
+
+def _normalizar_direccion_co(direccion: str) -> str:
+    """Expande abreviaturas típicas colombianas (Cra, Cll, Dg, Tv...)
+    a su forma completa — Nominatim reconoce mejor 'Carrera' que 'Cra'."""
+    txt = direccion.strip()
+    for patron, reemplazo in _ABREVIATURAS_CO.items():
+        txt = re.sub(patron, reemplazo, txt, flags=re.IGNORECASE)
+    return txt
+
+
 @st.cache_data(show_spinner=False, ttl=3600)
-def geocodificar(direccion: str):
+def geocodificar(direccion: str, max_resultados: int = 5):
+    """Busca una dirección y devuelve una LISTA de candidatos (hasta
+    max_resultados), no solo el primero — así el residente puede
+    confirmar cuál es la correcta en vez de que la app adivine y el
+    reporte quede mal ubicado sin que nadie lo note. Si la dirección
+    completa no da resultados, reintenta sin el número de casa
+    ('#107-62'), porque muchas calles de la Comuna 2 están mapeadas en
+    OpenStreetMap solo a nivel de vía, sin numeración exacta."""
     from geopy.geocoders import Nominatim
-    try:
-        geo = Nominatim(user_agent="ecocom2_v4", timeout=8)
-        r = geo.geocode(f"{direccion}, Medellín, Antioquia, Colombia")
-        if r:
-            return r.latitude, r.longitude, r.address
-    except Exception:
-        pass
-    return None, None, None
+    from geopy.exc import GeocoderTimedOut, GeocoderServiceError
+
+    geo = Nominatim(user_agent="ecocom2_v5", timeout=8)
+    viewbox = [(6.10, -75.70), (6.38, -75.45)]  # área metropolitana de Medellín
+
+    def _buscar(txt):
+        try:
+            return geo.geocode(
+                f"{txt}, Medellín, Antioquia, Colombia",
+                exactly_one=False, limit=max_resultados,
+                viewbox=viewbox, bounded=True,
+            )
+        except (GeocoderTimedOut, GeocoderServiceError, Exception):
+            return None
+
+    direccion_norm = _normalizar_direccion_co(direccion)
+    resultados = _buscar(direccion_norm)
+
+    if not resultados:
+        sin_numero = re.sub(r"#\s*\d+\w*\s*-\s*\d+\w*.*", "", direccion_norm).strip()
+        if sin_numero and sin_numero != direccion_norm:
+            time.sleep(1.1)  # respeta el límite de 1 solicitud/seg de Nominatim
+            resultados = _buscar(sin_numero)
+
+    if not resultados:
+        return []
+
+    return [(r.latitude, r.longitude, r.address) for r in resultados]
 
 
 def _normalizar_txt(txt: str) -> str:
@@ -1665,14 +1714,38 @@ font-size:14px;text-align:center;margin-bottom:10px;">
         if verificar_clicked:
             if dir_inp.strip():
                 with st.spinner("Buscando..."):
-                    lat, lon, addr = geocodificar(dir_inp.strip())
-                if lat:
+                    candidatos = geocodificar(dir_inp.strip())
+                if len(candidatos) == 1:
+                    lat, lon, addr = candidatos[0]
                     set_ubicacion(lat, lon, addr)
+                    st.session_state.dir_candidatos = None
+                    st.rerun()
+                elif len(candidatos) > 1:
+                    st.session_state.dir_candidatos = candidatos
                     st.rerun()
                 else:
-                    st.error("❌ No encontré esa dirección. Intenta: Cra 50 #107-62, Andalucía")
+                    st.session_state.dir_candidatos = None
+                    st.error(
+                        "❌ No encontré esa dirección. Prueba:\n\n"
+                        "- Sin el número de casa (ej. 'Carrera 50, Andalucía')\n"
+                        "- Solo el nombre del barrio (ej. 'Andalucía, Medellín')\n"
+                        "- O usa 📍 GPS / toca directamente el mapa de abajo — "
+                        "en varias calles de la Comuna 2 esa es la forma más confiable."
+                    )
             else:
                 st.warning("Escribe o toca el mapa para obtener una dirección.")
+
+        if st.session_state.get("dir_candidatos"):
+            st.markdown("**📍 Encontré varias coincidencias — ¿cuál es la correcta?**")
+            opciones = [c[2] for c in st.session_state.dir_candidatos]
+            sel = st.radio("Elige la dirección correcta:", opciones,
+                           key="dir_candidato_sel", label_visibility="collapsed")
+            if st.button("✅ Usar esta dirección", type="primary", key="confirmar_candidato"):
+                idx = opciones.index(sel)
+                lat, lon, addr = st.session_state.dir_candidatos[idx]
+                set_ubicacion(lat, lon, addr)
+                st.session_state.dir_candidatos = None
+                st.rerun()
 
     if st.session_state.get("gps_solicitado"):
         with st.spinner("📡 Obteniendo tu ubicación (acepta el permiso del navegador)..."):
