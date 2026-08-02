@@ -632,7 +632,14 @@ for k, v in {
 
 if "reportes" not in st.session_state:
     st.session_state.reportes = cargar_reportes_disco()
-    restaurar_desde_github_si_vacio()
+    if st.session_state.reportes:
+        # Ya hay datos en el disco local del contenedor — los respaldamos
+        # de inmediato en vez de esperar a la próxima acción. Así, si el
+        # contenedor se reinicia antes de que alguien publique algo
+        # nuevo, esos reportes ya existentes NO se pierden.
+        respaldar_en_github(st.session_state.reportes)
+    else:
+        restaurar_desde_github_si_vacio()
 
 if "mis_estados_vistos" not in st.session_state:
     st.session_state.mis_estados_vistos = {}
@@ -2956,6 +2963,10 @@ margin-bottom:8px;">
                     f'<span style="font-weight:normal">Repo: {_repo_gh} · rama {_branch_gh}. '
                     f'Los reportes sobreviven a un reinicio del contenedor.</span></div>',
                     unsafe_allow_html=True)
+                if st.button("🔄 Respaldar ahora", use_container_width=True, key="respaldo_manual"):
+                    with st.spinner("Subiendo respaldo a GitHub..."):
+                        respaldar_en_github(st.session_state.reportes)
+                    st.success("✅ Respaldo actualizado en GitHub.")
             else:
                 st.markdown(
                     '<div class="badge-err" style="font-size:13px;">'
