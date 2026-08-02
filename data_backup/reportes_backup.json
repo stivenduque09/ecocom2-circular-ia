@@ -1,0 +1,18 @@
+[
+  {
+    "Código": "CRIT-500",
+    "Sector": "Santa Cruz",
+    "Referencia": "Carrera 50, Comuna 2 - Santa Cruz, Medellín",
+    "Objetos": 1,
+    "Peso (Kg)": 0.0,
+    "Predominante": "Mixto",
+    "Clasificación": "🔴 Punto crítico — Acumulación sin valorización",
+    "Lat": 6.3004544,
+    "Lon": -75.5539227,
+    "Fecha": "2026-08-02 00:36",
+    "Estado": "🔴 Pendiente",
+    "Observaciones": "",
+    "CodigoResidente": "",
+    "Confirmaciones": 0
+  }
+]
