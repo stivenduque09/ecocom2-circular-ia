@@ -139,10 +139,15 @@ def respaldar_en_github(reportes: list):
     """Sube un respaldo liviano de los reportes (sin fotos/audio) a un
     archivo JSON dentro del propio repositorio de GitHub. Como Streamlit
     Cloud clona el repo desde cero en cada reinicio, este respaldo
-    sobrevive aunque el disco del contenedor se borre por completo."""
+    sobrevive aunque el disco del contenedor se borre por completo.
+
+    Devuelve (True, "") si funcionó, o (False, "motivo del error") si
+    no — antes esta función fallaba en silencio y el botón manual
+    mostraba 'éxito' aunque el respaldo real hubiera fallado (ej. token
+    inválido o sin permisos), lo cual ocultaba el problema real."""
     token, repo, branch = _github_config()
     if not token:
-        return
+        return False, "El respaldo no está configurado (falta GITHUB_TOKEN o GITHUB_REPO en Secrets)."
     try:
         import requests
         reportes_ligeros = [
@@ -166,9 +171,17 @@ def respaldar_en_github(reportes: list):
         if sha:
             payload["sha"] = sha
 
-        requests.put(url, headers=headers, json=payload, timeout=10)
-    except Exception:
-        pass  # el respaldo nunca debe romper el flujo normal de la app
+        r_put = requests.put(url, headers=headers, json=payload, timeout=10)
+        if r_put.status_code in (200, 201):
+            return True, ""
+        detalle = ""
+        try:
+            detalle = r_put.json().get("message", "")
+        except Exception:
+            pass
+        return False, f"GitHub respondió {r_put.status_code}: {detalle or 'error desconocido'}"
+    except Exception as e:
+        return False, f"Error de conexión: {e}"
 
 
 def restaurar_desde_github_si_vacio():
@@ -2965,8 +2978,12 @@ margin-bottom:8px;">
                     unsafe_allow_html=True)
                 if st.button("🔄 Respaldar ahora", use_container_width=True, key="respaldo_manual"):
                     with st.spinner("Subiendo respaldo a GitHub..."):
-                        respaldar_en_github(st.session_state.reportes)
-                    st.success("✅ Respaldo actualizado en GitHub.")
+                        ok_resp, msg_resp = respaldar_en_github(st.session_state.reportes)
+                    if ok_resp:
+                        st.success("✅ Respaldo actualizado en GitHub — revisa la carpeta "
+                                   "'data_backup' en tu repositorio.")
+                    else:
+                        st.error(f"❌ No se pudo respaldar: {msg_resp}")
             else:
                 st.markdown(
                     '<div class="badge-err" style="font-size:13px;">'
