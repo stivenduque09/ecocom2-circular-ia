@@ -14,5 +14,21 @@
     "Observaciones": "",
     "CodigoResidente": "",
     "Confirmaciones": 0
+  },
+  {
+    "Código": "CRIT-501",
+    "Sector": "Santa Cruz",
+    "Referencia": "Comuna 2 - Santa Cruz, Medellín",
+    "Objetos": 1,
+    "Peso (Kg)": 0.0,
+    "Predominante": "Mixto",
+    "Clasificación": "🔴 Punto crítico — Acumulación sin valorización",
+    "Lat": 6.2937147,
+    "Lon": -75.5518627,
+    "Fecha": "2026-08-05 18:02",
+    "Estado": "🔴 Pendiente",
+    "Observaciones": "",
+    "CodigoResidente": "3044986885",
+    "Confirmaciones": 0
   }
 ]
