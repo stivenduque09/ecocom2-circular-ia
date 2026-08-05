@@ -1324,7 +1324,14 @@ def analizar(img, imgsz=640):
         with tempfile.NamedTemporaryFile(delete=False, suffix=".jpg") as tmp:
             img.save(tmp.name)
             tmp_path = tmp.name
-        return modelo(tmp_path, conf=0.25, imgsz=imgsz)
+        # conf más bajo (antes 0.25): captura objetos que el modelo detecta
+        # con menos certeza, como una segunda botella parcialmente oculta.
+        # iou más alto (antes por defecto ~0.7 sin control explícito):
+        # evita que el NMS interno del modelo fusione dos objetos de la
+        # misma clase que están físicamente cerca (ej. botellas juntas).
+        # agnostic_nms=False asegura que esa fusión solo compare objetos
+        # de la MISMA clase, nunca clases distintas entre sí.
+        return modelo(tmp_path, conf=0.15, iou=0.8, agnostic_nms=False, imgsz=imgsz)
     finally:
         if tmp_path and os.path.exists(tmp_path):
             try:
