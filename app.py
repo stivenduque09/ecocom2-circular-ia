@@ -1346,10 +1346,16 @@ def _iou(caja_a, caja_b):
 
 
 def _deduplicar_detecciones(objetos, iou_umbral=0.55):
+    """Fusiona cajas que se solapan mucho — pero SOLO si son del mismo
+    tipo de objeto (ej. dos cajas de 'plastic bottle' casi idénticas,
+    señal de que la IA detectó la MISMA botella dos veces). Antes esto
+    también fusionaba objetos DISTINTOS que estaban cerca (ej. dos
+    botellas juntas), y por eso una de las dos 'desaparecía' del
+    conteo aunque la IA sí la hubiera detectado correctamente."""
     ordenados = sorted(objetos, key=lambda o: o[1], reverse=True)
     conservados = []
     for nombre, conf, caja in ordenados:
-        if any(_iou(caja, c[2]) >= iou_umbral for c in conservados):
+        if any(nombre == c[0] and _iou(caja, c[2]) >= iou_umbral for c in conservados):
             continue
         conservados.append((nombre, conf, caja))
     return conservados
