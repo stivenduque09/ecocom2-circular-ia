@@ -1380,10 +1380,21 @@ def procesar(resultados):
     if not objetos:
         return [], 0, 0.0, "N/D", "🟢 Sin residuos detectados", 0
 
+    # Las clases "distractoras" (personas, vehículos, animales) casi nunca
+    # aparecen de verdad en una foto de residuos — si el modelo "cree
+    # verlas" con poca confianza, casi siempre es una alucinación sobre
+    # el fondo (edificios, árboles, sombras). Por eso exigen un umbral
+    # mucho más alto que el resto de objetos, que sí son el foco de la app.
+    CLASES_DISTRACTORAS = {
+        "person", "dog", "cat", "car", "bus", "truck", "bicycle",
+        "motorcycle", "traffic light", "stop sign", "bird", "toothbrush",
+    }
+    UMBRAL_CONF_DISTRACTOR = 0.45
     UMBRAL_CONF_CLASE_DESCONOCIDA = 0.40
     objetos = [
         (nombre, conf, caja) for nombre, conf, caja in objetos
-        if nombre in MAT or conf >= UMBRAL_CONF_CLASE_DESCONOCIDA
+        if (nombre in CLASES_DISTRACTORAS and conf >= UMBRAL_CONF_DISTRACTOR)
+        or (nombre not in CLASES_DISTRACTORAS and (nombre in MAT or conf >= UMBRAL_CONF_CLASE_DESCONOCIDA))
     ]
 
     if not objetos:
