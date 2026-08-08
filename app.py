@@ -663,7 +663,7 @@ if "mis_estados_vistos" not in st.session_state:
 CLASES_DETECCION = [
     # ── Reciclables típicos (equivalentes a lo que ya cubría COCO) ──
     "plastic bottle", "plastic cup", "plastic chair", "plastic bench",
-    "plastic bucket", "plastic bowl", "plastic toy", "frisbee",
+    "plastic bucket", "plastic bowl", "colorful plastic children toy", "frisbee",
     "garbage bag", "backpack", "suitcase", "book", "newspaper",
     "cardboard box", "glass bottle", "glass jar", "aluminum can",
     "knife", "fork", "spoon", "scissors", "cell phone", "laptop",
@@ -674,7 +674,7 @@ CLASES_DETECCION = [
     # ── Objetos que YOLOv8 clásico NO reconocía y son comunes en la comuna ──
     "wooden chair", "wooden stool", "broken wooden furniture",
     "mattress", "construction rubble", "pile of rubble",
-    "pile of garbage bags", "scrap metal", "old tire",
+    "pile of garbage bags", "scrap metal", "black rubber car tire",
     "broken appliance", "styrofoam waste", "pile of plastic bags",
     "wood planks", "broken glass", "electronic waste",
     "abandoned furniture", "cardboard boxes pile",
@@ -702,7 +702,7 @@ MAT = {
     "plastic bench":         ("Banco plástico",             "Plástico",    2.50, True),
     "plastic bucket":        ("Balde plástico",             "Plástico",    0.50, True),
     "plastic bowl":          ("Recipiente plástico",        "Plástico",    0.15, True),
-    "plastic toy":           ("Juguete plástico",           "Plástico",    0.50, True),
+    "colorful plastic children toy": ("Juguete plástico",           "Plástico",    0.50, True),
     "frisbee":               ("Disco plástico",             "Plástico",    0.10, True),
     "garbage bag":           ("Bolsa de basura",            "Plástico",    0.40, True),
     "backpack":              ("Bolsa / Mochila",            "Textil",      0.50, True),
@@ -745,7 +745,7 @@ MAT = {
     "pile of rubble":        ("Montón de escombros",        "Escombros",  20.00, False),
     "pile of garbage bags":  ("Montón de bolsas de basura",  "Residuo mixto",5.00, False),
     "scrap metal":           ("Chatarra metálica",          "Metal",       2.00, True),
-    "old tire":              ("Llanta usada",               "Caucho",      8.00, False),
+    "black rubber car tire":  ("Llanta usada",               "Caucho",      8.00, False),
     "broken appliance":      ("Electrodoméstico dañado",     "Electrónico",10.00, True),
     "styrofoam waste":       ("Icopor / Poliestireno",       "Plástico",   0.20, True),
     "pile of plastic bags":  ("Montón de bolsas plásticas",  "Plástico",   1.00, True),
