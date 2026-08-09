@@ -683,6 +683,19 @@ CLASES_DETECCION = [
     "motorcycle", "traffic light", "stop sign", "bird", "toothbrush",
 ]
 
+# Las clases distractoras casi nunca aparecen de verdad en una foto de
+# residuos — si el modelo "cree verlas" con poca confianza, casi
+# siempre es una alucinación sobre el fondo. Se define aquí (nivel de
+# módulo) para que tanto procesar() como el dibujo de "Detecciones IA"
+# usen exactamente el mismo criterio — antes cada uno filtraba distinto
+# y por eso la imagen mostraba cosas que la tabla ya había descartado.
+CLASES_DISTRACTORAS = {
+    "person", "dog", "cat", "car", "bus", "truck", "bicycle",
+    "motorcycle", "traffic light", "stop sign", "bird", "toothbrush",
+}
+UMBRAL_CONF_DISTRACTOR = 0.45
+UMBRAL_CONF_CLASE_DESCONOCIDA = 0.40
+
 @st.cache_resource
 def cargar_modelo():
     m = YOLOE("yoloe-11s-seg.pt")
@@ -1368,7 +1381,13 @@ def _deduplicar_detecciones(objetos, iou_umbral=0.55):
     return conservados
 
 
-def procesar(resultados):
+def _extraer_detecciones_filtradas(resultados):
+    """Extrae las detecciones del modelo y aplica el filtro de confianza
+    (más estricto para clases distractoras como persona/carro/bici) y la
+    deduplicación por clase — esta es la ÚNICA fuente de verdad sobre
+    qué detecciones cuentan de verdad. Tanto procesar() (para la tabla)
+    como dibujar_detecciones_filtradas() (para la imagen) usan esta
+    misma función, así los dos SIEMPRE muestran lo mismo."""
     objetos = []
     for r in resultados:
         for box in r.boxes:
@@ -1378,29 +1397,49 @@ def procesar(resultados):
             objetos.append((nombre, conf, caja))
 
     if not objetos:
-        return [], 0, 0.0, "N/D", "🟢 Sin residuos detectados", 0
+        return []
 
-    # Las clases "distractoras" (personas, vehículos, animales) casi nunca
-    # aparecen de verdad en una foto de residuos — si el modelo "cree
-    # verlas" con poca confianza, casi siempre es una alucinación sobre
-    # el fondo (edificios, árboles, sombras). Por eso exigen un umbral
-    # mucho más alto que el resto de objetos, que sí son el foco de la app.
-    CLASES_DISTRACTORAS = {
-        "person", "dog", "cat", "car", "bus", "truck", "bicycle",
-        "motorcycle", "traffic light", "stop sign", "bird", "toothbrush",
-    }
-    UMBRAL_CONF_DISTRACTOR = 0.45
-    UMBRAL_CONF_CLASE_DESCONOCIDA = 0.40
     objetos = [
         (nombre, conf, caja) for nombre, conf, caja in objetos
         if (nombre in CLASES_DISTRACTORAS and conf >= UMBRAL_CONF_DISTRACTOR)
         or (nombre not in CLASES_DISTRACTORAS and (nombre in MAT or conf >= UMBRAL_CONF_CLASE_DESCONOCIDA))
     ]
+    return _deduplicar_detecciones(objetos)
+
+
+def dibujar_detecciones_filtradas(img_pil, resultados):
+    """Dibuja SOLO las cajas que sobrevivieron el filtro de confianza —
+    las mismas que cuenta la tabla de resultados. Reemplaza a
+    res[0].plot(), que dibujaba TODAS las detecciones crudas del
+    modelo (incluidas las de baja confianza que la tabla ya descarta),
+    lo cual hacía parecer que el filtro 'no funcionaba' cuando en
+    realidad sí actuaba, solo que no sobre esta imagen."""
+    from PIL import ImageDraw, ImageFont
+    objetos = _extraer_detecciones_filtradas(resultados)
+    img = img_pil.convert("RGB").copy()
+    if not objetos:
+        return img
+    draw = ImageDraw.Draw(img)
+    try:
+        fuente = ImageFont.load_default(size=14)
+    except TypeError:
+        fuente = ImageFont.load_default()
+    for nombre, conf, caja in objetos:
+        x1, y1, x2, y2 = [int(v) for v in caja]
+        draw.rectangle([x1, y1, x2, y2], outline=(22, 163, 74), width=3)
+        etiqueta = f"{nombre} {conf:.2f}"
+        ancho_etq = 7 * len(etiqueta) + 6
+        y_etq = max(0, y1 - 18)
+        draw.rectangle([x1, y_etq, x1 + ancho_etq, y_etq + 18], fill=(22, 163, 74))
+        draw.text((x1 + 3, y_etq + 1), etiqueta, fill=(255, 255, 255), font=fuente)
+    return img
+
+
+def procesar(resultados):
+    objetos = _extraer_detecciones_filtradas(resultados)
 
     if not objetos:
         return [], 0, 0.0, "N/D", "🟢 Sin residuos detectados", 0
-
-    objetos = _deduplicar_detecciones(objetos)
 
     conteo = Counter(o[0] for o in objetos)
     mejor  = {n: max(c for nn, c, _ in objetos if nn == n) for n in conteo}
@@ -2219,7 +2258,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                     tabla, residuos, peso, tipo, nivel, _ = procesar(res)
                     img_blur, hubo_personas_r = difuminar_personas(img, res)
                     st.session_state.cache_analisis_r = {
-                        "res_plot": res[0].plot(),
+                        "res_plot": dibujar_detecciones_filtradas(img, res),
                         "tabla": tabla,
                         "residuos": residuos,
                         "peso": peso,
@@ -2478,7 +2517,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         st.image(img2_blur, use_container_width=True)
                     with cd2:
                         st.markdown("**🤖 Detecciones IA**")
-                        st.image(res2[0].plot(), use_container_width=True)
+                        st.image(dibujar_detecciones_filtradas(img2, res2), use_container_width=True)
 
                     tabla2, res2_r, peso2, tipo2, nivel2, total2 = procesar(res2)
 
