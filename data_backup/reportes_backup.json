@@ -46,5 +46,21 @@
     "Observaciones": "Basura en todo los lados de la cancha",
     "CodigoResidente": "",
     "Confirmaciones": 0
+  },
+  {
+    "Código": "CRIT-503",
+    "Sector": "Santa Cruz",
+    "Referencia": "Carrera 46A, Comuna 2 - Santa Cruz, Medellín",
+    "Objetos": 1,
+    "Peso (Kg)": 4.0,
+    "Predominante": "Madera",
+    "Clasificación": "🟢 Residuo puntual",
+    "Lat": 6.293548,
+    "Lon": -75.5526039,
+    "Fecha": "2026-08-23 16:31",
+    "Estado": "🔴 Pendiente",
+    "Observaciones": "",
+    "CodigoResidente": "Cantidad de escombros",
+    "Confirmaciones": 0
   }
 ]
