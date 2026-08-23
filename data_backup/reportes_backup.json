@@ -30,5 +30,21 @@
     "Observaciones": "Acumulación",
     "CodigoResidente": "",
     "Confirmaciones": 0
+  },
+  {
+    "Código": "CRIT-502",
+    "Sector": "Santa Cruz",
+    "Referencia": "Carrera 48A, Comuna 2 - Santa Cruz, Medellín",
+    "Objetos": 3,
+    "Peso (Kg)": 30.4,
+    "Predominante": "Mixto",
+    "Clasificación": "🟡 Punto amarillo — Buen material, pero gran volumen",
+    "Lat": 6.2956378,
+    "Lon": -75.5538799,
+    "Fecha": "2026-08-23 16:30",
+    "Estado": "🔴 Pendiente",
+    "Observaciones": "Basura en todo los lados de la cancha",
+    "CodigoResidente": "",
+    "Confirmaciones": 0
   }
 ]
