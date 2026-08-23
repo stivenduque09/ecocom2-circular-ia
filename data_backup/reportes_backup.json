@@ -62,5 +62,21 @@
     "Observaciones": "",
     "CodigoResidente": "Cantidad de escombros",
     "Confirmaciones": 0
+  },
+  {
+    "Código": "CRIT-504",
+    "Sector": "Santa Cruz",
+    "Referencia": "Calle 107, Comuna 2 - Santa Cruz, Medellín",
+    "Objetos": 1,
+    "Peso (Kg)": 0.0,
+    "Predominante": "Mixto",
+    "Clasificación": "🔴 Punto crítico — Acumulación sin valorización",
+    "Lat": 6.2997359,
+    "Lon": -75.5574073,
+    "Fecha": "2026-08-23 16:33",
+    "Estado": "🔴 Pendiente",
+    "Observaciones": "",
+    "CodigoResidente": "",
+    "Confirmaciones": 0
   }
 ]
