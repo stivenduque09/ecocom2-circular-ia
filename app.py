@@ -2886,7 +2886,9 @@ elif menu == "📊 Comuna en Cifras":
                 ranking_pos = (df_resueltos_barrio.groupby("Sector").size()
                                .reset_index(name="Puntos resueltos ✅")
                                .sort_values("Puntos resueltos ✅", ascending=False))
-                ranking_pos.insert(0, "🏆", ["🥇","🥈","🥉"] + [""] * max(0, len(ranking_pos) - 3))
+                medallas_pos = (["🥇", "🥈", "🥉"][:len(ranking_pos)]
+                                 + [""] * max(0, len(ranking_pos) - 3))
+                ranking_pos.insert(0, "🏆", medallas_pos)
                 st.dataframe(ranking_pos, use_container_width=True, hide_index=True)
             else:
                 st.info("Todavía no hay puntos resueltos — ¡el primer barrio en lograrlo "
