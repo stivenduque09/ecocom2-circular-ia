@@ -1408,8 +1408,17 @@ def analizar_con_gemini(img_pil, modelo_gemini="gemini-2.5-flash"):
         img_rgb.save(buf, format="JPEG", quality=85)
         img_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
 
+        # La clave se manda por header (x-goog-api-key), no por ?key= en la
+        # URL — con las claves nuevas de Google ("AQ.Ab...", tipo Auth key,
+        # vigentes desde 2026 en reemplazo de las viejas "AIzaSy...") este
+        # es el método que Google documenta como el confiable; por la URL
+        # a veces devuelve 401 ACCESS_TOKEN_TYPE_UNSUPPORTED.
         url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
-               f"{modelo_gemini}:generateContent?key={api_key}")
+               f"{modelo_gemini}:generateContent")
+        headers = {
+            "Content-Type": "application/json",
+            "x-goog-api-key": api_key,
+        }
         payload = {
             "contents": [{
                 "parts": [
@@ -1422,7 +1431,7 @@ def analizar_con_gemini(img_pil, modelo_gemini="gemini-2.5-flash"):
                 "response_mime_type": "application/json",
             },
         }
-        resp = requests.post(url, json=payload, timeout=45)
+        resp = requests.post(url, headers=headers, json=payload, timeout=45)
         if resp.status_code != 200:
             detalle = ""
             try:
