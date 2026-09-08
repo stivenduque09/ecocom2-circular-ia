@@ -3895,4 +3895,3 @@ Proyecto <b style="color:#4ade80">Territorio INN 2026</b> · Instituto Tecnológ
 Desarrollado por: <b style="color:#4ade80">Brandon Duque</b> · Comuna 2 Santa Cruz
 </div>
 """, unsafe_allow_html=True)
-  
