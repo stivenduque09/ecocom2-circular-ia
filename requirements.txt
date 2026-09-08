@@ -1,5 +1,4 @@
 ultralytics
-opencv-python-headless
 git+https://github.com/ultralytics/CLIP.git
 streamlit
 streamlit-folium
