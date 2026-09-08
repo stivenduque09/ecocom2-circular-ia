@@ -1,5 +1,6 @@
+ultralytics
 opencv-python-headless
-ultralytics-opencv-headless
+git+https://github.com/ultralytics/CLIP.git
 streamlit
 streamlit-folium
 folium
@@ -9,6 +10,5 @@ pandas
 pillow
 requests
 streamlit-js-eval
-git+https://github.com/ultralytics/CLIP.git
 imagehash
 openpyxl
