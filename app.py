@@ -1331,6 +1331,213 @@ def _abrir_img_subida(uploaded_file) -> Image.Image:
     return Image.open(BytesIO(uploaded_file.getvalue()))
 
 
+# ====================================================================
+# 6.1 CLASIFICADOR GEMINI (Google) — detección por categoría de material
+# ====================================================================
+def _gemini_config():
+    """Lee GEMINI_API_KEY desde st.secrets. Si no está configurada,
+    devuelve None — el motor Gemini queda simplemente desactivado sin
+    romper nada del resto de la app (se puede seguir usando YOLO)."""
+    try:
+        api_key = st.secrets.get("GEMINI_API_KEY", "").strip()
+        if api_key:
+            return api_key
+    except Exception:
+        pass
+    return None
+
+
+def verificar_gemini_key() -> bool:
+    return bool(_gemini_config())
+
+
+# Categorías que reconoce el clasificador de Gemini — cada una con su
+# color de caja fijo (así la foto anotada siempre se ve igual, sin
+# importar la confianza del modelo), su etiqueta en español y un peso
+# promedio aproximado por objeto. A diferencia de YOLO, Gemini no nos
+# da el tipo exacto de objeto (ej. "botella"), solo la categoría de
+# material — por eso el peso aquí es un promedio por categoría, no por
+# tipo de objeto como en el diccionario MAT.
+CATEGORIAS_GEMINI = {
+    "Organicos": {"color": "#22c55e", "etiqueta": "🌿 Orgánicos",              "peso_kg": 0.20, "reciclable": True},
+    "Plasticos": {"color": "#eab308", "etiqueta": "♻️ Plásticos",              "peso_kg": 0.15, "reciclable": True},
+    "Vidrio":    {"color": "#a855f7", "etiqueta": "🍶 Vidrio",                 "peso_kg": 0.35, "reciclable": True},
+    "Carton":    {"color": "#ef4444", "etiqueta": "📦 Cartón",                 "peso_kg": 0.30, "reciclable": True},
+    "Papel":     {"color": "#3b82f6", "etiqueta": "📄 Papel",                  "peso_kg": 0.10, "reciclable": True},
+    "Otros":     {"color": "#6b7280", "etiqueta": "❓ Otros / no identificado", "peso_kg": 0.20, "reciclable": False},
+}
+
+_PROMPT_GEMINI_RESIDUOS = """Eres un clasificador de residuos sólidos para una app de gestión de basura comunitaria.
+
+Analiza la imagen y detecta CADA objeto o bolsa de residuo visible por separado.
+Si hay un montón, separa los objetos identificables dentro del montón en vez de
+encerrar todo el montón en una sola caja.
+
+Clasifica cada objeto detectado en UNA sola de estas categorías EXACTAS
+(usa el texto tal cual, sin tildes ni cambios):
+- "Organicos"  (comida, restos vegetales, madera en descomposición)
+- "Plasticos"  (botellas, bolsas, envases, empaques plásticos)
+- "Vidrio"     (botellas o frascos de vidrio)
+- "Carton"     (cajas, cartón)
+- "Papel"      (papel, periódico, revistas)
+- "Otros"      (escombros, metal, ropa, o cualquier cosa que no encaje arriba)
+
+Responde ÚNICAMENTE con un array JSON (sin texto adicional ni marcado
+markdown), con este formato exacto:
+[{"label": "Plasticos", "box_2d": [ymin, xmin, ymax, xmax]}, ...]
+
+Las coordenadas box_2d deben estar normalizadas en una escala de 0 a 1000,
+en el orden [ymin, xmin, ymax, xmax]. Detecta como máximo 40 objetos."""
+
+
+def analizar_con_gemini(img_pil, modelo_gemini="gemini-2.5-flash"):
+    """Envía la imagen a la API de Gemini (Google) para que detecte y
+    clasifique cada residuo visible en Orgánicos / Plásticos / Vidrio /
+    Cartón / Papel / Otros, devolviendo una caja delimitadora por cada
+    objeto. Devuelve (detecciones, error): detecciones es una lista de
+    dicts con 'categoria' y 'box' (en píxeles de la imagen recibida),
+    o None junto con un mensaje de error si algo falló."""
+    api_key = _gemini_config()
+    if not api_key:
+        return None, "Falta configurar GEMINI_API_KEY en Secrets."
+    try:
+        import requests
+        img_rgb = img_pil.convert("RGB")
+        w, h = img_rgb.size
+        buf = BytesIO()
+        img_rgb.save(buf, format="JPEG", quality=85)
+        img_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
+
+        url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
+               f"{modelo_gemini}:generateContent?key={api_key}")
+        payload = {
+            "contents": [{
+                "parts": [
+                    {"text": _PROMPT_GEMINI_RESIDUOS},
+                    {"inline_data": {"mime_type": "image/jpeg", "data": img_b64}},
+                ]
+            }],
+            "generationConfig": {
+                "temperature": 0.2,
+                "response_mime_type": "application/json",
+            },
+        }
+        resp = requests.post(url, json=payload, timeout=45)
+        if resp.status_code != 200:
+            detalle = ""
+            try:
+                detalle = resp.json().get("error", {}).get("message", "")
+            except Exception:
+                pass
+            return None, f"Gemini respondió {resp.status_code}: {detalle or 'error desconocido'}"
+
+        data = resp.json()
+        texto = data["candidates"][0]["content"]["parts"][0]["text"]
+        texto_limpio = texto.replace("```json", "").replace("```", "").strip()
+        crudos = json.loads(texto_limpio)
+        if not isinstance(crudos, list):
+            return [], None
+
+        detecciones = []
+        for item in crudos:
+            box = item.get("box_2d")
+            label = item.get("label", "Otros")
+            if label not in CATEGORIAS_GEMINI:
+                label = "Otros"
+            if not box or len(box) != 4:
+                continue
+            ymin, xmin, ymax, xmax = box
+            x1 = max(0, int(xmin / 1000 * w))
+            y1 = max(0, int(ymin / 1000 * h))
+            x2 = min(w, int(xmax / 1000 * w))
+            y2 = min(h, int(ymax / 1000 * h))
+            if x2 <= x1 or y2 <= y1:
+                continue
+            detecciones.append({"categoria": label, "box": [x1, y1, x2, y2]})
+        return detecciones, None
+    except Exception as e:
+        return None, f"Error de conexión con Gemini: {e}"
+
+
+def dibujar_detecciones_gemini(img_pil, detecciones):
+    """Dibuja las cajas devueltas por Gemini sobre la imagen, con un
+    color fijo por categoría (igual en toda la app) y la etiqueta en
+    español encima de cada caja — el mismo estilo visual que se usa
+    para revisar el análisis antes de publicar el reporte."""
+    from PIL import ImageDraw, ImageFont
+    img = img_pil.convert("RGB").copy()
+    if not detecciones:
+        return img
+    draw = ImageDraw.Draw(img)
+    try:
+        fuente = ImageFont.load_default(size=15)
+    except TypeError:
+        fuente = ImageFont.load_default()
+    for d in detecciones:
+        cat = CATEGORIAS_GEMINI.get(d["categoria"], CATEGORIAS_GEMINI["Otros"])
+        x1, y1, x2, y2 = d["box"]
+        draw.rectangle([x1, y1, x2, y2], outline=cat["color"], width=3)
+        etiqueta = cat["etiqueta"]
+        ancho_etq = 8 * len(etiqueta) + 8
+        y_etq = max(0, y1 - 20)
+        draw.rectangle([x1, y_etq, x1 + ancho_etq, y_etq + 18], fill=cat["color"])
+        draw.text((x1 + 3, y_etq + 1), etiqueta, fill=(255, 255, 255), font=fuente)
+    return img
+
+
+def procesar_gemini(detecciones):
+    """Convierte las detecciones de Gemini (categoría + caja) al MISMO
+    formato de salida que procesar() usa para YOLO — así el resto de la
+    app (metricas(), guardado del reporte, tabla de resultados, etc.)
+    no necesita saber qué motor de IA se usó para generar el análisis."""
+    if not detecciones:
+        return [], 0, 0.0, "N/D", "🟢 Sin residuos detectados", 0
+
+    conteo = Counter(d["categoria"] for d in detecciones)
+    tabla, peso_total, residuos, no_rec = [], 0.0, 0, 0
+    cnt_mat = Counter()
+
+    for cat, cant in conteo.items():
+        info = CATEGORIAS_GEMINI.get(cat, CATEGORIAS_GEMINI["Otros"])
+        p = round(info["peso_kg"] * cant, 2)
+        peso_total += p
+        if info["reciclable"]:
+            residuos += cant
+            cnt_mat[cat] += cant
+            tabla.append({"Objeto": info["etiqueta"], "Material": cat,
+                          "Cant.": cant, "Peso (kg)": p,
+                          "Confianza": "IA Gemini", "♻️": "✅ Sí"})
+        else:
+            no_rec += cant
+            tabla.append({"Objeto": info["etiqueta"], "Material": "—",
+                          "Cant.": cant, "Peso (kg)": p,
+                          "Confianza": "IA Gemini", "♻️": "❌ No"})
+
+    tipo  = cnt_mat.most_common(1)[0][0] if cnt_mat else "Mixto"
+    total = residuos + no_rec
+    ratio = residuos / total if total > 0 else 0
+
+    ESCALA_ALERTA_OBJ, ESCALA_CRITICA_OBJ = 15, 30
+    PESO_ALERTA_KG,    PESO_CRITICA_KG    = 20.0, 50.0
+    gran_volumen    = residuos >= ESCALA_ALERTA_OBJ  or peso_total >= PESO_ALERTA_KG
+    volumen_critico = residuos >= ESCALA_CRITICA_OBJ or peso_total >= PESO_CRITICA_KG
+
+    if volumen_critico:
+        nivel = "🔴 Punto crítico — Gran acumulación, recolección urgente"
+    elif total <= 2 and ratio >= 0.5:
+        nivel = "🟢 Residuo puntual"
+    elif ratio < 0.30:
+        nivel = "🔴 Punto crítico — Acumulación sin valorización"
+    elif gran_volumen:
+        nivel = "🟡 Punto amarillo — Buen material, pero gran volumen"
+    elif ratio >= 0.60:
+        nivel = "🟢 Punto verde — Alta valorización reciclable"
+    else:
+        nivel = "🟡 Punto amarillo — Residuos mixtos"
+
+    return tabla, residuos, round(peso_total, 2), tipo, nivel, total
+
+
 def analizar(img, imgsz=640):
     tmp_path = None
     try:
@@ -2251,14 +2458,47 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                                    f"Si el residuo ya cambió, sube una foto más reciente.")
 
             if img is not None:
+                r_motor = st.radio(
+                    "🧠 Motor de clasificación IA:",
+                    ["✨ Gemini (Google) — por categoría de material",
+                     "🟢 YOLO local — por tipo de objeto"],
+                    key="r_motor_ia", horizontal=True,
+                    index=0 if verificar_gemini_key() else 1,
+                    help="Gemini encierra cada residuo en un color distinto según "
+                         "el material (Orgánicos, Plásticos, Vidrio, Cartón, Papel). "
+                         "YOLO detecta el tipo exacto de objeto (botella, silla, etc.)."
+                )
+                usar_gemini_r = r_motor.startswith("✨")
+                if usar_gemini_r and not verificar_gemini_key():
+                    st.warning("⚠️ Gemini no está configurado (falta GEMINI_API_KEY "
+                               "en Secrets) — se usará YOLO local en su lugar.")
+                    usar_gemini_r = False
+
                 if st.button("🔍 Analizar con IA", type="primary",
                              use_container_width=True, key="r_analizar"):
-                    with st.spinner("Analizando imagen (conf ≥ 25%)..."):
+                    with st.spinner("Analizando imagen..."):
+                        # El modelo YOLO local siempre corre, aunque el motor de
+                        # clasificación sea Gemini — solo para difuminar personas
+                        # y proteger la privacidad, sin importar qué IA clasifica.
                         res = analizar(img)
-                    tabla, residuos, peso, tipo, nivel, _ = procesar(res)
-                    img_blur, hubo_personas_r = difuminar_personas(img, res)
+                        img_blur, hubo_personas_r = difuminar_personas(img, res)
+
+                        if usar_gemini_r:
+                            detecciones_g, error_g = analizar_con_gemini(img_blur)
+                            if error_g:
+                                st.error(f"⚠️ No se pudo usar Gemini: {error_g} "
+                                         f"Se usó YOLO local en su lugar.")
+                                tabla, residuos, peso, tipo, nivel, _ = procesar(res)
+                                img_detecciones = dibujar_detecciones_filtradas(img, res)
+                            else:
+                                tabla, residuos, peso, tipo, nivel, _ = procesar_gemini(detecciones_g)
+                                img_detecciones = dibujar_detecciones_gemini(img_blur, detecciones_g)
+                        else:
+                            tabla, residuos, peso, tipo, nivel, _ = procesar(res)
+                            img_detecciones = dibujar_detecciones_filtradas(img, res)
+
                     st.session_state.cache_analisis_r = {
-                        "res_plot": dibujar_detecciones_filtradas(img, res),
+                        "res_plot": img_detecciones,
                         "tabla": tabla,
                         "residuos": residuos,
                         "peso": peso,
@@ -2496,11 +2736,45 @@ font-size:14px;text-align:center;margin-bottom:10px;">
 
             if img2 is not None:
 
+                cr_motor = st.radio(
+                    "🧠 Motor de clasificación IA:",
+                    ["✨ Gemini (Google) — por categoría de material",
+                     "🟢 YOLO local — por tipo de objeto"],
+                    key="cr_motor_ia", horizontal=True,
+                    index=0 if verificar_gemini_key() else 1,
+                    help="Gemini encierra cada residuo en un color distinto según "
+                         "el material (Orgánicos, Plásticos, Vidrio, Cartón, Papel). "
+                         "YOLO detecta el tipo exacto de objeto (botella, silla, etc.)."
+                )
+                usar_gemini_cr = cr_motor.startswith("✨")
+                if usar_gemini_cr and not verificar_gemini_key():
+                    st.warning("⚠️ Gemini no está configurado (falta GEMINI_API_KEY "
+                               "en Secrets) — se usará YOLO local en su lugar.")
+                    usar_gemini_cr = False
+
                 if st.button("🔍 Evaluar con IA", type="primary",
                              use_container_width=True, key="cr_analizar"):
-                    with st.spinner("Analizando con YOLOv8 (alta resolución)..."):
+                    with st.spinner("Analizando imagen en alta resolución..."):
+                        # El modelo YOLO local siempre corre, aunque el motor de
+                        # clasificación sea Gemini — solo para difuminar personas
+                        # y proteger la privacidad, sin importar qué IA clasifica.
                         res2 = analizar(img2, imgsz=960)
-                    img2_blur, hubo_personas_cr = difuminar_personas(img2, res2)
+                        img2_blur, hubo_personas_cr = difuminar_personas(img2, res2)
+
+                        if usar_gemini_cr:
+                            detecciones_g2, error_g2 = analizar_con_gemini(img2_blur)
+                            if error_g2:
+                                st.error(f"⚠️ No se pudo usar Gemini: {error_g2} "
+                                         f"Se usó YOLO local en su lugar.")
+                                tabla2, res2_r, peso2, tipo2, nivel2, total2 = procesar(res2)
+                                img2_detecciones = dibujar_detecciones_filtradas(img2, res2)
+                            else:
+                                tabla2, res2_r, peso2, tipo2, nivel2, total2 = procesar_gemini(detecciones_g2)
+                                img2_detecciones = dibujar_detecciones_gemini(img2_blur, detecciones_g2)
+                        else:
+                            tabla2, res2_r, peso2, tipo2, nivel2, total2 = procesar(res2)
+                            img2_detecciones = dibujar_detecciones_filtradas(img2, res2)
+
                     st.session_state.cache_img_blur = img2_blur
                     st.session_state.hubo_personas_cr = hubo_personas_cr
                     st.session_state.cache_foto_b64 = img_a_b64(img2_blur)
@@ -2517,9 +2791,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         st.image(img2_blur, use_container_width=True)
                     with cd2:
                         st.markdown("**🤖 Detecciones IA**")
-                        st.image(dibujar_detecciones_filtradas(img2, res2), use_container_width=True)
-
-                    tabla2, res2_r, peso2, tipo2, nivel2, total2 = procesar(res2)
+                        st.image(img2_detecciones, use_container_width=True)
 
                     if tabla2:
                         df_si2 = pd.DataFrame(tabla2)
@@ -3008,7 +3280,7 @@ margin-bottom:8px;">
 
     with tab_dash:
         st.markdown("#### ⚙️ Estado del sistema")
-        est1, est2, est3 = st.columns(3)
+        est1, est2, est3, est4 = st.columns(4)
         with est1:
             if verificar_api_key():
                 st.markdown(
@@ -3022,6 +3294,21 @@ margin-bottom:8px;">
                     '⚠️ ANTHROPIC_API_KEY no configurada<br>'
                     '<span style="font-weight:normal">EcoBot está en modo "sin conexión" — '
                     'configúrala en Settings → Secrets de tu hosting.</span></div>',
+                    unsafe_allow_html=True)
+        with est4:
+            if verificar_gemini_key():
+                st.markdown(
+                    '<div class="badge-ok" style="font-size:13px;">'
+                    '✅ API key de Gemini configurada<br>'
+                    '<span style="font-weight:normal">Clasificación por categoría '
+                    '(Orgánicos/Plásticos/Vidrio/Cartón/Papel) disponible.</span></div>',
+                    unsafe_allow_html=True)
+            else:
+                st.markdown(
+                    '<div class="badge-err" style="font-size:13px;">'
+                    '⚠️ GEMINI_API_KEY no configurada<br>'
+                    '<span style="font-weight:normal">Los residentes solo verán la '
+                    'opción YOLO local — configúrala en Secrets para activar Gemini.</span></div>',
                     unsafe_allow_html=True)
         with est2:
             tam_mb = tamano_bd_mb()
