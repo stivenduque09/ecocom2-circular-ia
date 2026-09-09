@@ -33,12 +33,12 @@ _CAMPOS    = ["Código","Sector","Referencia","Objetos","Peso (Kg)",
               "Predominante","Clasificación","Lat","Lon","Fecha","Estado","FotoB64",
               "Observaciones","NotaVozB64","FotosExtraB64","CodigoResidente","PHash",
               "Confirmaciones","FotoClasificadaB64","FotoResueltaB64","FotoResueltaURL",
-              "FechaResuelto"]
+              "FechaResuelto","ReportesFalsos"]
 _COLUMNAS  = ["codigo","sector","referencia","objetos","peso_kg",
               "predominante","clasificacion","lat","lon","fecha","estado","foto_b64",
               "observaciones","nota_voz_b64","fotos_extra_b64","residente_codigo","phash",
               "confirmaciones","foto_clasificada_b64","foto_resuelta_b64","foto_resuelta_url",
-              "fecha_resuelto"]
+              "fecha_resuelto","reportes_falsos"]
 
 def _conectar_db():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
@@ -73,7 +73,8 @@ def _crear_tabla():
                             "fotos_extra_b64 TEXT", "residente_codigo TEXT",
                             "phash TEXT", "confirmaciones INTEGER DEFAULT 0",
                             "foto_clasificada_b64 TEXT", "foto_resuelta_b64 TEXT",
-                            "foto_resuelta_url TEXT", "fecha_resuelto TEXT"]:
+                            "foto_resuelta_url TEXT", "fecha_resuelto TEXT",
+                            "reportes_falsos INTEGER DEFAULT 0"]:
                 try:
                     conn.execute(f"ALTER TABLE reportes ADD COLUMN {col_sql}")
                 except Exception:
@@ -122,7 +123,7 @@ RESPALDO_PATH_REPO = "data_backup/reportes_backup.json"
 _CAMPOS_RESPALDO = ["Código","Sector","Referencia","Objetos","Peso (Kg)",
                     "Predominante","Clasificación","Lat","Lon","Fecha","Estado",
                     "Observaciones","CodigoResidente","Confirmaciones",
-                    "FechaResuelto","FotoResueltaURL"]
+                    "FechaResuelto","FotoResueltaURL","ReportesFalsos"]
 
 
 def _github_config():
@@ -1417,12 +1418,18 @@ CATEGORIAS_GEMINI = {
     "Otros":     {"color": "#6b7280", "etiqueta": "❓ Otros / no identificado", "etiqueta_dibujo": "Otros",     "peso_kg": 0.20, "reciclable": False},
 }
 
-_PROMPT_GEMINI_RESIDUOS = """Eres un clasificador de residuos sólidos para una app de gestión de basura comunitaria.
+_PROMPT_GEMINI_RESIDUOS = """Eres un clasificador de residuos sólidos para una app de gestión de basura comunitaria, y también un filtro contra reportes falsos o de mala fe — por ejemplo, alguien fotografiando un negocio legítimo en funcionamiento (como un puesto de comida), una vivienda, un vehículo, una mascota, u otra persona, e intentando hacerlo pasar como un punto de basura para molestar o perjudicar a alguien.
 
-Analiza la imagen y detecta CADA objeto o bolsa de residuo visible por separado.
-Si hay un montón, separa los objetos identificables dentro del montón en vez de
-encerrar todo el montón en una sola caja.
+PASO 1: Evalúa si la imagen realmente muestra una acumulación de residuos
+sólidos en un espacio público (basura, escombros, bolsas, objetos
+desechados, etc.). Responde "es_residuos": false si la imagen muestra, por
+ejemplo: un negocio o puesto de comida en funcionamiento, una vivienda o
+fachada normal, personas, vehículos, mascotas, o cualquier escena sin una
+acumulación real de residuos.
 
+PASO 2: Si "es_residuos" es true, detecta CADA objeto o bolsa de residuo
+visible por separado. Si hay un montón, separa los objetos identificables
+dentro del montón en vez de encerrar todo el montón en una sola caja.
 Clasifica cada objeto detectado en UNA sola de estas categorías EXACTAS
 (usa el texto tal cual, sin tildes ni cambios):
 - "Organicos"  (comida, restos vegetales, madera en descomposición)
@@ -1432,24 +1439,34 @@ Clasifica cada objeto detectado en UNA sola de estas categorías EXACTAS
 - "Papel"      (papel, periódico, revistas)
 - "Otros"      (escombros, metal, ropa, o cualquier cosa que no encaje arriba)
 
-Responde ÚNICAMENTE con un array JSON (sin texto adicional ni marcado
+Si "es_residuos" es false, deja "detecciones" como una lista vacía.
+
+Responde ÚNICAMENTE con un objeto JSON (sin texto adicional ni marcado
 markdown), con este formato exacto:
-[{"label": "Plasticos", "box_2d": [ymin, xmin, ymax, xmax]}, ...]
+{"es_residuos": true, "motivo": "breve explicación de una frase", "detecciones": [{"label": "Plasticos", "box_2d": [ymin, xmin, ymax, xmax]}, ...]}
 
 Las coordenadas box_2d deben estar normalizadas en una escala de 0 a 1000,
 en el orden [ymin, xmin, ymax, xmax]. Detecta como máximo 40 objetos."""
 
 
 def analizar_con_gemini(img_pil, modelo_gemini="gemini-3.6-flash"):
-    """Envía la imagen a la API de Gemini (Google) para que detecte y
+    """Envía la imagen a la API de Gemini (Google) para que primero evalúe
+    si la foto realmente muestra una acumulación de residuos (filtro
+    contra reportes falsos o de mala fe — ej. fotografiar un negocio o a
+    una persona para hacerlo pasar por basura), y si es así, detecte y
     clasifique cada residuo visible en Orgánicos / Plásticos / Vidrio /
-    Cartón / Papel / Otros, devolviendo una caja delimitadora por cada
-    objeto. Devuelve (detecciones, error): detecciones es una lista de
-    dicts con 'categoria' y 'box' (en píxeles de la imagen recibida),
-    o None junto con un mensaje de error si algo falló."""
+    Cartón / Papel / Otros con una caja delimitadora por objeto.
+
+    Devuelve (detecciones, error, es_valido, motivo):
+    - detecciones: lista de dicts con 'categoria' y 'box' en píxeles.
+    - error: mensaje de error si la llamada falló, o None si todo bien.
+    - es_valido: True/False según si Gemini considera que es un reporte
+      real de residuos; None si no se pudo determinar (ej. hubo error).
+    - motivo: breve explicación de Gemini, útil para mostrarle al usuario
+      por qué se rechazó su foto."""
     api_key = _gemini_config()
     if not api_key:
-        return None, "Falta configurar GEMINI_API_KEY en Secrets."
+        return None, "Falta configurar GEMINI_API_KEY en Secrets.", None, ""
     try:
         import requests
         img_rgb = img_pil.convert("RGB")
@@ -1488,14 +1505,20 @@ def analizar_con_gemini(img_pil, modelo_gemini="gemini-3.6-flash"):
                 detalle = resp.json().get("error", {}).get("message", "")
             except Exception:
                 pass
-            return None, f"Gemini respondió {resp.status_code}: {detalle or 'error desconocido'}"
+            return None, f"Gemini respondió {resp.status_code}: {detalle or 'error desconocido'}", None, ""
 
         data = resp.json()
         texto = data["candidates"][0]["content"]["parts"][0]["text"]
         texto_limpio = texto.replace("```json", "").replace("```", "").strip()
-        crudos = json.loads(texto_limpio)
+        resultado = json.loads(texto_limpio)
+        if not isinstance(resultado, dict):
+            return [], None, True, ""
+
+        es_valido = resultado.get("es_residuos", True)  # si falta el campo, no bloquear por precaución
+        motivo = resultado.get("motivo", "")
+        crudos = resultado.get("detecciones", [])
         if not isinstance(crudos, list):
-            return [], None
+            crudos = []
 
         detecciones = []
         for item in crudos:
@@ -1514,9 +1537,9 @@ def analizar_con_gemini(img_pil, modelo_gemini="gemini-3.6-flash"):
                 continue
             detecciones.append({"categoria": label, "box": [x1, y1, x2, y2]})
         detecciones = _deduplicar_detecciones_gemini(detecciones)
-        return detecciones, None
+        return detecciones, None, es_valido, motivo
     except Exception as e:
-        return None, f"Error de conexión con Gemini: {e}"
+        return None, f"Error de conexión con Gemini: {e}", None, ""
 
 
 def _deduplicar_detecciones_gemini(detecciones, iou_umbral=0.45):
@@ -2610,13 +2633,21 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         res = analizar(img)
                         img_blur, hubo_personas_r = difuminar_personas(img, res)
 
+                        reporte_invalido = False
+                        motivo_invalido = ""
+
                         if usar_gemini_r:
-                            detecciones_g, error_g = analizar_con_gemini(img_blur)
+                            detecciones_g, error_g, es_valido_g, motivo_g = analizar_con_gemini(img_blur)
                             if error_g:
                                 st.error(f"⚠️ No se pudo usar Gemini: {error_g} "
                                          f"Se usó YOLO local en su lugar.")
                                 tabla, residuos, peso, tipo, nivel, _ = procesar(res)
                                 img_detecciones = dibujar_detecciones_filtradas(img, res)
+                            elif es_valido_g is False:
+                                reporte_invalido = True
+                                motivo_invalido = motivo_g
+                                tabla, residuos, peso, tipo, nivel = [], 0, 0.0, "N/D", "🟢 Sin residuos detectados"
+                                img_detecciones = img_blur
                             else:
                                 tabla, residuos, peso, tipo, nivel, _ = procesar_gemini(detecciones_g)
                                 img_detecciones = dibujar_detecciones_gemini(img_blur, detecciones_g)
@@ -2624,17 +2655,27 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                             tabla, residuos, peso, tipo, nivel, _ = procesar(res)
                             img_detecciones = dibujar_detecciones_filtradas(img, res)
 
-                    st.session_state.cache_analisis_r = {
-                        "res_plot": img_detecciones,
-                        "tabla": tabla,
-                        "residuos": residuos,
-                        "peso": peso,
-                        "tipo": tipo,
-                        "nivel": nivel,
-                        "ia_detecto": not (residuos == 0 and len(tabla) == 0),
-                        "img_blur": img_blur,
-                        "hubo_personas": hubo_personas_r,
-                    }
+                    if reporte_invalido:
+                        st.error(
+                            f"🚫 **Esta foto no parece mostrar un punto de residuos reales.** "
+                            f"{motivo_invalido}\n\nSi crees que es un error, sube una foto "
+                            f"donde se vea claramente la acumulación de basura. Los reportes "
+                            f"que no correspondan a residuos reales (negocios, viviendas, "
+                            f"personas, vehículos) pueden ser eliminados por la administración."
+                        )
+                        st.session_state.cache_analisis_r = None
+                    else:
+                        st.session_state.cache_analisis_r = {
+                            "res_plot": img_detecciones,
+                            "tabla": tabla,
+                            "residuos": residuos,
+                            "peso": peso,
+                            "tipo": tipo,
+                            "nivel": nivel,
+                            "ia_detecto": not (residuos == 0 and len(tabla) == 0),
+                            "img_blur": img_blur,
+                            "hubo_personas": hubo_personas_r,
+                        }
 
                 if st.session_state.get("cache_analisis_r"):
                     ca = st.session_state.cache_analisis_r
@@ -2889,13 +2930,21 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         res2 = analizar(img2, imgsz=960)
                         img2_blur, hubo_personas_cr = difuminar_personas(img2, res2)
 
+                        reporte_invalido_cr = False
+                        motivo_invalido_cr = ""
+
                         if usar_gemini_cr:
-                            detecciones_g2, error_g2 = analizar_con_gemini(img2_blur)
+                            detecciones_g2, error_g2, es_valido_g2, motivo_g2 = analizar_con_gemini(img2_blur)
                             if error_g2:
                                 st.error(f"⚠️ No se pudo usar Gemini: {error_g2} "
                                          f"Se usó YOLO local en su lugar.")
                                 tabla2, res2_r, peso2, tipo2, nivel2, total2 = procesar(res2)
                                 img2_detecciones = dibujar_detecciones_filtradas(img2, res2)
+                            elif es_valido_g2 is False:
+                                reporte_invalido_cr = True
+                                motivo_invalido_cr = motivo_g2
+                                tabla2, res2_r, peso2, tipo2, nivel2, total2 = [], 0, 0.0, "N/D", "🟢 Sin residuos detectados", 0
+                                img2_detecciones = img2_blur
                             else:
                                 tabla2, res2_r, peso2, tipo2, nivel2, total2 = procesar_gemini(detecciones_g2)
                                 img2_detecciones = dibujar_detecciones_gemini(img2_blur, detecciones_g2)
@@ -2903,41 +2952,51 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                             tabla2, res2_r, peso2, tipo2, nivel2, total2 = procesar(res2)
                             img2_detecciones = dibujar_detecciones_filtradas(img2, res2)
 
-                    st.session_state.cache_img_blur = img2_blur
-                    st.session_state.hubo_personas_cr = hubo_personas_cr
-                    st.session_state.cache_foto_b64 = img_a_b64(img2_blur)
-                    st.session_state.cache_foto_clasificada_b64 = img_a_b64(img2_detecciones, max_px=350)
-                    st.session_state.cache_phash = calcular_phash(img2_blur)
-                    st.session_state.cache_fotos_extra_b64 = fotos_extra_a_json(cr_imgs_extra_pil)
+                    if reporte_invalido_cr:
+                        st.error(
+                            f"🚫 **Esta foto no parece mostrar un punto de residuos reales.** "
+                            f"{motivo_invalido_cr}\n\nSi crees que es un error, sube una foto "
+                            f"donde se vea claramente la acumulación de basura. Los reportes "
+                            f"que no correspondan a residuos reales (negocios, viviendas, "
+                            f"personas, vehículos) pueden ser eliminados por la administración."
+                        )
+                        st.session_state.cache_critico = None
+                    else:
+                        st.session_state.cache_img_blur = img2_blur
+                        st.session_state.hubo_personas_cr = hubo_personas_cr
+                        st.session_state.cache_foto_b64 = img_a_b64(img2_blur)
+                        st.session_state.cache_foto_clasificada_b64 = img_a_b64(img2_detecciones, max_px=350)
+                        st.session_state.cache_phash = calcular_phash(img2_blur)
+                        st.session_state.cache_fotos_extra_b64 = fotos_extra_a_json(cr_imgs_extra_pil)
 
-                    if hubo_personas_cr:
-                        st.info("🙈 Detectamos personas en la foto y las difuminamos "
-                                 "automáticamente antes de guardarla, para proteger su privacidad.")
+                        if hubo_personas_cr:
+                            st.info("🙈 Detectamos personas en la foto y las difuminamos "
+                                     "automáticamente antes de guardarla, para proteger su privacidad.")
 
-                    co2, cd2 = st.columns(2)
-                    with co2:
-                        st.markdown("**📷 Original**")
-                        st.image(img2_blur, use_container_width=True)
-                    with cd2:
-                        st.markdown("**🤖 Detecciones IA**")
-                        st.image(img2_detecciones, use_container_width=True)
+                        co2, cd2 = st.columns(2)
+                        with co2:
+                            st.markdown("**📷 Original**")
+                            st.image(img2_blur, use_container_width=True)
+                        with cd2:
+                            st.markdown("**🤖 Detecciones IA**")
+                            st.image(img2_detecciones, use_container_width=True)
 
-                    if tabla2:
-                        df_si2 = pd.DataFrame(tabla2)
-                        df_si2 = df_si2[df_si2["♻️"] == "✅ Sí"]
-                        if not df_si2.empty:
-                            st.dataframe(df_si2, use_container_width=True, hide_index=True)
+                        if tabla2:
+                            df_si2 = pd.DataFrame(tabla2)
+                            df_si2 = df_si2[df_si2["♻️"] == "✅ Sí"]
+                            if not df_si2.empty:
+                                st.dataframe(df_si2, use_container_width=True, hide_index=True)
 
-                    st.session_state.cache_critico = {
-                        "residuos":    res2_r,
-                        "peso":        peso2,
-                        "tipo":        tipo2,
-                        "nivel":       nivel2,
-                        "total":       total2,
-                        "ia_detecto":  total2 > 0,
-                        "Lat":         plat,
-                        "Lon":         plon,
-                    }
+                        st.session_state.cache_critico = {
+                            "residuos":    res2_r,
+                            "peso":        peso2,
+                            "tipo":        tipo2,
+                            "nivel":       nivel2,
+                            "total":       total2,
+                            "ia_detecto":  total2 > 0,
+                            "Lat":         plat,
+                            "Lon":         plon,
+                        }
 
                 if st.session_state.get("cache_critico"):
                     cc = st.session_state.cache_critico
@@ -3168,25 +3227,36 @@ font-size:14px;text-align:center;margin-bottom:10px;">
             )
 
         st.markdown("---")
+        UMBRAL_REPORTES_FALSOS = 3
         with st.expander("👍 Confirmar reportes activos de la comunidad"):
             st.caption(
                 "Si pasaste por alguno de estos puntos y el residuo sigue ahí, "
-                "confírmalo — ayuda a la administración a priorizar. Cada persona "
-                "solo puede confirmar un reporte una vez por sesión."
+                "confírmalo — ayuda a la administración a priorizar. Si ves un "
+                "reporte que en realidad NO es basura (ej. un negocio o una "
+                "vivienda), márcalo como falso. Cada persona solo puede confirmar "
+                "o marcar un reporte una vez por sesión."
             )
             activos = [r for r in st.session_state.reportes if "Resuelto" not in r.get("Estado", "")]
             if "confirmados_sesion" not in st.session_state:
                 st.session_state.confirmados_sesion = set()
+            if "falsos_marcados_sesion" not in st.session_state:
+                st.session_state.falsos_marcados_sesion = set()
             if not activos:
                 st.info("No hay reportes activos en este momento.")
             for r in activos[-15:][::-1]:
                 cod = r["Código"]
-                c_info, c_btn = st.columns([4, 1])
+                n_falsos = r.get("ReportesFalsos", 0) or 0
+                c_info, c_btn, c_btn_falso = st.columns([3, 1, 1.2])
                 with c_info:
-                    st.markdown(
+                    linea_info = (
                         f"**{cod}** · {r.get('Sector','')} · {r.get('Clasificación','')} · "
                         f"👍 {r.get('Confirmaciones', 0)} confirmaciones"
                     )
+                    if n_falsos > 0:
+                        linea_info += f" · 🚩 {n_falsos} marcado(s) como falso"
+                    if n_falsos >= UMBRAL_REPORTES_FALSOS:
+                        linea_info += " — **en revisión por la administración**"
+                    st.markdown(linea_info)
                 with c_btn:
                     ya_confirmado = cod in st.session_state.confirmados_sesion
                     if st.button("👍 Confirmar", key=f"confirmar_{cod}",
@@ -3196,6 +3266,19 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                                 rep["Confirmaciones"] = rep.get("Confirmaciones", 0) + 1
                                 break
                         st.session_state.confirmados_sesion.add(cod)
+                        guardar_reportes_disco(st.session_state.reportes)
+                        st.rerun()
+                with c_btn_falso:
+                    ya_marcado_falso = cod in st.session_state.falsos_marcados_sesion
+                    if st.button("🚩 No es basura", key=f"falso_{cod}",
+                                 disabled=ya_marcado_falso, use_container_width=True,
+                                 help="Márcalo si esta foto no muestra un residuo real "
+                                      "(ej. un negocio, una vivienda, o una persona)."):
+                        for rep in st.session_state.reportes:
+                            if rep["Código"] == cod:
+                                rep["ReportesFalsos"] = rep.get("ReportesFalsos", 0) + 1
+                                break
+                        st.session_state.falsos_marcados_sesion.add(cod)
                         guardar_reportes_disco(st.session_state.reportes)
                         st.rerun()
 
@@ -3662,11 +3745,24 @@ padding:10px 16px;margin-top:12px;font-size:14px;">
                 if "Resuelto" in estado: icono = "✅"
                 if "proceso"  in estado: icono = "🟡"
 
+                n_falsos_adm = rep.get("ReportesFalsos", 0) or 0
+                etiqueta_falso = f" · 🚩 {n_falsos_adm} reportado(s) como falso" if n_falsos_adm > 0 else ""
+                if n_falsos_adm >= 3:
+                    etiqueta_falso = f" · 🚩🚩 REVISAR — {n_falsos_adm} vecinos dicen que no es basura"
+
                 with st.expander(
                     f"{icono} {codigo} · {rep.get('Sector','?')} · "
-                    f"{rep.get('Referencia','')[:30]} · {estado}",
+                    f"{rep.get('Referencia','')[:30]} · {estado}{etiqueta_falso}",
                     expanded=False
                 ):
+                    if n_falsos_adm >= 3:
+                        st.error(
+                            f"🚩 **{n_falsos_adm} vecinos marcaron este reporte como "
+                            f"'no es basura'.** Revisa la foto antes de confiar en esta "
+                            f"clasificación — podría ser un reporte de mala fe (ej. contra "
+                            f"un negocio o vivienda real). Si confirmas que no corresponde, "
+                            f"usa el botón 🗑️ Eliminar más abajo."
+                        )
                     foto_b64 = rep.get("FotoB64","")
                     if foto_b64:
                         st.markdown("**📷 Foto de evidencia (original):**")
