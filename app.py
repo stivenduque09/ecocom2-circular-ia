@@ -1359,12 +1359,12 @@ def verificar_gemini_key() -> bool:
 # material — por eso el peso aquí es un promedio por categoría, no por
 # tipo de objeto como en el diccionario MAT.
 CATEGORIAS_GEMINI = {
-    "Organicos": {"color": "#22c55e", "etiqueta": "🌿 Orgánicos",              "peso_kg": 0.20, "reciclable": True},
-    "Plasticos": {"color": "#eab308", "etiqueta": "♻️ Plásticos",              "peso_kg": 0.15, "reciclable": True},
-    "Vidrio":    {"color": "#a855f7", "etiqueta": "🍶 Vidrio",                 "peso_kg": 0.35, "reciclable": True},
-    "Carton":    {"color": "#ef4444", "etiqueta": "📦 Cartón",                 "peso_kg": 0.30, "reciclable": True},
-    "Papel":     {"color": "#3b82f6", "etiqueta": "📄 Papel",                  "peso_kg": 0.10, "reciclable": True},
-    "Otros":     {"color": "#6b7280", "etiqueta": "❓ Otros / no identificado", "peso_kg": 0.20, "reciclable": False},
+    "Organicos": {"color": "#22c55e", "etiqueta": "🌿 Orgánicos",              "etiqueta_dibujo": "Organicos", "peso_kg": 0.20, "reciclable": True},
+    "Plasticos": {"color": "#eab308", "etiqueta": "♻️ Plásticos",              "etiqueta_dibujo": "Plasticos", "peso_kg": 0.15, "reciclable": True},
+    "Vidrio":    {"color": "#a855f7", "etiqueta": "🍶 Vidrio",                 "etiqueta_dibujo": "Vidrio",    "peso_kg": 0.35, "reciclable": True},
+    "Carton":    {"color": "#ef4444", "etiqueta": "📦 Cartón",                 "etiqueta_dibujo": "Carton",    "peso_kg": 0.30, "reciclable": True},
+    "Papel":     {"color": "#3b82f6", "etiqueta": "📄 Papel",                  "etiqueta_dibujo": "Papel",     "peso_kg": 0.10, "reciclable": True},
+    "Otros":     {"color": "#6b7280", "etiqueta": "❓ Otros / no identificado", "etiqueta_dibujo": "Otros",     "peso_kg": 0.20, "reciclable": False},
 }
 
 _PROMPT_GEMINI_RESIDUOS = """Eres un clasificador de residuos sólidos para una app de gestión de basura comunitaria.
@@ -1463,9 +1463,30 @@ def analizar_con_gemini(img_pil, modelo_gemini="gemini-3.6-flash"):
             if x2 <= x1 or y2 <= y1:
                 continue
             detecciones.append({"categoria": label, "box": [x1, y1, x2, y2]})
+        detecciones = _deduplicar_detecciones_gemini(detecciones)
         return detecciones, None
     except Exception as e:
         return None, f"Error de conexión con Gemini: {e}"
+
+
+def _deduplicar_detecciones_gemini(detecciones, iou_umbral=0.45):
+    """Gemini a veces marca el mismo objeto dos o tres veces muy cerca en
+    montones densos — fusiona cajas de la MISMA categoría que se solapan
+    mucho (igual criterio que ya se usa para las detecciones de YOLO), así
+    la imagen anotada no queda saturada de cajas repetidas sobre un mismo
+    objeto y el conteo de reciclables no se infla artificialmente."""
+    def _area(d):
+        x1, y1, x2, y2 = d["box"]
+        return (x2 - x1) * (y2 - y1)
+
+    ordenados = sorted(detecciones, key=_area, reverse=True)
+    conservados = []
+    for d in ordenados:
+        if any(d["categoria"] == c["categoria"] and _iou(d["box"], c["box"]) >= iou_umbral
+               for c in conservados):
+            continue
+        conservados.append(d)
+    return conservados
 
 
 def dibujar_detecciones_gemini(img_pil, detecciones):
@@ -1485,13 +1506,60 @@ def dibujar_detecciones_gemini(img_pil, detecciones):
     for d in detecciones:
         cat = CATEGORIAS_GEMINI.get(d["categoria"], CATEGORIAS_GEMINI["Otros"])
         x1, y1, x2, y2 = d["box"]
-        draw.rectangle([x1, y1, x2, y2], outline=cat["color"], width=3)
-        etiqueta = cat["etiqueta"]
+        draw.rectangle([x1, y1, x2, y2], outline=cat["color"], width=2)
+        etiqueta = cat["etiqueta_dibujo"]
         ancho_etq = 8 * len(etiqueta) + 8
-        y_etq = max(0, y1 - 20)
-        draw.rectangle([x1, y_etq, x1 + ancho_etq, y_etq + 18], fill=cat["color"])
-        draw.text((x1 + 3, y_etq + 1), etiqueta, fill=(255, 255, 255), font=fuente)
+        y_etq = max(0, y1 - 18)
+        draw.rectangle([x1, y_etq, x1 + ancho_etq, y_etq + 16], fill=cat["color"])
+        draw.text((x1 + 3, y_etq), etiqueta, fill=(255, 255, 255), font=fuente)
+
+    img = _dibujar_resumen_gemini(img, detecciones)
     return img
+
+
+def _hex_a_rgb(color_hex):
+    color_hex = color_hex.lstrip("#")
+    return tuple(int(color_hex[i:i + 2], 16) for i in (0, 2, 4))
+
+
+def _dibujar_resumen_gemini(img_pil, detecciones):
+    """Agrega una franja semitransparente en la esquina superior izquierda
+    con el conteo total por categoría (ej. 'Plasticos: 17') — para que de
+    un vistazo, sin contar cajas una por una, se entienda qué hay en el
+    reporte. Solo lista las categorías que sí aparecieron en la foto."""
+    from PIL import ImageDraw, ImageFont
+    conteo = Counter(d["categoria"] for d in detecciones)
+    if not conteo:
+        return img_pil
+
+    orden = ["Plasticos", "Organicos", "Carton", "Papel", "Vidrio", "Otros"]
+    filas = [(cat, conteo[cat]) for cat in orden if conteo.get(cat)]
+    if not filas:
+        return img_pil
+
+    img_rgba = img_pil.convert("RGBA")
+    overlay = Image.new("RGBA", img_rgba.size, (0, 0, 0, 0))
+    draw = ImageDraw.Draw(overlay)
+    try:
+        fuente = ImageFont.load_default(size=16)
+    except TypeError:
+        fuente = ImageFont.load_default()
+
+    pad, alto_fila, lado_caja, ancho_panel = 10, 22, 14, 190
+    alto_panel = pad * 2 + alto_fila * len(filas)
+    draw.rectangle([10, 10, 10 + ancho_panel, 10 + alto_panel], fill=(0, 0, 0, 160))
+
+    y = 10 + pad
+    for cat, cant in filas:
+        info = CATEGORIAS_GEMINI.get(cat, CATEGORIAS_GEMINI["Otros"])
+        color_rgb = _hex_a_rgb(info["color"])
+        x = 10 + pad
+        draw.rectangle([x, y + 3, x + lado_caja, y + 3 + lado_caja], fill=color_rgb + (255,))
+        draw.text((x + lado_caja + 8, y), f"{info['etiqueta_dibujo']}: {cant}",
+                   fill=(255, 255, 255, 255), font=fuente)
+        y += alto_fila
+
+    return Image.alpha_composite(img_rgba, overlay).convert("RGB")
 
 
 def procesar_gemini(detecciones):
