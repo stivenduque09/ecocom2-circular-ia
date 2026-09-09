@@ -1456,7 +1456,7 @@ Las coordenadas box_2d deben estar normalizadas en una escala de 0 a 1000,
 en el orden [ymin, xmin, ymax, xmax]. Detecta como máximo 40 objetos."""
 
 
-def analizar_con_gemini(img_pil, modelo_gemini="gemini-3.1-pro-preview"):
+def analizar_con_gemini(img_pil, modelo_gemini="gemini-3.6-flash"):
     """Envía la imagen a la API de Gemini (Google) para que primero evalúe
     si la foto realmente muestra una acumulación de residuos (filtro
     contra reportes falsos o de mala fe — ej. fotografiar un negocio o a
