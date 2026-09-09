@@ -32,11 +32,13 @@ DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 _CAMPOS    = ["Código","Sector","Referencia","Objetos","Peso (Kg)",
               "Predominante","Clasificación","Lat","Lon","Fecha","Estado","FotoB64",
               "Observaciones","NotaVozB64","FotosExtraB64","CodigoResidente","PHash",
-              "Confirmaciones"]
+              "Confirmaciones","FotoClasificadaB64","FotoResueltaB64","FotoResueltaURL",
+              "FechaResuelto"]
 _COLUMNAS  = ["codigo","sector","referencia","objetos","peso_kg",
               "predominante","clasificacion","lat","lon","fecha","estado","foto_b64",
               "observaciones","nota_voz_b64","fotos_extra_b64","residente_codigo","phash",
-              "confirmaciones"]
+              "confirmaciones","foto_clasificada_b64","foto_resuelta_b64","foto_resuelta_url",
+              "fecha_resuelto"]
 
 def _conectar_db():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
@@ -69,7 +71,9 @@ def _crear_tabla():
             # silenciamos el error si la columna ya existe.
             for col_sql in ["observaciones TEXT", "nota_voz_b64 TEXT",
                             "fotos_extra_b64 TEXT", "residente_codigo TEXT",
-                            "phash TEXT", "confirmaciones INTEGER DEFAULT 0"]:
+                            "phash TEXT", "confirmaciones INTEGER DEFAULT 0",
+                            "foto_clasificada_b64 TEXT", "foto_resuelta_b64 TEXT",
+                            "foto_resuelta_url TEXT", "fecha_resuelto TEXT"]:
                 try:
                     conn.execute(f"ALTER TABLE reportes ADD COLUMN {col_sql}")
                 except Exception:
@@ -117,7 +121,8 @@ RESPALDO_PATH_REPO = "data_backup/reportes_backup.json"
 # cada reporte — solo se pierden las imágenes, no los datos operativos.
 _CAMPOS_RESPALDO = ["Código","Sector","Referencia","Objetos","Peso (Kg)",
                     "Predominante","Clasificación","Lat","Lon","Fecha","Estado",
-                    "Observaciones","CodigoResidente","Confirmaciones"]
+                    "Observaciones","CodigoResidente","Confirmaciones",
+                    "FechaResuelto","FotoResueltaURL"]
 
 
 def _github_config():
@@ -182,6 +187,49 @@ def respaldar_en_github(reportes: list):
         return False, f"GitHub respondió {r_put.status_code}: {detalle or 'error desconocido'}"
     except Exception as e:
         return False, f"Error de conexión: {e}"
+
+
+def subir_foto_evidencia_github(imagen_bytes: bytes, nombre_archivo: str):
+    """Sube una foto de evidencia (bytes JPEG) al repo de GitHub, bajo la
+    carpeta evidencias_resueltos/, y devuelve la URL pública en
+    raw.githubusercontent.com. Esto existe porque WhatsApp NO permite
+    adjuntar una imagen automáticamente en un link wa.me — solo texto —
+    así que la única forma de que el residente vea la foto con un solo
+    toque (sin entrar a la app) es mandarle un link directo a una imagen
+    ya alojada en algún lugar público. Devuelve (url, error)."""
+    token, repo, branch = _github_config()
+    if not token:
+        return None, "El respaldo en GitHub no está configurado (falta GITHUB_TOKEN o GITHUB_REPO en Secrets)."
+    try:
+        import requests
+        contenido_b64 = base64.b64encode(imagen_bytes).decode("utf-8")
+        ruta_repo = f"evidencias_resueltos/{nombre_archivo}"
+        url_api = f"https://api.github.com/repos/{repo}/contents/{ruta_repo}"
+        headers = {"Authorization": f"token {token}",
+                   "Accept": "application/vnd.github+json"}
+
+        r_get = requests.get(url_api, headers=headers, params={"ref": branch}, timeout=10)
+        sha = r_get.json().get("sha") if r_get.status_code == 200 else None
+
+        payload = {
+            "message": f"📷 Evidencia de resolución — {nombre_archivo}",
+            "content": contenido_b64,
+            "branch": branch,
+        }
+        if sha:
+            payload["sha"] = sha
+
+        r_put = requests.put(url_api, headers=headers, json=payload, timeout=15)
+        if r_put.status_code in (200, 201):
+            return f"https://raw.githubusercontent.com/{repo}/{branch}/{ruta_repo}", ""
+        detalle = ""
+        try:
+            detalle = r_put.json().get("message", "")
+        except Exception:
+            pass
+        return None, f"GitHub respondió {r_put.status_code}: {detalle or 'error desconocido'}"
+    except Exception as e:
+        return None, f"Error de conexión: {e}"
 
 
 def restaurar_desde_github_si_vacio():
@@ -1073,6 +1121,7 @@ def generar_excel_reportes(reportes: list, incluir_contacto: bool = False) -> by
         ("Barrio", 20), ("Referencia", 30), ("Clasificación", 38),
         ("Objetos reciclables", 10), ("Peso (kg)", 10), ("Material predominante", 16),
         ("Observaciones", 40), ("👍 Confirmaciones", 10),
+        ("Fecha resuelto", 16), ("Foto de evidencia (enlace)", 45),
     ]
     if incluir_contacto:
         columnas.append(("Teléfono/Código residente", 18))
@@ -1103,6 +1152,7 @@ def generar_excel_reportes(reportes: list, incluir_contacto: bool = False) -> by
             r.get("Sector", ""), r.get("Referencia", ""), clasif_txt,
             r.get("Objetos", 0), float(r.get("Peso (Kg)", 0) or 0), r.get("Predominante", ""),
             r.get("Observaciones", ""), r.get("Confirmaciones", 0),
+            r.get("FechaResuelto", ""), r.get("FotoResueltaURL", ""),
         ]
         if incluir_contacto:
             valores.append(r.get("CodigoResidente", ""))
@@ -1111,7 +1161,7 @@ def generar_excel_reportes(reportes: list, incluir_contacto: bool = False) -> by
         color = COLOR_NIVEL.get(niv_emoji, "FFFFFF")
         for col_i, val in enumerate(valores, start=1):
             c = ws.cell(row=fila, column=col_i, value=val)
-            c.alignment = IZQ if col_i in (6, 7, 11) else CENTRO
+            c.alignment = IZQ if col_i in (6, 7, 11, 14) else CENTRO
             c.border = BORDE
             c.fill = PatternFill("solid", fgColor=color)
             if col_i == 2 and isinstance(val, datetime):
@@ -2675,6 +2725,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         "Fecha": datetime.now().strftime("%Y-%m-%d %H:%M"),
                         "Estado": "🔴 Pendiente",
                         "FotoB64": img_a_b64(img_foto_final),
+                        "FotoClasificadaB64": img_a_b64(ca["res_plot"], max_px=350),
                         "Observaciones": r_obs.strip(),
                         "NotaVozB64": audio_a_b64(r_audio),
                         "FotosExtraB64": fotos_extra_a_json(r_imgs_extra_pil),
@@ -2855,6 +2906,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                     st.session_state.cache_img_blur = img2_blur
                     st.session_state.hubo_personas_cr = hubo_personas_cr
                     st.session_state.cache_foto_b64 = img_a_b64(img2_blur)
+                    st.session_state.cache_foto_clasificada_b64 = img_a_b64(img2_detecciones, max_px=350)
                     st.session_state.cache_phash = calcular_phash(img2_blur)
                     st.session_state.cache_fotos_extra_b64 = fotos_extra_a_json(cr_imgs_extra_pil)
 
@@ -2975,6 +3027,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                                 "Fecha":         datetime.now().strftime("%Y-%m-%d %H:%M"),
                                 "Estado":        "🔴 Pendiente",
                                 "FotoB64": st.session_state.get("cache_foto_b64", ""),
+                                "FotoClasificadaB64": st.session_state.get("cache_foto_clasificada_b64", ""),
                                 "Observaciones": cr_obs.strip(),
                                 "NotaVozB64": audio_a_b64(cr_audio),
                                 "FotosExtraB64": st.session_state.get("cache_fotos_extra_b64", ""),
@@ -3616,10 +3669,26 @@ padding:10px 16px;margin-top:12px;font-size:14px;">
                 ):
                     foto_b64 = rep.get("FotoB64","")
                     if foto_b64:
-                        st.markdown("**📷 Foto analizada por la IA:**")
+                        st.markdown("**📷 Foto de evidencia (original):**")
                         st.markdown(
                             f'<img src="data:image/jpeg;base64,{foto_b64}" '
                             f'style="max-width:320px;border-radius:8px;margin-bottom:10px;">',
+                            unsafe_allow_html=True)
+                    foto_clasif_b64 = rep.get("FotoClasificadaB64","")
+                    if foto_clasif_b64:
+                        st.markdown("**🏷️ Foto clasificada por la IA:**")
+                        st.markdown(
+                            f'<img src="data:image/jpeg;base64,{foto_clasif_b64}" '
+                            f'style="max-width:320px;border-radius:8px;margin-bottom:10px;">',
+                            unsafe_allow_html=True)
+                    foto_resuelta_b64 = rep.get("FotoResueltaB64","")
+                    if foto_resuelta_b64:
+                        st.markdown(f"**✅ Foto de evidencia de resolución** "
+                                    f"({rep.get('FechaResuelto','')}):")
+                        st.markdown(
+                            f'<img src="data:image/jpeg;base64,{foto_resuelta_b64}" '
+                            f'style="max-width:320px;border-radius:8px;margin-bottom:10px;'
+                            f'border:2px solid #16a34a;">',
                             unsafe_allow_html=True)
                     if rep.get("FotosExtraB64"):
                         st.markdown(galeria_html(rep["FotosExtraB64"], ancho_px=100),
@@ -3665,6 +3734,17 @@ padding:10px 16px;margin-top:12px;font-size:14px;">
                     nuevo_estado = st.selectbox("",ESTADOS,index=idx_est,
                                                 label_visibility="collapsed",
                                                 key=f"sel_{key_safe}")
+
+                    st.markdown("**📷 Foto de evidencia al resolver (opcional, recomendado):**")
+                    foto_resuelta_up = st.file_uploader(
+                        "Sube una foto del punto ya limpio",
+                        type=["jpg","jpeg","png"], key=f"foto_resuelta_{key_safe}",
+                        label_visibility="collapsed",
+                        help="Se guarda con el reporte y se incluye como enlace en el "
+                             "mensaje de WhatsApp al residente, para que vea la prueba "
+                             "de que su punto quedó atendido sin tener que entrar a la app."
+                    )
+
                     b1,b2,b3,b4 = st.columns(4)
                     with b1:
                         if st.button("💾 Guardar",key=f"grd_{key_safe}",
@@ -3681,8 +3761,33 @@ padding:10px 16px;margin-top:12px;font-size:14px;">
                     with b3:
                         if st.button("✅ Resuelto",key=f"res_{key_safe}",
                                      type="primary",use_container_width=True):
-                            st.session_state.adm_accion_pendiente={
-                                "codigo":codigo,"tipo":"resuelto"}
+                            foto_resuelta_b64_nueva = ""
+                            foto_resuelta_url_nueva = ""
+                            if foto_resuelta_up is not None:
+                                with st.spinner("Guardando foto de evidencia..."):
+                                    img_resuelta = Image.open(BytesIO(foto_resuelta_up.getvalue())).convert("RGB")
+                                    foto_resuelta_b64_nueva = img_a_b64(img_resuelta, max_px=350)
+                                    buf_evidencia = BytesIO()
+                                    img_resuelta.save(buf_evidencia, format="JPEG", quality=80)
+                                    url_pub, err_gh = subir_foto_evidencia_github(
+                                        buf_evidencia.getvalue(), f"{codigo}.jpg")
+                                    if url_pub:
+                                        foto_resuelta_url_nueva = url_pub
+                                    else:
+                                        st.warning(f"⚠️ Se marcó como resuelto, pero no se pudo "
+                                                   f"subir la foto a GitHub para el enlace de "
+                                                   f"WhatsApp: {err_gh}")
+                            for r in st.session_state.reportes:
+                                if r["Código"] == codigo:
+                                    r["Estado"] = "✅ Resuelto"
+                                    r["FechaResuelto"] = datetime.now().strftime("%Y-%m-%d %H:%M")
+                                    if foto_resuelta_b64_nueva:
+                                        r["FotoResueltaB64"] = foto_resuelta_b64_nueva
+                                    if foto_resuelta_url_nueva:
+                                        r["FotoResueltaURL"] = foto_resuelta_url_nueva
+                                    break
+                            guardar_reportes_disco(st.session_state.reportes)
+                            st.success("✅ Reporte marcado como resuelto.")
                             st.rerun()
                     with b4:
                         if st.button("🗑️ Eliminar",key=f"del_{key_safe}",
@@ -3698,6 +3803,9 @@ padding:10px 16px;margin-top:12px;font-size:14px;">
                             f"({rep.get('Referencia','')[:40]}) está ahora: {estado}. "
                             f"— EcoCom2 Circular IA"
                         )
+                        if "Resuelto" in estado and rep.get("FotoResueltaURL"):
+                            msg_wa += (f"\n\n📷 Así quedó el punto — mira la foto: "
+                                       f"{rep['FotoResueltaURL']}")
                         st.markdown(
                             boton_whatsapp_html(link_whatsapp(tel_wa, msg_wa),
                                                  "📲 Notificar al residente por WhatsApp"),
