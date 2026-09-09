@@ -126,5 +126,21 @@
     "Observaciones": "",
     "CodigoResidente": "3044986885",
     "Confirmaciones": 0
+  },
+  {
+    "Código": "CRIT-508",
+    "Sector": "La Isla",
+    "Referencia": "6.30350, -75.55262",
+    "Objetos": 20,
+    "Peso (Kg)": 9.0,
+    "Predominante": "Plástico",
+    "Clasificación": "🟡 Punto amarillo — Residuos mixtos",
+    "Lat": 6.3035043,
+    "Lon": -75.5526245,
+    "Fecha": "2026-09-09 15:24",
+    "Estado": "🔴 Pendiente",
+    "Observaciones": "gran acumulacion de residuos",
+    "CodigoResidente": "3052651979",
+    "Confirmaciones": 0
   }
 ]
