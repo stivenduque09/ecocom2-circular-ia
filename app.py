@@ -1430,8 +1430,14 @@ acumulación real de residuos.
 PASO 2: Si "es_residuos" es true, detecta CADA objeto o bolsa de residuo
 visible por separado. Si hay un montón, separa los objetos identificables
 dentro del montón en vez de encerrar todo el montón en una sola caja.
-Clasifica cada objeto detectado en UNA sola de estas categorías EXACTAS
-(usa el texto tal cual, sin tildes ni cambios):
+Si el montón es tan homogéneo o está tan mezclado que de verdad no puedes
+distinguir objetos individuales, NO devuelvas una lista vacía — en su
+lugar, encierra en cajas más grandes las zonas visibles agrupadas por
+material predominante (ej. una caja cubriendo toda la zona de escombros,
+otra la zona de bolsas plásticas), para dar al menos una estimación
+aproximada en vez de ningún resultado.
+Clasifica cada objeto o zona detectada en UNA sola de estas categorías
+EXACTAS (usa el texto tal cual, sin tildes ni cambios):
 - "Organicos"  (comida, restos vegetales, madera en descomposición)
 - "Plasticos"  (botellas, bolsas, envases, empaques plásticos)
 - "Vidrio"     (botellas o frascos de vidrio)
@@ -1439,7 +1445,8 @@ Clasifica cada objeto detectado en UNA sola de estas categorías EXACTAS
 - "Papel"      (papel, periódico, revistas)
 - "Otros"      (escombros, metal, ropa, o cualquier cosa que no encaje arriba)
 
-Si "es_residuos" es false, deja "detecciones" como una lista vacía.
+Si "es_residuos" es false, deja "detecciones" como una lista vacía. Si
+"es_residuos" es true, "detecciones" debe tener AL MENOS un elemento.
 
 Responde ÚNICAMENTE con un objeto JSON (sin texto adicional ni marcado
 markdown), con este formato exacto:
@@ -1449,7 +1456,7 @@ Las coordenadas box_2d deben estar normalizadas en una escala de 0 a 1000,
 en el orden [ymin, xmin, ymax, xmax]. Detecta como máximo 40 objetos."""
 
 
-def analizar_con_gemini(img_pil, modelo_gemini="gemini-3.6-flash"):
+def analizar_con_gemini(img_pil, modelo_gemini="gemini-3.1-pro"):
     """Envía la imagen a la API de Gemini (Google) para que primero evalúe
     si la foto realmente muestra una acumulación de residuos (filtro
     contra reportes falsos o de mala fe — ej. fotografiar un negocio o a
@@ -1498,7 +1505,18 @@ def analizar_con_gemini(img_pil, modelo_gemini="gemini-3.6-flash"):
                 "response_mime_type": "application/json",
             },
         }
-        resp = requests.post(url, headers=headers, json=payload, timeout=45)
+        # Reintento automático para errores transitorios (503 = modelo con
+        # mucha demanda, 429 = límite de tasa momentáneo) — casi siempre se
+        # resuelven solos en un par de segundos, así que vale la pena
+        # reintentar antes de rendirse y caer a YOLO local.
+        resp = None
+        for intento in range(2):
+            resp = requests.post(url, headers=headers, json=payload, timeout=45)
+            if resp.status_code not in (503, 429):
+                break
+            if intento == 0:
+                time.sleep(2)
+
         if resp.status_code != 200:
             detalle = ""
             try:
@@ -2675,6 +2693,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                             "ia_detecto": not (residuos == 0 and len(tabla) == 0),
                             "img_blur": img_blur,
                             "hubo_personas": hubo_personas_r,
+                            "motor": "gemini" if (usar_gemini_r and not error_g) else "yolo",
                         }
 
                 if st.session_state.get("cache_analisis_r"):
@@ -2707,11 +2726,18 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         ca["residuos"], ca["peso"], ca["tipo"], ca["nivel"])
 
                     if not ca["ia_detecto"]:
-                        st.warning(
-                            "⚠️ La IA no reconoció objetos específicos. "
-                            "Esto ocurre con escombros, basura mezclada o bolsas oscuras. "
-                            "Clasifica manualmente:"
-                        )
+                        if ca.get("motor") == "gemini":
+                            st.warning(
+                                "⚠️ Gemini no logró separar objetos individuales en esta "
+                                "foto (pasa con montones muy homogéneos o mezclados, donde "
+                                "es difícil distinguir un objeto de otro). Clasifica manualmente:"
+                            )
+                        else:
+                            st.warning(
+                                "⚠️ YOLO no reconoció objetos específicos. "
+                                "Esto ocurre con escombros, basura mezclada o bolsas oscuras. "
+                                "Clasifica manualmente:"
+                            )
                         tipo_manual = st.selectbox(
                             "¿Qué tipo de residuo observas en la imagen?",
                             [
@@ -2996,17 +3022,25 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                             "ia_detecto":  total2 > 0,
                             "Lat":         plat,
                             "Lon":         plon,
+                            "motor":       "gemini" if (usar_gemini_cr and not error_g2) else "yolo",
                         }
 
                 if st.session_state.get("cache_critico"):
                     cc = st.session_state.cache_critico
 
                     if not cc["ia_detecto"]:
-                        st.warning(
-                            "⚠️ La IA no reconoció objetos específicos "
-                            "(escombros, bolsas oscuras, basura mezclada). "
-                            "Clasifica manualmente:"
-                        )
+                        if cc.get("motor") == "gemini":
+                            st.warning(
+                                "⚠️ Gemini no logró separar objetos individuales en esta "
+                                "foto (pasa con montones muy homogéneos o mezclados, donde "
+                                "es difícil distinguir un objeto de otro). Clasifica manualmente:"
+                            )
+                        else:
+                            st.warning(
+                                "⚠️ YOLO no reconoció objetos específicos "
+                                "(escombros, bolsas oscuras, basura mezclada). "
+                                "Clasifica manualmente:"
+                            )
                         OPCIONES_MC = [
                             "🏗️ Escombros / Residuos de construcción",
                             "🗑️ Basura doméstica mezclada / bolsas",
