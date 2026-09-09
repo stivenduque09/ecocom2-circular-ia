@@ -15,7 +15,8 @@
     "CodigoResidente": "",
     "Confirmaciones": 0,
     "FechaResuelto": null,
-    "FotoResueltaURL": null
+    "FotoResueltaURL": null,
+    "ReportesFalsos": 0
   },
   {
     "Código": "CRIT-501",
@@ -33,7 +34,8 @@
     "CodigoResidente": "",
     "Confirmaciones": 0,
     "FechaResuelto": null,
-    "FotoResueltaURL": null
+    "FotoResueltaURL": null,
+    "ReportesFalsos": 0
   },
   {
     "Código": "CRIT-502",
@@ -51,7 +53,8 @@
     "CodigoResidente": "",
     "Confirmaciones": 0,
     "FechaResuelto": null,
-    "FotoResueltaURL": null
+    "FotoResueltaURL": null,
+    "ReportesFalsos": 0
   },
   {
     "Código": "CRIT-503",
@@ -69,7 +72,8 @@
     "CodigoResidente": "Cantidad de escombros",
     "Confirmaciones": 0,
     "FechaResuelto": null,
-    "FotoResueltaURL": null
+    "FotoResueltaURL": null,
+    "ReportesFalsos": 0
   },
   {
     "Código": "CRIT-504",
@@ -87,7 +91,8 @@
     "CodigoResidente": "",
     "Confirmaciones": 0,
     "FechaResuelto": null,
-    "FotoResueltaURL": null
+    "FotoResueltaURL": null,
+    "ReportesFalsos": 0
   },
   {
     "Código": "CRIT-505",
@@ -105,7 +110,8 @@
     "CodigoResidente": "",
     "Confirmaciones": 0,
     "FechaResuelto": null,
-    "FotoResueltaURL": null
+    "FotoResueltaURL": null,
+    "ReportesFalsos": 0
   },
   {
     "Código": "REP-206",
@@ -123,7 +129,8 @@
     "CodigoResidente": "3044986885",
     "Confirmaciones": 0,
     "FechaResuelto": null,
-    "FotoResueltaURL": null
+    "FotoResueltaURL": null,
+    "ReportesFalsos": 0
   },
   {
     "Código": "CRIT-507",
@@ -141,7 +148,8 @@
     "CodigoResidente": "3044986885",
     "Confirmaciones": 0,
     "FechaResuelto": null,
-    "FotoResueltaURL": null
+    "FotoResueltaURL": null,
+    "ReportesFalsos": 0
   },
   {
     "Código": "CRIT-508",
@@ -159,6 +167,7 @@
     "CodigoResidente": "3052651979",
     "Confirmaciones": 0,
     "FechaResuelto": null,
-    "FotoResueltaURL": null
+    "FotoResueltaURL": null,
+    "ReportesFalsos": 0
   }
 ]
