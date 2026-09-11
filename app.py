@@ -1119,13 +1119,12 @@ def generar_excel_reportes(reportes: list, incluir_contacto: bool = False) -> by
 
     columnas = [
         ("Código", 12), ("Fecha", 16), ("Estado", 22), ("Nivel", 8),
-        ("Barrio", 20), ("Referencia", 30), ("Clasificación", 38),
-        ("Objetos reciclables", 10), ("Peso (kg)", 10), ("Material predominante", 16),
-        ("Observaciones", 40), ("👍 Confirmaciones", 10),
-        ("Fecha resuelto", 16), ("Foto de evidencia (enlace)", 45),
+        ("Barrio", 20), ("Dirección", 32), ("Clasificación", 38),
+        ("Objetos reciclables", 10), ("Peso (kg)", 10), ("Material predominante", 18),
+        ("Observaciones", 40),
     ]
     if incluir_contacto:
-        columnas.append(("Teléfono/Código residente", 18))
+        columnas.append(("Teléfono de quien reportó", 20))
     columnas += [("Latitud", 12), ("Longitud", 12)]
 
     for i, (nombre, ancho) in enumerate(columnas, start=1):
@@ -1152,8 +1151,7 @@ def generar_excel_reportes(reportes: list, incluir_contacto: bool = False) -> by
             r.get("Código", ""), fecha_dt, r.get("Estado", "").strip(), niv_emoji,
             r.get("Sector", ""), r.get("Referencia", ""), clasif_txt,
             r.get("Objetos", 0), float(r.get("Peso (Kg)", 0) or 0), r.get("Predominante", ""),
-            r.get("Observaciones", ""), r.get("Confirmaciones", 0),
-            r.get("FechaResuelto", ""), r.get("FotoResueltaURL", ""),
+            r.get("Observaciones", ""),
         ]
         if incluir_contacto:
             valores.append(r.get("CodigoResidente", ""))
@@ -1162,7 +1160,7 @@ def generar_excel_reportes(reportes: list, incluir_contacto: bool = False) -> by
         color = COLOR_NIVEL.get(niv_emoji, "FFFFFF")
         for col_i, val in enumerate(valores, start=1):
             c = ws.cell(row=fila, column=col_i, value=val)
-            c.alignment = IZQ if col_i in (6, 7, 11, 14) else CENTRO
+            c.alignment = IZQ if col_i in (6, 7, 11) else CENTRO
             c.border = BORDE
             c.fill = PatternFill("solid", fgColor=color)
             if col_i == 2 and isinstance(val, datetime):
