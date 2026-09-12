@@ -187,5 +187,26 @@
     "ReportesFalsos": 0,
     "FotoURL": null,
     "FotoClasificadaURL": null
+  },
+  {
+    "Código": "CRIT-509",
+    "Sector": "Santa Cruz",
+    "Referencia": "Calle 101 #1, Comuna 2 - Santa Cruz, Medellín",
+    "Objetos": 15,
+    "Peso (Kg)": 2.6,
+    "Predominante": "Plasticos",
+    "Clasificación": "🟡 Punto amarillo — Buen material, pero gran volumen",
+    "Lat": 6.2928616,
+    "Lon": -75.5560684,
+    "Fecha": "2026-09-12 19:36",
+    "Estado": "🔴 Pendiente",
+    "Observaciones": "de nuevo",
+    "CodigoResidente": "",
+    "Confirmaciones": 0,
+    "FechaResuelto": null,
+    "FotoResueltaURL": null,
+    "ReportesFalsos": null,
+    "FotoURL": "https://raw.githubusercontent.com/stivenduque09/ecocom2-circular-ia/main/evidencias_reportes/CRIT-509.jpg",
+    "FotoClasificadaURL": "https://raw.githubusercontent.com/stivenduque09/ecocom2-circular-ia/main/evidencias_clasificadas/CRIT-509.jpg"
   }
 ]
