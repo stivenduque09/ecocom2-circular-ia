@@ -33,12 +33,12 @@ _CAMPOS    = ["Código","Sector","Referencia","Objetos","Peso (Kg)",
               "Predominante","Clasificación","Lat","Lon","Fecha","Estado","FotoB64",
               "Observaciones","NotaVozB64","FotosExtraB64","CodigoResidente","PHash",
               "Confirmaciones","FotoClasificadaB64","FotoResueltaB64","FotoResueltaURL",
-              "FechaResuelto","ReportesFalsos"]
+              "FechaResuelto","ReportesFalsos","FotoURL","FotoClasificadaURL"]
 _COLUMNAS  = ["codigo","sector","referencia","objetos","peso_kg",
               "predominante","clasificacion","lat","lon","fecha","estado","foto_b64",
               "observaciones","nota_voz_b64","fotos_extra_b64","residente_codigo","phash",
               "confirmaciones","foto_clasificada_b64","foto_resuelta_b64","foto_resuelta_url",
-              "fecha_resuelto","reportes_falsos"]
+              "fecha_resuelto","reportes_falsos","foto_url","foto_clasificada_url"]
 
 def _conectar_db():
     conn = sqlite3.connect(DB_PATH, check_same_thread=False)
@@ -74,7 +74,8 @@ def _crear_tabla():
                             "phash TEXT", "confirmaciones INTEGER DEFAULT 0",
                             "foto_clasificada_b64 TEXT", "foto_resuelta_b64 TEXT",
                             "foto_resuelta_url TEXT", "fecha_resuelto TEXT",
-                            "reportes_falsos INTEGER DEFAULT 0"]:
+                            "reportes_falsos INTEGER DEFAULT 0",
+                            "foto_url TEXT", "foto_clasificada_url TEXT"]:
                 try:
                     conn.execute(f"ALTER TABLE reportes ADD COLUMN {col_sql}")
                 except Exception:
@@ -123,7 +124,8 @@ RESPALDO_PATH_REPO = "data_backup/reportes_backup.json"
 _CAMPOS_RESPALDO = ["Código","Sector","Referencia","Objetos","Peso (Kg)",
                     "Predominante","Clasificación","Lat","Lon","Fecha","Estado",
                     "Observaciones","CodigoResidente","Confirmaciones",
-                    "FechaResuelto","FotoResueltaURL","ReportesFalsos"]
+                    "FechaResuelto","FotoResueltaURL","ReportesFalsos",
+                    "FotoURL","FotoClasificadaURL"]
 
 
 def _github_config():
@@ -190,21 +192,34 @@ def respaldar_en_github(reportes: list):
         return False, f"Error de conexión: {e}"
 
 
-def subir_foto_evidencia_github(imagen_bytes: bytes, nombre_archivo: str):
-    """Sube una foto de evidencia (bytes JPEG) al repo de GitHub, bajo la
-    carpeta evidencias_resueltos/, y devuelve la URL pública en
-    raw.githubusercontent.com. Esto existe porque WhatsApp NO permite
-    adjuntar una imagen automáticamente en un link wa.me — solo texto —
-    así que la única forma de que el residente vea la foto con un solo
-    toque (sin entrar a la app) es mandarle un link directo a una imagen
-    ya alojada en algún lugar público. Devuelve (url, error)."""
+def subir_foto_evidencia_github(imagen_bytes: bytes, nombre_archivo: str,
+                                 carpeta: str = "evidencias_resueltos"):
+    """Sube una foto (bytes JPEG) al repo de GitHub, bajo la carpeta
+    indicada, y devuelve la URL pública en raw.githubusercontent.com.
+
+    Esto existe por DOS motivos:
+    1. WhatsApp no permite adjuntar una imagen automáticamente en un link
+       wa.me — solo texto — así que la única forma de que el residente
+       vea la foto con un toque es mandarle un link directo a una imagen
+       ya alojada en algún lugar público.
+    2. El disco del contenedor de Streamlit Cloud se borra por completo
+       en cada reinicio — las fotos guardadas SOLO en la base SQLite
+       local se pierden ahí, aunque el resto de los datos del reporte
+       sobreviva gracias al respaldo liviano en GitHub. Subir también la
+       foto como archivo (no solo como base64 en la base de datos) hace
+       que la evidencia sea permanente de verdad, sin depender del disco
+       efímero del contenedor.
+
+    Devuelve (url, error)."""
     token, repo, branch = _github_config()
     if not token:
         return None, "El respaldo en GitHub no está configurado (falta GITHUB_TOKEN o GITHUB_REPO en Secrets)."
+    if not imagen_bytes:
+        return None, "No hay imagen para subir."
     try:
         import requests
         contenido_b64 = base64.b64encode(imagen_bytes).decode("utf-8")
-        ruta_repo = f"evidencias_resueltos/{nombre_archivo}"
+        ruta_repo = f"{carpeta}/{nombre_archivo}"
         url_api = f"https://api.github.com/repos/{repo}/contents/{ruta_repo}"
         headers = {"Authorization": f"token {token}",
                    "Accept": "application/vnd.github+json"}
@@ -213,7 +228,7 @@ def subir_foto_evidencia_github(imagen_bytes: bytes, nombre_archivo: str):
         sha = r_get.json().get("sha") if r_get.status_code == 200 else None
 
         payload = {
-            "message": f"📷 Evidencia de resolución — {nombre_archivo}",
+            "message": f"📷 Evidencia — {ruta_repo}",
             "content": contenido_b64,
             "branch": branch,
         }
@@ -963,6 +978,19 @@ def img_a_b64(img_pil, max_px=200) -> str:
         return base64.b64encode(buf.getvalue()).decode("utf-8")
     except Exception:
         return ""
+
+
+def fuente_imagen(b64_val: str, url_val: str) -> str:
+    """Devuelve una fuente de imagen usable en <img src="..."> — prioriza
+    el thumbnail local en base64 (rápido, no depende de internet), y si
+    no existe (ej. el contenedor se reinició y se perdió el disco local),
+    cae al link público de GitHub para que la foto no desaparezca del
+    todo. Devuelve "" si no hay ninguna de las dos fuentes disponibles."""
+    if b64_val:
+        return f"data:image/jpeg;base64,{b64_val}"
+    if url_val:
+        return url_val
+    return ""
 
 
 def fotos_extra_a_json(imgs_pil: list, max_px=200) -> str:
@@ -2449,10 +2477,10 @@ font-size:14px;text-align:center;margin-bottom:10px;">
         for rep in st.session_state.reportes:
             niv = rep.get("Clasificación", "🟢")
             col = "red" if "🔴" in niv else ("orange" if "🟡" in niv else "green")
-            foto_b64 = rep.get("FotoB64", "")
-            img_html = (f'<br><img src="data:image/jpeg;base64,{foto_b64}" '
+            foto_src_popup = fuente_imagen(rep.get("FotoB64", ""), rep.get("FotoURL", ""))
+            img_html = (f'<br><img src="{foto_src_popup}" '
                         f'style="width:180px;border-radius:6px;margin-top:6px;">'
-                        if foto_b64 else "")
+                        if foto_src_popup else "")
             obs_txt = rep.get("Observaciones", "")
             obs_html = f"📝 {obs_txt[:80]}<br>" if obs_txt else ""
             audio_b64 = rep.get("NotaVozB64", "")
@@ -2798,6 +2826,12 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         "PHash": calcular_phash(img_mostrar),
                         "Confirmaciones": 0,
                     }
+                    buf_foto_full = BytesIO()
+                    img_foto_final.convert("RGB").save(buf_foto_full, format="JPEG", quality=82)
+                    st.session_state.cache_foto_bytes = buf_foto_full.getvalue()
+                    buf_clasif_full = BytesIO()
+                    ca["res_plot"].convert("RGB").save(buf_clasif_full, format="JPEG", quality=82)
+                    st.session_state.cache_foto_clasif_bytes = buf_clasif_full.getvalue()
 
             if st.session_state.get("cache"):
                 r = st.session_state.cache
@@ -2824,6 +2858,17 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                     if st.button("🚀 PUBLICAR EN EL MAPA", type="primary",
                                  use_container_width=True, key="r_publicar",
                                  disabled=not ok_publicar_r):
+                        with st.spinner("Guardando copia permanente de las fotos..."):
+                            url_o, _ = subir_foto_evidencia_github(
+                                st.session_state.get("cache_foto_bytes", b""),
+                                f"{r['Código']}.jpg", carpeta="evidencias_reportes")
+                            if url_o:
+                                r["FotoURL"] = url_o
+                            url_c, _ = subir_foto_evidencia_github(
+                                st.session_state.get("cache_foto_clasif_bytes", b""),
+                                f"{r['Código']}.jpg", carpeta="evidencias_clasificadas")
+                            if url_c:
+                                r["FotoClasificadaURL"] = url_c
                         st.session_state.reportes.append(r)
                         st.session_state.mis_codigos.append(r["Código"])
                         st.session_state.mis_estados_vistos[r["Código"]] = r["Estado"]
@@ -2831,6 +2876,8 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         guardar_reportes_disco(st.session_state.reportes)
                         st.session_state.cache = None
                         st.session_state.cache_analisis_r = None
+                        st.session_state.cache_foto_bytes = None
+                        st.session_state.cache_foto_clasif_bytes = None
                         st.session_state.seccion = "historial"
                         for k in ["click_lat","click_lon","click_dir","click_barrio"]:
                             st.session_state.pop(k, None)
@@ -2840,6 +2887,8 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                     if st.button("❌ Cancelar", use_container_width=True, key="r_cancelar"):
                         st.session_state.cache = None
                         st.session_state.cache_analisis_r = None
+                        st.session_state.cache_foto_bytes = None
+                        st.session_state.cache_foto_clasif_bytes = None
                         st.rerun()
 
     # ── SECCIÓN: Punto Crítico ─────────────────────────────────────────
@@ -2993,6 +3042,13 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         st.session_state.cache_phash = calcular_phash(img2_blur)
                         st.session_state.cache_fotos_extra_b64 = fotos_extra_a_json(cr_imgs_extra_pil)
 
+                        buf_foto_full_cr = BytesIO()
+                        img2_blur.convert("RGB").save(buf_foto_full_cr, format="JPEG", quality=82)
+                        st.session_state.cache_foto_bytes_cr = buf_foto_full_cr.getvalue()
+                        buf_clasif_full_cr = BytesIO()
+                        img2_detecciones.convert("RGB").save(buf_clasif_full_cr, format="JPEG", quality=82)
+                        st.session_state.cache_foto_clasif_bytes_cr = buf_clasif_full_cr.getvalue()
+
                         if hubo_personas_cr:
                             st.info("🙈 Detectamos personas en la foto y las difuminamos "
                                      "automáticamente antes de guardarla, para proteger su privacidad.")
@@ -3126,6 +3182,17 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                                 "PHash": st.session_state.get("cache_phash", ""),
                                 "Confirmaciones": 0,
                             }
+                            with st.spinner("Guardando copia permanente de las fotos..."):
+                                url_o_cr, _ = subir_foto_evidencia_github(
+                                    st.session_state.get("cache_foto_bytes_cr", b""),
+                                    f"{nuevo['Código']}.jpg", carpeta="evidencias_reportes")
+                                if url_o_cr:
+                                    nuevo["FotoURL"] = url_o_cr
+                                url_c_cr, _ = subir_foto_evidencia_github(
+                                    st.session_state.get("cache_foto_clasif_bytes_cr", b""),
+                                    f"{nuevo['Código']}.jpg", carpeta="evidencias_clasificadas")
+                                if url_c_cr:
+                                    nuevo["FotoClasificadaURL"] = url_c_cr
                             st.session_state.reportes.append(nuevo)
                             st.session_state.mis_codigos.append(nuevo["Código"])
                             st.session_state.mis_estados_vistos[nuevo["Código"]] = nuevo["Estado"]
@@ -3135,6 +3202,8 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                             st.session_state.cache_fotos_extra_b64 = None
                             st.session_state.cache_phash = None
                             st.session_state.cache_img_blur = None
+                            st.session_state.cache_foto_bytes_cr = None
+                            st.session_state.cache_foto_clasif_bytes_cr = None
                             st.session_state.seccion = "historial"
                             for k in ["click_lat","click_lon","click_dir","click_barrio"]:
                                 st.session_state.pop(k, None)
@@ -3705,10 +3774,10 @@ padding:10px 16px;margin-top:12px;font-size:14px;">
                     if "Resuelto" in est:
                         col = "gray"
 
-                    foto_b64 = rep.get("FotoB64", "")
-                    img_html  = (f'<br><img src="data:image/jpeg;base64,{foto_b64}" '
+                    foto_src_adm = fuente_imagen(rep.get("FotoB64", ""), rep.get("FotoURL", ""))
+                    img_html  = (f'<br><img src="{foto_src_adm}" '
                                   f'style="width:160px;border-radius:4px;margin-top:4px;">'
-                                  if foto_b64 else "")
+                                  if foto_src_adm else "")
                     obs_txt_adm = rep.get("Observaciones", "")
                     obs_html_adm = f"📝 {obs_txt_adm[:100]}<br>" if obs_txt_adm else ""
                     audio_b64_adm = rep.get("NotaVozB64", "")
@@ -3795,26 +3864,31 @@ padding:10px 16px;margin-top:12px;font-size:14px;">
                             f"un negocio o vivienda real). Si confirmas que no corresponde, "
                             f"usa el botón 🗑️ Eliminar más abajo."
                         )
-                    foto_b64 = rep.get("FotoB64","")
-                    if foto_b64:
+                    foto_src = fuente_imagen(rep.get("FotoB64",""), rep.get("FotoURL",""))
+                    if foto_src:
                         st.markdown("**📷 Foto de evidencia (original):**")
                         st.markdown(
-                            f'<img src="data:image/jpeg;base64,{foto_b64}" '
+                            f'<img src="{foto_src}" '
                             f'style="max-width:320px;border-radius:8px;margin-bottom:10px;">',
                             unsafe_allow_html=True)
-                    foto_clasif_b64 = rep.get("FotoClasificadaB64","")
-                    if foto_clasif_b64:
+                    elif rep.get("Código"):
+                        st.caption("⚠️ La foto original de este reporte no está disponible "
+                                   "(se perdió en un reinicio del servidor antes de que se "
+                                   "activara el respaldo permanente de fotos).")
+                    foto_clasif_src = fuente_imagen(rep.get("FotoClasificadaB64",""), rep.get("FotoClasificadaURL",""))
+                    if foto_clasif_src:
                         st.markdown("**🏷️ Foto clasificada por la IA:**")
                         st.markdown(
-                            f'<img src="data:image/jpeg;base64,{foto_clasif_b64}" '
+                            f'<img src="{foto_clasif_src}" '
                             f'style="max-width:320px;border-radius:8px;margin-bottom:10px;">',
                             unsafe_allow_html=True)
                     foto_resuelta_b64 = rep.get("FotoResueltaB64","")
-                    if foto_resuelta_b64:
+                    foto_resuelta_src = fuente_imagen(foto_resuelta_b64, rep.get("FotoResueltaURL",""))
+                    if foto_resuelta_src:
                         st.markdown(f"**✅ Foto de evidencia de resolución** "
                                     f"({rep.get('FechaResuelto','')}):")
                         st.markdown(
-                            f'<img src="data:image/jpeg;base64,{foto_resuelta_b64}" '
+                            f'<img src="{foto_resuelta_src}" '
                             f'style="max-width:320px;border-radius:8px;margin-bottom:10px;'
                             f'border:2px solid #16a34a;">',
                             unsafe_allow_html=True)
