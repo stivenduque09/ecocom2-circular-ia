@@ -913,6 +913,22 @@ def _normalizar_txt(txt: str) -> str:
     return txt.lower().strip()
 
 
+_PALABRAS_INTENCION_REPORTAR = [
+    "reportar", "reporto", "denunciar", "hay basura", "tengo basura",
+    "como reporto", "ayudame a reportar", "subir foto", "punto critico",
+    "quiero reportar",
+]
+
+
+def _detectar_intencion_reportar(texto: str) -> bool:
+    """Revisa si el mensaje del usuario suena a que quiere reportar un
+    residuo — para que EcoBot le ofrezca un botón que lo lleve DIRECTO a
+    la sección de reportar, en vez de solo explicarle los pasos por
+    texto. Pensado para personas que no saben navegar la app solas."""
+    texto_n = _normalizar_txt(texto)
+    return any(p in texto_n for p in _PALABRAS_INTENCION_REPORTAR)
+
+
 def adivinar_barrio(texto_nominatim: str):
     if not texto_nominatim:
         return None
@@ -2326,6 +2342,28 @@ font-size:14px;text-align:center;margin-bottom:10px;">
 <span style="font-weight:400;font-size:12px">Te ayudo a reportar residuos</span>
 </div>""", unsafe_allow_html=True)
 
+        st.caption("¿Ya sabes qué quieres hacer? Toca directo:")
+        cta1, cta2 = st.columns(2)
+        with cta1:
+            if st.button("📸 Reportar residuo", key="ecobot_cta_residuo",
+                         use_container_width=True, type="primary"):
+                st.session_state.seccion = "residuo"
+                st.session_state.agente_msgs.append(
+                    {"role": "assistant",
+                     "content": "¡Listo! Te llevé a 📸 Reportar Residuo. Ahora solo toca "
+                                "el punto exacto en el mapa y sube tu foto — yo te espero "
+                                "aquí si tienes dudas en el camino."})
+                st.rerun()
+        with cta2:
+            if st.button("🚨 Punto crítico", key="ecobot_cta_critico",
+                         use_container_width=True, type="primary"):
+                st.session_state.seccion = "critico"
+                st.session_state.agente_msgs.append(
+                    {"role": "assistant",
+                     "content": "¡Perfecto! Te llevé a 🚨 Punto Crítico. Toca el punto en "
+                                "el mapa y sube tu foto para continuar."})
+                st.rerun()
+
         for msg in st.session_state.agente_msgs[-6:]:
             contenido_html = msg["content"].replace("\n", "<br>")
             if msg["role"] == "assistant":
@@ -2342,6 +2380,15 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                     f'text-align:right;margin-bottom:6px;">'
                     f'👤 {contenido_html}</div>',
                     unsafe_allow_html=True)
+
+        ultimo_usuario = next(
+            (m["content"] for m in reversed(st.session_state.agente_msgs) if m["role"] == "user"),
+            "")
+        if _detectar_intencion_reportar(ultimo_usuario):
+            if st.button("🚀 Sí, llévame a reportar ahora", key="ecobot_ir_reportar",
+                         type="primary", use_container_width=True):
+                st.session_state.seccion = "residuo"
+                st.rerun()
 
         pregunta = st.text_input(
             "Pregunta:", placeholder="¿Cómo reporto basura?",
