@@ -1071,21 +1071,34 @@ def tamano_bd_mb() -> float:
 
 
 def generar_excel_reportes(reportes: list, incluir_contacto: bool = False) -> bytes:
-    """Genera un archivo Excel (.xlsx) organizado y legible a partir de los
-    reportes — reemplaza el CSV crudo (con columnas técnicas como PHash o
-    fotos en base64) por un archivo con encabezados claros, colores por
-    nivel de criticidad, fecha real (no texto) y una hoja de resumen con
-    las cifras clave, lista para abrir directo en Excel o Google Sheets."""
+    """Genera un archivo Excel (.xlsx) con aspecto de informe corporativo
+    (sin emojis, colores sobrios, tipografía formal) y gráficas reales de
+    Excel (barras y torta) en la hoja de Resumen, además de la hoja de
+    detalle con cada reporte — reemplaza el CSV crudo por algo listo para
+    entregar en un informe oficial."""
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
     from openpyxl.utils import get_column_letter
+    from openpyxl.chart import BarChart, PieChart, Reference
+    from openpyxl.chart.label import DataLabelList
 
     wb = Workbook()
 
-    HEADER_FILL = PatternFill("solid", fgColor="16A34A")
-    HEADER_FONT = Font(color="FFFFFF", bold=True, size=11)
-    TITULO_FONT = Font(bold=True, size=14, color="166534")
+    AZUL_OSCURO   = "1F2937"
+    VERDE_ACENTO  = "166534"
+    GRIS_TEXTO    = "6B7280"
+    GRIS_CLARO    = "F3F4F6"
+
+    HEADER_FILL = PatternFill("solid", fgColor=AZUL_OSCURO)
+    HEADER_FONT = Font(color="FFFFFF", bold=True, size=11, name="Calibri")
+    TITULO_FONT = Font(bold=True, size=16, color=AZUL_OSCURO, name="Calibri")
+    SUBTITULO_FONT = Font(size=11, color=VERDE_ACENTO, name="Calibri")
+    NOTA_FONT = Font(italic=True, color=GRIS_TEXTO, size=9, name="Calibri")
+    SECCION_FONT = Font(bold=True, size=12, color=AZUL_OSCURO, name="Calibri")
     BORDE = Border(bottom=Side(style="thin", color="D1D5DB"))
+    BORDE_CAJA = Border(
+        left=Side(style="thin", color="D1D5DB"), right=Side(style="thin", color="D1D5DB"),
+        top=Side(style="thin", color="D1D5DB"), bottom=Side(style="thin", color="D1D5DB"))
     CENTRO = Alignment(horizontal="center", vertical="center", wrap_text=True)
     IZQ = Alignment(horizontal="left", vertical="center", wrap_text=True)
 
@@ -1094,6 +1107,7 @@ def generar_excel_reportes(reportes: list, incluir_contacto: bool = False) -> by
     # ── HOJA 1: Resumen ──────────────────────────────────────────────
     ws_r = wb.active
     ws_r.title = "Resumen"
+    ws_r.sheet_view.showGridLines = False
 
     total = len(reportes)
     criticos  = sum(1 for r in reportes if "🔴" in r.get("Clasificación",""))
@@ -1104,43 +1118,139 @@ def generar_excel_reportes(reportes: list, incluir_contacto: bool = False) -> by
     resueltos = sum(1 for r in reportes if "Resuelto" in r.get("Estado",""))
     peso_total= sum(float(r.get("Peso (Kg)", 0) or 0) for r in reportes)
 
-    ws_r["B2"] = "♻️ EcoCom2 Circular IA — Resumen de reportes"
+    ws_r["B2"] = "EcoCom2 Circular IA"
     ws_r["B2"].font = TITULO_FONT
-    ws_r["B3"] = f"Generado: {datetime.now().strftime('%d/%m/%Y %H:%M')}"
-    ws_r["B3"].font = Font(italic=True, color="6B7280", size=10)
+    ws_r["B3"] = "Informe de Gestión de Residuos Sólidos — Comuna 2, Santa Cruz"
+    ws_r["B3"].font = SUBTITULO_FONT
+    ws_r["B4"] = f"Generado el {datetime.now().strftime('%d/%m/%Y a las %H:%M')}"
+    ws_r["B4"].font = NOTA_FONT
 
-    fila = 5
+    # ── Tabla de indicadores clave ──
+    fila_kpi_inicio = 6
+    ws_r.cell(row=fila_kpi_inicio, column=2, value="Indicador").font = HEADER_FONT
+    ws_r.cell(row=fila_kpi_inicio, column=2).fill = HEADER_FILL
+    ws_r.cell(row=fila_kpi_inicio, column=3, value="Valor").font = HEADER_FONT
+    ws_r.cell(row=fila_kpi_inicio, column=3).fill = HEADER_FILL
+    fila = fila_kpi_inicio + 1
     for etiqueta, valor in [
         ("Total de reportes", total),
-        ("🔴 Puntos críticos", criticos),
-        ("🟡 Puntos amarillos", amarillos),
-        ("🟢 Puntos verdes", verdes),
-        ("⏳ Pendientes", pendientes),
-        ("🚚 En proceso", proceso),
-        ("✅ Resueltos", resueltos),
-        ("⚖️ Peso total estimado (kg)", round(peso_total, 1)),
+        ("Puntos críticos", criticos),
+        ("Puntos amarillos", amarillos),
+        ("Puntos verdes", verdes),
+        ("Pendientes", pendientes),
+        ("En proceso", proceso),
+        ("Resueltos", resueltos),
+        ("Peso total estimado (kg)", round(peso_total, 1)),
     ]:
-        ws_r.cell(row=fila, column=2, value=etiqueta).font = Font(bold=True)
-        ws_r.cell(row=fila, column=3, value=valor)
+        c_lbl = ws_r.cell(row=fila, column=2, value=etiqueta)
+        c_val = ws_r.cell(row=fila, column=3, value=valor)
+        c_lbl.border = BORDE_CAJA
+        c_val.border = BORDE_CAJA
+        c_lbl.alignment = IZQ
+        c_val.alignment = CENTRO
+        if fila % 2 == 0:
+            c_lbl.fill = PatternFill("solid", fgColor=GRIS_CLARO)
+            c_val.fill = PatternFill("solid", fgColor=GRIS_CLARO)
         fila += 1
+    fila_kpi_fin = fila - 1
 
+    # ── Datos de apoyo para las gráficas (Estado y Nivel) ──
+    fila_estado_inicio = fila_kpi_inicio
+    ws_r.cell(row=fila_estado_inicio, column=5, value="Estado").font = HEADER_FONT
+    ws_r.cell(row=fila_estado_inicio, column=5).fill = HEADER_FILL
+    ws_r.cell(row=fila_estado_inicio, column=6, value="Cantidad").font = HEADER_FONT
+    ws_r.cell(row=fila_estado_inicio, column=6).fill = HEADER_FILL
+    for i, (nombre, val) in enumerate([("Pendientes", pendientes), ("En proceso", proceso),
+                                        ("Resueltos", resueltos)], start=1):
+        ws_r.cell(row=fila_estado_inicio + i, column=5, value=nombre).border = BORDE_CAJA
+        ws_r.cell(row=fila_estado_inicio + i, column=6, value=val).border = BORDE_CAJA
+    fila_estado_fin = fila_estado_inicio + 3
+
+    fila_nivel_inicio = fila_estado_fin + 2
+    ws_r.cell(row=fila_nivel_inicio, column=5, value="Nivel de criticidad").font = HEADER_FONT
+    ws_r.cell(row=fila_nivel_inicio, column=5).fill = HEADER_FILL
+    ws_r.cell(row=fila_nivel_inicio, column=6, value="Cantidad").font = HEADER_FONT
+    ws_r.cell(row=fila_nivel_inicio, column=6).fill = HEADER_FILL
+    for i, (nombre, val) in enumerate([("Críticos", criticos), ("Amarillos", amarillos),
+                                        ("Verdes", verdes)], start=1):
+        ws_r.cell(row=fila_nivel_inicio + i, column=5, value=nombre).border = BORDE_CAJA
+        ws_r.cell(row=fila_nivel_inicio + i, column=6, value=val).border = BORDE_CAJA
+    fila_nivel_fin = fila_nivel_inicio + 3
+
+    # ── Reportes por barrio ──
+    fila = fila_kpi_fin + 3
+    ws_r.cell(row=fila, column=2, value="Reportes por barrio").font = SECCION_FONT
     fila += 1
-    ws_r.cell(row=fila, column=2, value="📍 Reportes por barrio").font = Font(bold=True, size=12, color="166534")
-    fila += 1
+    fila_barrio_header = fila
     ws_r.cell(row=fila, column=2, value="Barrio").font = HEADER_FONT
     ws_r.cell(row=fila, column=2).fill = HEADER_FILL
     ws_r.cell(row=fila, column=3, value="Reportes").font = HEADER_FONT
     ws_r.cell(row=fila, column=3).fill = HEADER_FILL
     fila += 1
+    fila_barrio_inicio = fila
     conteo_barrio = Counter(r.get("Sector", "—") for r in reportes)
-    for barrio, cant in sorted(conteo_barrio.items(), key=lambda x: -x[1]):
-        ws_r.cell(row=fila, column=2, value=barrio)
-        ws_r.cell(row=fila, column=3, value=cant)
+    for idx, (barrio, cant) in enumerate(sorted(conteo_barrio.items(), key=lambda x: -x[1])):
+        c_b = ws_r.cell(row=fila, column=2, value=barrio)
+        c_c = ws_r.cell(row=fila, column=3, value=cant)
+        c_b.border = BORDE_CAJA
+        c_c.border = BORDE_CAJA
+        c_b.alignment = IZQ
+        c_c.alignment = CENTRO
+        if idx % 2 == 1:
+            c_b.fill = PatternFill("solid", fgColor=GRIS_CLARO)
+            c_c.fill = PatternFill("solid", fgColor=GRIS_CLARO)
         fila += 1
+    fila_barrio_fin = max(fila - 1, fila_barrio_inicio)
 
     ws_r.column_dimensions["A"].width = 3
-    ws_r.column_dimensions["B"].width = 32
+    ws_r.column_dimensions["B"].width = 30
     ws_r.column_dimensions["C"].width = 14
+    ws_r.column_dimensions["D"].width = 3
+    ws_r.column_dimensions["E"].width = 18
+    ws_r.column_dimensions["F"].width = 12
+
+    # ── Gráficas ──
+    if total > 0:
+        pie_estado = PieChart()
+        pie_estado.title = "Distribución por estado"
+        pie_estado.height, pie_estado.width = 7, 10
+        datos_estado = Reference(ws_r, min_col=6, min_row=fila_estado_inicio,
+                                  max_row=fila_estado_fin)
+        etiquetas_estado = Reference(ws_r, min_col=5, min_row=fila_estado_inicio + 1,
+                                      max_row=fila_estado_fin)
+        pie_estado.add_data(datos_estado, titles_from_data=True)
+        pie_estado.set_categories(etiquetas_estado)
+        pie_estado.dataLabels = DataLabelList()
+        pie_estado.dataLabels.showVal = True
+        ws_r.add_chart(pie_estado, "H6")
+
+        pie_nivel = PieChart()
+        pie_nivel.title = "Distribución por nivel de criticidad"
+        pie_nivel.height, pie_nivel.width = 7, 10
+        datos_nivel = Reference(ws_r, min_col=6, min_row=fila_nivel_inicio,
+                                 max_row=fila_nivel_fin)
+        etiquetas_nivel = Reference(ws_r, min_col=5, min_row=fila_nivel_inicio + 1,
+                                     max_row=fila_nivel_fin)
+        pie_nivel.add_data(datos_nivel, titles_from_data=True)
+        pie_nivel.set_categories(etiquetas_nivel)
+        pie_nivel.dataLabels = DataLabelList()
+        pie_nivel.dataLabels.showVal = True
+        ws_r.add_chart(pie_nivel, "H21")
+
+        if fila_barrio_fin >= fila_barrio_inicio:
+            barras_barrio = BarChart()
+            barras_barrio.type = "col"
+            barras_barrio.title = "Reportes por barrio"
+            barras_barrio.height, barras_barrio.width = 8, 16
+            barras_barrio.y_axis.title = "Cantidad de reportes"
+            datos_barrio = Reference(ws_r, min_col=3, min_row=fila_barrio_header,
+                                      max_row=fila_barrio_fin)
+            etiquetas_barrio = Reference(ws_r, min_col=2, min_row=fila_barrio_inicio,
+                                          max_row=fila_barrio_fin)
+            barras_barrio.add_data(datos_barrio, titles_from_data=True)
+            barras_barrio.set_categories(etiquetas_barrio)
+            barras_barrio.legend = None
+            ws_r.add_chart(barras_barrio, "H36")
 
     # ── HOJA 2: Reportes ─────────────────────────────────────────────
     ws = wb.create_sheet("Reportes")
