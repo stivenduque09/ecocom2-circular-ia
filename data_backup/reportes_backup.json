@@ -16,7 +16,9 @@
     "Confirmaciones": 0,
     "FechaResuelto": null,
     "FotoResueltaURL": null,
-    "ReportesFalsos": 0
+    "ReportesFalsos": 0,
+    "FotoURL": null,
+    "FotoClasificadaURL": null
   },
   {
     "Código": "CRIT-501",
@@ -35,7 +37,9 @@
     "Confirmaciones": 0,
     "FechaResuelto": null,
     "FotoResueltaURL": null,
-    "ReportesFalsos": 0
+    "ReportesFalsos": 0,
+    "FotoURL": null,
+    "FotoClasificadaURL": null
   },
   {
     "Código": "CRIT-502",
@@ -54,7 +58,9 @@
     "Confirmaciones": 0,
     "FechaResuelto": null,
     "FotoResueltaURL": null,
-    "ReportesFalsos": 0
+    "ReportesFalsos": 0,
+    "FotoURL": null,
+    "FotoClasificadaURL": null
   },
   {
     "Código": "CRIT-503",
@@ -73,7 +79,9 @@
     "Confirmaciones": 0,
     "FechaResuelto": null,
     "FotoResueltaURL": null,
-    "ReportesFalsos": 0
+    "ReportesFalsos": 0,
+    "FotoURL": null,
+    "FotoClasificadaURL": null
   },
   {
     "Código": "CRIT-504",
@@ -92,7 +100,9 @@
     "Confirmaciones": 0,
     "FechaResuelto": null,
     "FotoResueltaURL": null,
-    "ReportesFalsos": 0
+    "ReportesFalsos": 0,
+    "FotoURL": null,
+    "FotoClasificadaURL": null
   },
   {
     "Código": "CRIT-505",
@@ -111,7 +121,9 @@
     "Confirmaciones": 0,
     "FechaResuelto": null,
     "FotoResueltaURL": null,
-    "ReportesFalsos": 0
+    "ReportesFalsos": 0,
+    "FotoURL": null,
+    "FotoClasificadaURL": null
   },
   {
     "Código": "REP-206",
@@ -130,7 +142,9 @@
     "Confirmaciones": 0,
     "FechaResuelto": null,
     "FotoResueltaURL": null,
-    "ReportesFalsos": 0
+    "ReportesFalsos": 0,
+    "FotoURL": null,
+    "FotoClasificadaURL": null
   },
   {
     "Código": "CRIT-507",
@@ -149,7 +163,9 @@
     "Confirmaciones": 0,
     "FechaResuelto": null,
     "FotoResueltaURL": null,
-    "ReportesFalsos": 0
+    "ReportesFalsos": 0,
+    "FotoURL": null,
+    "FotoClasificadaURL": null
   },
   {
     "Código": "CRIT-508",
@@ -168,6 +184,8 @@
     "Confirmaciones": 0,
     "FechaResuelto": null,
     "FotoResueltaURL": null,
-    "ReportesFalsos": 0
+    "ReportesFalsos": 0,
+    "FotoURL": null,
+    "FotoClasificadaURL": null
   }
 ]
