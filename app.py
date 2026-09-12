@@ -1056,13 +1056,6 @@ def campo_codigo_residente(key: str) -> str:
     return valor.strip()
 
 
-def verificar_api_key() -> bool:
-    try:
-        return bool(st.secrets.get("ANTHROPIC_API_KEY", "").strip())
-    except Exception:
-        return False
-
-
 def tamano_bd_mb() -> float:
     try:
         return round(DB_PATH.stat().st_size / (1024 * 1024), 2)
@@ -2262,7 +2255,7 @@ Usa emojis. Sé accesible para niños, adultos y personas mayores.
 La app permite:
 - Verificar si el usuario vive en la Comuna 2
 - Tocar el mapa para marcar el punto del residuo
-- La IA (YOLOv8) analiza la foto y detecta materiales
+- La IA (Gemini o YOLO, según el motor elegido) analiza la foto y detecta materiales
 - 🟢 Verde: ≥60% reciclables | 🟡 Amarillo: mezcla | 🔴 Rojo: basura sin valorizar
 - El reporte queda visible en el mapa comunitario
 
@@ -2275,38 +2268,39 @@ Pasos para reportar:
 6. Presiona Publicar
 
 Redirige preguntas no relacionadas al tema de residuos."""
-        if not verificar_api_key():
+        if not verificar_gemini_key():
             return ("🤖 El asistente con IA no está disponible en este momento "
                     "(falta configuración del administrador). Aquí va la ayuda "
                     "rápida: 1️⃣ Verifica dirección 2️⃣ Toca el mapa "
                     "3️⃣ Sube foto 4️⃣ Publica.")
         try:
             import requests
-            api_key = st.secrets.get("ANTHROPIC_API_KEY", "")
+            api_key = _gemini_config()
 
-            headers = {
-                "Content-Type": "application/json",
-                "x-api-key": api_key,
-                "anthropic-version": "2023-06-01",
-            }
-
-            mensajes_api = [
-                {"role": m["role"], "content": m["content"]}
+            contenidos = [
+                {"role": "model" if m["role"] == "assistant" else "user",
+                 "parts": [{"text": m["content"]}]}
                 for m in mensajes_historial
             ]
+
+            url = ("https://generativelanguage.googleapis.com/v1beta/models/"
+                   "gemini-3.6-flash:generateContent")
+            headers = {
+                "Content-Type": "application/json",
+                "x-goog-api-key": api_key,
+            }
             resp = requests.post(
-                "https://api.anthropic.com/v1/messages",
+                url,
                 headers=headers,
                 json={
-                    "model": "claude-haiku-4-5-20251001",
-                    "max_tokens": 250,
-                    "system": SISTEMA_AGENTE,
-                    "messages": mensajes_api,
+                    "systemInstruction": {"parts": [{"text": SISTEMA_AGENTE}]},
+                    "contents": contenidos,
+                    "generationConfig": {"temperature": 0.4, "maxOutputTokens": 250},
                 },
                 timeout=20,
             )
             if resp.status_code == 200:
-                return resp.json()["content"][0]["text"]
+                return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
             else:
                 return ("⚠️ No pude conectarme ahora. "
                         "Pasos: 1️⃣ Verifica dirección 2️⃣ Toca el mapa "
@@ -3706,16 +3700,16 @@ margin-bottom:8px;">
         st.markdown("#### ⚙️ Estado del sistema")
         est1, est2, est3, est4 = st.columns(4)
         with est1:
-            if verificar_api_key():
+            if verificar_gemini_key():
                 st.markdown(
                     '<div class="badge-ok" style="font-size:13px;">'
-                    '✅ API key de Anthropic configurada<br>'
-                    '<span style="font-weight:normal">EcoBot puede responder con IA.</span></div>',
+                    '✅ EcoBot conectado a Gemini<br>'
+                    '<span style="font-weight:normal">El chatbot puede responder con IA.</span></div>',
                     unsafe_allow_html=True)
             else:
                 st.markdown(
                     '<div class="badge-err" style="font-size:13px;">'
-                    '⚠️ ANTHROPIC_API_KEY no configurada<br>'
+                    '⚠️ GEMINI_API_KEY no configurada<br>'
                     '<span style="font-weight:normal">EcoBot está en modo "sin conexión" — '
                     'configúrala en Settings → Secrets de tu hosting.</span></div>',
                     unsafe_allow_html=True)
