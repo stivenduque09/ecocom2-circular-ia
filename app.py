@@ -910,6 +910,7 @@ def geocodificar(direccion: str, max_resultados: int = 5):
 
 def _normalizar_txt(txt: str) -> str:
     txt = unicodedata.normalize("NFKD", txt or "").encode("ascii", "ignore").decode("ascii")
+    txt = re.sub(r"\s+", " ", txt)  # colapsa espacios dobles que quedan al quitar emojis
     return txt.lower().strip()
 
 
@@ -927,6 +928,74 @@ def _detectar_intencion_reportar(texto: str) -> bool:
     texto. Pensado para personas que no saben navegar la app solas."""
     texto_n = _normalizar_txt(texto)
     return any(p in texto_n for p in _PALABRAS_INTENCION_REPORTAR)
+
+
+# Respuestas ya redactadas y completas para las preguntas más importantes
+# de la app — así EcoBot nunca improvisa algo corto o vago (ej. "¡Es muy
+# fácil!" y nada más) en temas donde alguien que no sabe usar la app de
+# verdad necesita el paso a paso completo. Si la pregunta no coincide con
+# ninguna de estas, se recurre a Gemini como respaldo "inteligente".
+_FAQ_ECOBOT = [
+    (["como reporto", "reportar basura", "quiero reportar", "denunciar",
+      "como hago un reporte", "como se reporta"],
+     "📸 Para reportar es sencillo:\n"
+     "1️⃣ Verifica tu dirección (botón GPS o escríbela a mano)\n"
+     "2️⃣ Toca el punto exacto del residuo en el mapa\n"
+     "3️⃣ Presiona '📸 Reportar Residuo' o '🚨 Punto Crítico'\n"
+     "4️⃣ Sube una foto — la IA la analiza sola\n"
+     "5️⃣ Revisa el resultado y presiona '🚀 Publicar'\n\n"
+     "¿Quieres que te lleve directo? Usa el botón 📸 Reportar residuo de arriba 👆"),
+    (["que significa rojo", "punto critico que es", "color rojo"],
+     "🔴 Rojo = Punto crítico: o hay muy pocos reciclables (menos del 30%), "
+     "o el montón es tan grande que necesita recolección urgente, sin importar "
+     "qué tan buen material tenga."),
+    (["que significa amarillo", "color amarillo"],
+     "🟡 Amarillo = Residuos mixtos: una mezcla de reciclable y no reciclable, "
+     "o buen material pero en un volumen considerable."),
+    (["que significa verde", "color verde"],
+     "🟢 Verde = Alta valorización: al menos 60% de lo que hay es reciclable "
+     "y el volumen es manejable — el mejor escenario posible."),
+    (["como verifico mi direccion", "como pongo mi direccion", "gps no funciona",
+      "no tengo gps"],
+     "📍 Para verificar tu dirección: presiona el botón grande '📍 Usar mi ubicación "
+     "(GPS)' y acepta el permiso del navegador. Si prefieres, abre '¿No tienes GPS "
+     "o prefieres escribir tu dirección?' y escríbela a mano. También puedes tocar "
+     "directamente el punto en el mapa."),
+    (["para que sirve la ia", "que hace la inteligencia artificial", "que es gemini",
+      "que es yolo", "como analiza la ia"],
+     "🧠 La IA analiza tu foto y clasifica los residuos por categoría (orgánico, "
+     "plástico, vidrio, cartón, papel). Puedes elegir entre ✨ Gemini (más detallado, "
+     "por categoría de material) o 🟢 YOLO (funciona sin internet, por tipo exacto "
+     "de objeto) justo antes de analizar tu foto."),
+    (["ya se resolvio", "como se si se soluciono", "estado de mi reporte"],
+     "✅ Cuando la administración marca tu reporte como 'Resuelto', te llega un aviso "
+     "en '👤 Mi Historial' — a veces con una foto de cómo quedó el punto. Si dejaste "
+     "tu número, también te llega por WhatsApp."),
+    (["como confirmo", "sigue ahi", "todavia esta la basura"],
+     "👍 Si pasas por un punto ya reportado y el residuo sigue ahí, ve a '👤 Mi "
+     "Historial' → 'Confirmar reportes activos de la comunidad' y presiona '👍 "
+     "Confirmar' — eso ayuda a la administración a priorizar dónde limpiar primero."),
+    (["reporte falso", "no es basura", "esto no es un residuo"],
+     "🚩 Si ves un reporte que en realidad no muestra basura (por ejemplo, un negocio "
+     "o una vivienda), ve a '👤 Mi Historial' → 'Confirmar reportes activos' y usa el "
+     "botón '🚩 No es basura'. Eso ayuda a que la administración lo revise."),
+    (["cuantos reportes puedo hacer", "limite de reportes", "ya no me deja reportar"],
+     "🚫 Hay un límite de 8 reportes por día por persona, para evitar abuso de la "
+     "app. Si dejaste tu número/código al reportar, el conteo es más preciso; si no, "
+     "se cuenta por sesión del navegador."),
+]
+
+
+def _responder_faq_ecobot(pregunta: str):
+    """Busca una respuesta ya redactada para preguntas frecuentes clave —
+    si encuentra coincidencia, la devuelve de inmediato (sin gastar una
+    llamada a la IA, y sin arriesgarse a una respuesta corta o vaga). Si
+    no hay coincidencia, devuelve None para que se use Gemini."""
+    texto_n = _normalizar_txt(pregunta)
+    for palabras_clave, respuesta in _FAQ_ECOBOT:
+        if any(_normalizar_txt(p) in texto_n for p in palabras_clave):
+            return respuesta
+    return None
 
 
 def adivinar_barrio(texto_nominatim: str):
@@ -2262,11 +2331,18 @@ if menu == "🏠 Inicio y Mapa":
         st.session_state.agente_pendiente = False
 
     def llamar_ecobot(mensajes_historial: list) -> str:
+        ultimo_mensaje = mensajes_historial[-1]["content"] if mensajes_historial else ""
+        respuesta_faq = _responder_faq_ecobot(ultimo_mensaje)
+        if respuesta_faq:
+            return respuesta_faq
+
         SISTEMA_AGENTE = """Eres EcoBot, el asistente amigable de EcoCom2 Circular IA,
 una app para reportar residuos en la Comuna 2 - Santa Cruz de Medellín, Colombia.
 
-Responde en español, de forma CORTA (máximo 3 oraciones), amigable y clara.
-Usa emojis. Sé accesible para niños, adultos y personas mayores.
+Responde en español, de forma CLARA y COMPLETA pero breve (máximo 4
+oraciones). Usa emojis. Sé accesible para niños, adultos y personas
+mayores. NUNCA respondas con una frase vaga como "¡Es muy fácil!" sin
+explicar el cómo — siempre da el paso concreto que la persona necesita.
 
 La app permite:
 - Verificar si el usuario vive en la Comuna 2
@@ -2418,11 +2494,17 @@ font-size:14px;text-align:center;margin-bottom:10px;">
         preguntas_rapidas = [
             "¿Cómo reporto basura?",
             "¿Qué significa 🔴 rojo?",
+            "¿Qué significa 🟡 amarillo?",
+            "¿Qué significa 🟢 verde?",
             "¿Cómo verifico mi dirección?",
             "¿Para qué sirve la IA?",
+            "¿Cómo sé si ya se resolvió?",
+            "¿Cómo confirmo que sigue ahí?",
+            "Veo un reporte falso, ¿qué hago?",
+            "¿Cuántos reportes puedo hacer?",
         ]
-        for pq in preguntas_rapidas:
-            if st.button(pq, key=f"pq_{pq[:15]}", use_container_width=True):
+        for idx_pq, pq in enumerate(preguntas_rapidas):
+            if st.button(pq, key=f"pq_{idx_pq}", use_container_width=True):
                 st.session_state.agente_msgs.append({"role": "user", "content": pq})
                 st.session_state.agente_pendiente = True
                 st.rerun()
