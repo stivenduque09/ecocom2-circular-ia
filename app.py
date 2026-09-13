@@ -2886,19 +2886,21 @@ font-size:14px;text-align:center;margin-bottom:10px;">
 
             if img is not None:
                 r_motor = st.radio(
-                    "🧠 Motor de clasificación IA:",
-                    ["✨ Gemini (Google) — por categoría de material",
-                     "🟢 YOLO local — por tipo de objeto"],
+                    "Motor de clasificación de imagen:",
+                    ["Gemini — IA externa (Google Cloud)",
+                     "YOLO — IA local del sistema"],
                     key="r_motor_ia", horizontal=True,
                     index=0 if verificar_gemini_key() else 1,
-                    help="Gemini encierra cada residuo en un color distinto según "
-                         "el material (Orgánicos, Plásticos, Vidrio, Cartón, Papel). "
-                         "YOLO detecta el tipo exacto de objeto (botella, silla, etc.)."
+                    help="Gemini es un servicio externo de Google que clasifica por "
+                         "categoría de material (Orgánicos, Plásticos, Vidrio, Cartón, "
+                         "Papel). YOLO es la IA integrada en el programa: detecta el "
+                         "tipo exacto de objeto (botella, silla, etc.) sin depender de "
+                         "una conexión externa."
                 )
-                usar_gemini_r = r_motor.startswith("✨")
+                usar_gemini_r = r_motor.startswith("Gemini")
                 if usar_gemini_r and not verificar_gemini_key():
-                    st.warning("⚠️ Gemini no está configurado (falta GEMINI_API_KEY "
-                               "en Secrets) — se usará YOLO local en su lugar.")
+                    st.warning("Gemini no está configurado (falta GEMINI_API_KEY "
+                               "en Secrets); se usará YOLO local en su lugar.")
                     usar_gemini_r = False
 
                 if st.button("🔍 Analizar con IA", type="primary",
@@ -3212,19 +3214,21 @@ font-size:14px;text-align:center;margin-bottom:10px;">
             if img2 is not None:
 
                 cr_motor = st.radio(
-                    "🧠 Motor de clasificación IA:",
-                    ["✨ Gemini (Google) — por categoría de material",
-                     "🟢 YOLO local — por tipo de objeto"],
+                    "Motor de clasificación de imagen:",
+                    ["Gemini — IA externa (Google Cloud)",
+                     "YOLO — IA local del sistema"],
                     key="cr_motor_ia", horizontal=True,
                     index=0 if verificar_gemini_key() else 1,
-                    help="Gemini encierra cada residuo en un color distinto según "
-                         "el material (Orgánicos, Plásticos, Vidrio, Cartón, Papel). "
-                         "YOLO detecta el tipo exacto de objeto (botella, silla, etc.)."
+                    help="Gemini es un servicio externo de Google que clasifica por "
+                         "categoría de material (Orgánicos, Plásticos, Vidrio, Cartón, "
+                         "Papel). YOLO es la IA integrada en el programa: detecta el "
+                         "tipo exacto de objeto (botella, silla, etc.) sin depender de "
+                         "una conexión externa."
                 )
-                usar_gemini_cr = cr_motor.startswith("✨")
+                usar_gemini_cr = cr_motor.startswith("Gemini")
                 if usar_gemini_cr and not verificar_gemini_key():
-                    st.warning("⚠️ Gemini no está configurado (falta GEMINI_API_KEY "
-                               "en Secrets) — se usará YOLO local en su lugar.")
+                    st.warning("Gemini no está configurado (falta GEMINI_API_KEY "
+                               "en Secrets); se usará YOLO local en su lugar.")
                     usar_gemini_cr = False
 
                 if st.button("🔍 Evaluar con IA", type="primary",
