@@ -1624,12 +1624,12 @@ def verificar_gemini_key() -> bool:
 # material — por eso el peso aquí es un promedio por categoría, no por
 # tipo de objeto como en el diccionario MAT.
 CATEGORIAS_GEMINI = {
-    "Organicos": {"color": "#22c55e", "etiqueta": "🌿 Orgánicos",              "etiqueta_dibujo": "Organicos", "peso_kg": 0.20, "reciclable": True},
-    "Plasticos": {"color": "#eab308", "etiqueta": "♻️ Plásticos",              "etiqueta_dibujo": "Plasticos", "peso_kg": 0.15, "reciclable": True},
+    "Organicos": {"color": "#92400e", "etiqueta": "🌿 Orgánicos",              "etiqueta_dibujo": "Organicos", "peso_kg": 0.20, "reciclable": True},
+    "Plasticos": {"color": "#3b82f6", "etiqueta": "♻️ Plásticos",              "etiqueta_dibujo": "Plasticos", "peso_kg": 0.15, "reciclable": True},
     "Vidrio":    {"color": "#a855f7", "etiqueta": "🍶 Vidrio",                 "etiqueta_dibujo": "Vidrio",    "peso_kg": 0.35, "reciclable": True},
-    "Carton":    {"color": "#ef4444", "etiqueta": "📦 Cartón",                 "etiqueta_dibujo": "Carton",    "peso_kg": 0.30, "reciclable": True},
-    "Papel":     {"color": "#3b82f6", "etiqueta": "📄 Papel",                  "etiqueta_dibujo": "Papel",     "peso_kg": 0.10, "reciclable": True},
-    "Otros":     {"color": "#6b7280", "etiqueta": "❓ Otros / no identificado", "etiqueta_dibujo": "Otros",     "peso_kg": 0.20, "reciclable": False},
+    "Carton":    {"color": "#16a34a", "etiqueta": "📦 Cartón",                 "etiqueta_dibujo": "Carton",    "peso_kg": 0.30, "reciclable": True},
+    "Papel":     {"color": "#eab308", "etiqueta": "📄 Papel",                  "etiqueta_dibujo": "Papel",     "peso_kg": 0.10, "reciclable": True},
+    "Otros":     {"color": "#ef4444", "etiqueta": "❓ Otros / no identificado", "etiqueta_dibujo": "Otros",     "peso_kg": 0.20, "reciclable": False},
 }
 
 _PROMPT_GEMINI_RESIDUOS = """Eres un clasificador de residuos sólidos para una app de gestión de basura comunitaria, y también un filtro contra reportes falsos o de mala fe — por ejemplo, alguien fotografiando un negocio legítimo en funcionamiento (como un puesto de comida), una vivienda, un vehículo, una mascota, u otra persona, e intentando hacerlo pasar como un punto de basura para molestar o perjudicar a alguien.
@@ -1650,6 +1650,14 @@ lugar, encierra en cajas más grandes las zonas visibles agrupadas por
 material predominante (ej. una caja cubriendo toda la zona de escombros,
 otra la zona de bolsas plásticas), para dar al menos una estimación
 aproximada en vez de ningún resultado.
+
+IMPORTANTE: no dejes NINGÚN residuo visible sin encerrar en una caja. Si
+un objeto no encaja claramente en ninguna categoría de material, ponlo en
+"Otros" — pero siempre debe quedar dentro de alguna caja, nunca fuera de
+todas. Los escombros o montones de construcción SIEMPRE van en cajas
+separadas del resto (categoría "Otros"), nunca mezclados con bolsas de
+material reciclable en la misma caja.
+
 Clasifica cada objeto o zona detectada en UNA sola de estas categorías
 EXACTAS (usa el texto tal cual, sin tildes ni cambios):
 - "Organicos"  (comida, restos vegetales, madera en descomposición)
@@ -1828,10 +1836,13 @@ def _hex_a_rgb(color_hex):
 
 
 def _dibujar_resumen_gemini(img_pil, detecciones):
-    """Agrega una franja semitransparente en la esquina superior izquierda
+    """Agrega una franja semitransparente en la esquina inferior izquierda
     con el conteo total por categoría (ej. 'Plasticos: 17') — para que de
     un vistazo, sin contar cajas una por una, se entienda qué hay en el
-    reporte. Solo lista las categorías que sí aparecieron en la foto."""
+    reporte. Va abajo (no arriba) porque las cajas de detección suelen
+    concentrarse en la mitad/parte alta de la foto (donde está el montón),
+    así se reduce que el resumen tape alguna caja. Solo lista las
+    categorías que sí aparecieron en la foto."""
     from PIL import ImageDraw, ImageFont
     conteo = Counter(d["categoria"] for d in detecciones)
     if not conteo:
@@ -1843,6 +1854,7 @@ def _dibujar_resumen_gemini(img_pil, detecciones):
         return img_pil
 
     img_rgba = img_pil.convert("RGBA")
+    w, h = img_rgba.size
     overlay = Image.new("RGBA", img_rgba.size, (0, 0, 0, 0))
     draw = ImageDraw.Draw(overlay)
     try:
@@ -1852,13 +1864,14 @@ def _dibujar_resumen_gemini(img_pil, detecciones):
 
     pad, alto_fila, lado_caja, ancho_panel = 10, 22, 14, 190
     alto_panel = pad * 2 + alto_fila * len(filas)
-    draw.rectangle([10, 10, 10 + ancho_panel, 10 + alto_panel], fill=(0, 0, 0, 160))
+    x0, y0 = 10, h - alto_panel - 10
+    draw.rectangle([x0, y0, x0 + ancho_panel, y0 + alto_panel], fill=(0, 0, 0, 170))
 
-    y = 10 + pad
+    y = y0 + pad
     for cat, cant in filas:
         info = CATEGORIAS_GEMINI.get(cat, CATEGORIAS_GEMINI["Otros"])
         color_rgb = _hex_a_rgb(info["color"])
-        x = 10 + pad
+        x = x0 + pad
         draw.rectangle([x, y + 3, x + lado_caja, y + 3 + lado_caja], fill=color_rgb + (255,))
         draw.text((x + lado_caja + 8, y), f"{info['etiqueta_dibujo']}: {cant}",
                    fill=(255, 255, 255, 255), font=fuente)
