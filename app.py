@@ -1658,14 +1658,25 @@ todas. Los escombros o montones de construcción SIEMPRE van en cajas
 separadas del resto (categoría "Otros"), nunca mezclados con bolsas de
 material reciclable en la misma caja.
 
+REGLA CLAVE — clasifica por CONTENIDO, no por el empaque: si ves un
+costal, bulto o bolsa cuyo material exterior es plástico pero claramente
+está lleno de escombros, piedras, tierra o material de construcción (se
+nota por la forma abultada, irregular y pesada, o porque el contenido se
+asoma), clasifícalo como "Otros" — NUNCA como "Plasticos". Un costal
+lleno de piedras no es plástico reciclable solo porque su envoltura lo
+sea; lo que se recicla es el residuo real que contiene, no la bolsa que
+lo envuelve. Solo clasifica como "Plasticos" el plástico limpio y suelto
+(botellas, bolsas vacías, envases, empaques) cuyo contenido visible es
+efectivamente plástico o está vacío.
+
 Clasifica cada objeto o zona detectada en UNA sola de estas categorías
 EXACTAS (usa el texto tal cual, sin tildes ni cambios):
 - "Organicos"  (comida, restos vegetales, madera en descomposición)
-- "Plasticos"  (botellas, bolsas, envases, empaques plásticos)
+- "Plasticos"  (botellas, bolsas, envases, empaques plásticos — vacíos o con residuo plástico real)
 - "Vidrio"     (botellas o frascos de vidrio)
 - "Carton"     (cajas, cartón)
 - "Papel"      (papel, periódico, revistas)
-- "Otros"      (escombros, metal, ropa, o cualquier cosa que no encaje arriba)
+- "Otros"      (escombros, piedras, tierra, costales llenos de material de construcción, metal, ropa, o cualquier cosa que no encaje arriba)
 
 Si "es_residuos" es false, deja "detecciones" como una lista vacía. Si
 "es_residuos" es true, "detecciones" debe tener AL MENOS un elemento.
