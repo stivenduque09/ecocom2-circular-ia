@@ -1157,8 +1157,43 @@ def generar_excel_reportes(reportes: list, incluir_contacto: bool = False) -> by
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment, Border, Side
     from openpyxl.utils import get_column_letter
-    from openpyxl.chart import BarChart, PieChart, Reference
-    from openpyxl.chart.label import DataLabelList
+    from openpyxl.chart import BarChart, DoughnutChart, Reference
+    from openpyxl.chart.series import DataPoint
+    from openpyxl.chart.shapes import GraphicalProperties
+
+    def _agregar_gauge(ws, anchor, valor_pct, titulo, fila_datos, col_datos, color_hex):
+        """Dibuja un gauge (velocímetro de media torta) con un DoughnutChart
+        de 3 segmentos: el valor, lo que falta, y una mitad invisible — es
+        el truco estándar para simular un semicírculo en un gráfico de
+        Excel que normalmente solo dibuja círculos completos."""
+        valor_pct = max(0.0, min(100.0, valor_pct))
+        restante = 100.0 - valor_pct
+
+        ws.cell(row=fila_datos, column=col_datos, value=valor_pct)
+        ws.cell(row=fila_datos + 1, column=col_datos, value=restante)
+        ws.cell(row=fila_datos + 2, column=col_datos, value=100)  # mitad invisible
+
+        chart = DoughnutChart()
+        chart.firstSliceAng = 270
+        chart.holeSize = 60
+        chart.title = f"{titulo}: {valor_pct:.1f}%"
+        chart.height = 6.5
+        chart.width = 8.5
+        chart.legend = None
+
+        datos = Reference(ws, min_col=col_datos, min_row=fila_datos, max_row=fila_datos + 2)
+        chart.add_data(datos, titles_from_data=False)
+
+        serie = chart.series[0]
+        pt_valor = DataPoint(idx=0)
+        pt_valor.graphicalProperties = GraphicalProperties(solidFill=color_hex)
+        pt_resto = DataPoint(idx=1)
+        pt_resto.graphicalProperties = GraphicalProperties(solidFill="E5E7EB")
+        pt_oculto = DataPoint(idx=2)
+        pt_oculto.graphicalProperties = GraphicalProperties(noFill=True)
+        serie.data_points = [pt_valor, pt_resto, pt_oculto]
+
+        ws.add_chart(chart, anchor)
 
     wb = Workbook()
 
@@ -1287,33 +1322,16 @@ def generar_excel_reportes(reportes: list, incluir_contacto: bool = False) -> by
     ws_r.column_dimensions["E"].width = 18
     ws_r.column_dimensions["F"].width = 12
 
-    # ── Gráficas ──
+    # ── Gauges (velocímetros de media torta) + barra por barrio ──
     if total > 0:
-        pie_estado = PieChart()
-        pie_estado.title = "Distribución por estado"
-        pie_estado.height, pie_estado.width = 7, 10
-        datos_estado = Reference(ws_r, min_col=6, min_row=fila_estado_inicio,
-                                  max_row=fila_estado_fin)
-        etiquetas_estado = Reference(ws_r, min_col=5, min_row=fila_estado_inicio + 1,
-                                      max_row=fila_estado_fin)
-        pie_estado.add_data(datos_estado, titles_from_data=True)
-        pie_estado.set_categories(etiquetas_estado)
-        pie_estado.dataLabels = DataLabelList()
-        pie_estado.dataLabels.showVal = True
-        ws_r.add_chart(pie_estado, "H6")
+        pct_resueltos = (resueltos / total) * 100
+        pct_criticos  = (criticos  / total) * 100
+        pct_verdes    = (verdes    / total) * 100
 
-        pie_nivel = PieChart()
-        pie_nivel.title = "Distribución por nivel de criticidad"
-        pie_nivel.height, pie_nivel.width = 7, 10
-        datos_nivel = Reference(ws_r, min_col=6, min_row=fila_nivel_inicio,
-                                 max_row=fila_nivel_fin)
-        etiquetas_nivel = Reference(ws_r, min_col=5, min_row=fila_nivel_inicio + 1,
-                                     max_row=fila_nivel_fin)
-        pie_nivel.add_data(datos_nivel, titles_from_data=True)
-        pie_nivel.set_categories(etiquetas_nivel)
-        pie_nivel.dataLabels = DataLabelList()
-        pie_nivel.dataLabels.showVal = True
-        ws_r.add_chart(pie_nivel, "H21")
+        # Columnas de datos ocultos (20-22), lejos de las tablas visibles
+        _agregar_gauge(ws_r, "H6",  pct_resueltos, "Resueltos",   fila_kpi_inicio, 20, "16A34A")
+        _agregar_gauge(ws_r, "H21", pct_criticos,  "Críticos",    fila_kpi_inicio, 21, "DC2626")
+        _agregar_gauge(ws_r, "H36", pct_verdes,    "Reciclables", fila_kpi_inicio, 22, "2563EB")
 
         if fila_barrio_fin >= fila_barrio_inicio:
             barras_barrio = BarChart()
@@ -1328,7 +1346,7 @@ def generar_excel_reportes(reportes: list, incluir_contacto: bool = False) -> by
             barras_barrio.add_data(datos_barrio, titles_from_data=True)
             barras_barrio.set_categories(etiquetas_barrio)
             barras_barrio.legend = None
-            ws_r.add_chart(barras_barrio, "H36")
+            ws_r.add_chart(barras_barrio, "H51")
 
     # ── HOJA 2: Reportes ─────────────────────────────────────────────
     ws = wb.create_sheet("Reportes")
@@ -4532,6 +4550,70 @@ cualquier momento, contactando al desarrollador del proyecto.
 (Territorio INN 2026, ITM Medellín) y no reemplaza una política de datos formal
 revisada por un abogado — si el proyecto crece más allá de la fase piloto, se
 recomienda formalizarla.*
+""")
+
+    st.markdown("---")
+    st.markdown("## 🔍 Respaldo de investigación — Comuna 2")
+    st.caption("Datos verificados con fuentes oficiales (Emvarias, Alcaldía de Medellín, "
+               "PGIRS), usados como sustento del proyecto. Cada indicador tiene su fuente.")
+
+    def _gauge_svg(valor_txt: str, pct: float, color_hex: str = "#16a34a") -> str:
+        """Dibuja un medidor de media torta (0-100%) en SVG puro, sin librerías
+        externas — funciona igual en Streamlit Cloud sin instalar nada nuevo."""
+        circunferencia = 251.2  # longitud del semicírculo (radio 80)
+        offset = circunferencia * (1 - max(0, min(pct, 100)) / 100)
+        return f'''
+        <svg viewBox="0 0 200 120" style="width:100%;max-width:170px;">
+            <path d="M 20 100 A 80 80 0 0 1 180 100" fill="none"
+                  stroke="#e5e7eb" stroke-width="16" stroke-linecap="round"/>
+            <path d="M 20 100 A 80 80 0 0 1 180 100" fill="none"
+                  stroke="{color_hex}" stroke-width="16" stroke-linecap="round"
+                  stroke-dasharray="{circunferencia}" stroke-dashoffset="{offset}"/>
+            <text x="100" y="88" text-anchor="middle"
+                  style="font-size:24px;font-weight:700;fill:#14532d;">{valor_txt}</text>
+        </svg>'''
+
+    INDICADORES_COMUNA2 = [
+        {"valor": "99.4%", "pct": 99.4, "color": "#16a34a",
+         "titulo": "Cobertura de recolección", "fuente": "Meta 2026 · Emvarias 2025-2027"},
+        {"valor": "100%", "pct": 100, "color": "#16a34a",
+         "titulo": "Frecuencias cumplidas", "fuente": "Meta permanente · Emvarias"},
+        {"valor": "0/7", "pct": 0, "color": "#dc2626",
+         "titulo": "Puntos Naranja en la comuna", "fuente": "De los 7 oficiales en Medellín"},
+        {"valor": "11/11", "pct": 100, "color": "#16a34a",
+         "titulo": "Barrios con horario confirmado", "fuente": "Doc. oficial Emvarias 2024"},
+    ]
+
+    cols_gauge = st.columns(4)
+    for col, ind in zip(cols_gauge, INDICADORES_COMUNA2):
+        with col:
+            st.markdown(
+                f'<div style="background:#ffffff;border:1px solid #bbf7d0;border-radius:12px;'
+                f'padding:12px;text-align:center;">'
+                f'{_gauge_svg(ind["valor"], ind["pct"], ind["color"])}'
+                f'<p style="font-size:13px;color:#166534;margin:4px 0 0;font-weight:600;">{ind["titulo"]}</p>'
+                f'<p style="font-size:11px;color:#6b7280;margin:2px 0 0;">{ind["fuente"]}</p>'
+                f'</div>', unsafe_allow_html=True)
+
+    with st.expander("📋 Ver hallazgos completos de la investigación"):
+        st.markdown("""
+- **Cobertura formal completa, pero actualización desigual**: los 11 barrios tienen horario
+  oficial asignado; 9 de 11 siguen con franja amplia de 8h (miércoles y sábado, 3-11pm),
+  solo La Rosa y Moscú N°1 tienen franja angostada a 2h (lunes y jueves, 7-9pm) desde jun. 2026.
+- **Cero infraestructura oficial de reciclaje**: de los 7 Puntos Naranja de toda Medellín,
+  ninguno está dentro de la comuna 2 (lista oficial Emvarias).
+- **El aprovechamiento depende de actores informales**: recicladores de oficio y bodegas
+  sin nombre propio verificado — no hay cooperativa ni Punto Naranja confirmado en la zona.
+- **Comuna señalada oficialmente como zona de alto crecimiento de residuos**: comunas 1, 2,
+  3 y 4 (nororiente) identificadas por la Secretaría de Medio Ambiente (2025-2026).
+- **El problema ya estaba documentado desde 2016**: convenio Emvarias-Sec. Medio Ambiente
+  para puntos críticos en comunas 2, 8, 9, 11 y 13 ($36,242,515 COP). Villa Niza estuvo
+  activo 6 años antes de ser recuperado en 2026.
+- **Condiciones socioeconómicas**: comuna más densamente poblada de Medellín (502 hab./ha,
+  110,202 hab.), con parte del suelo clasificado como zona de riesgo.
+
+*Fuentes: Emvarias (Horarios y Frecuencias 2024, Puntos Naranja, Programa de Prestación
+del Servicio de Aseo 2025-2027), Alcaldía de Medellín, Seguimiento PGIRS 2016.*
 """)
 
     st.markdown("---")
