@@ -685,6 +685,26 @@ BARRIOS = [
     "Moscú No. 1", "Santa Cruz", "La Rosa",
 ]
 
+# Horarios oficiales de recolección de residuos ordinarios — Comuna 2 Santa
+# Cruz. Fuente: Emvarias, "Horarios y Frecuencias de Recolección 2024" (Zona
+# 1, comunas 1-4), con la actualización de junio de 2026 (El Espectador,
+# 30/05/2026) que angostó la franja horaria de La Rosa y Moscú N°1.
+HORARIOS_RECOLECCION = {
+    "La Rosa": {"dias": "Lunes y jueves", "horario": "7:00 p.m. – 9:00 p.m.",
+                "nota": "Franja angostada desde el 4 de junio de 2026"},
+    "Moscú No. 1": {"dias": "Lunes y jueves", "horario": "7:00 p.m. – 9:00 p.m.",
+                     "nota": "Cambió de miércoles/sábado a lunes/jueves desde jun. 2026"},
+    "Andalucía": {"dias": "Miércoles y sábado", "horario": "3:00 p.m. – 11:00 p.m.", "nota": ""},
+    "Playón de los Comuneros": {"dias": "Miércoles y sábado", "horario": "3:00 p.m. – 11:00 p.m.", "nota": ""},
+    "La Francia": {"dias": "Miércoles y sábado", "horario": "3:00 p.m. – 11:00 p.m.", "nota": ""},
+    "La Frontera": {"dias": "Miércoles y sábado", "horario": "3:00 p.m. – 11:00 p.m.", "nota": ""},
+    "La Isla": {"dias": "Miércoles y sábado", "horario": "3:00 p.m. – 11:00 p.m.", "nota": ""},
+    "Pablo VI": {"dias": "Miércoles y sábado", "horario": "3:00 p.m. – 11:00 p.m.", "nota": ""},
+    "Santa Cruz": {"dias": "Miércoles y sábado", "horario": "3:00 p.m. – 11:00 p.m.", "nota": ""},
+    "Villa del Socorro": {"dias": "Miércoles y sábado", "horario": "3:00 p.m. – 11:00 p.m.", "nota": ""},
+    "Villa Niza": {"dias": "Miércoles y sábado", "horario": "3:00 p.m. – 11:00 p.m.", "nota": ""},
+}
+
 LAT_C = 6.3104
 LON_C = -75.5552
 
@@ -702,6 +722,7 @@ for k, v in {
     "gps_solicitado": False,
     "tutorial_visto": False,
     "tutorial_paso": 0,
+    "mostrar_horarios": False,
     "dir_candidatos": None,
 }.items():
     if k not in st.session_state:
@@ -2284,6 +2305,44 @@ def mostrar_tutorial():
     st.markdown("---")
 
 
+def mostrar_horarios_recoleccion():
+    """Panel con los horarios oficiales de recolección de los 11 barrios de
+    la Comuna 2, con un botón para cerrarlo — mismo patrón que el tutorial."""
+    st.markdown(
+        '<div style="background:linear-gradient(135deg,rgba(74,222,128,0.15),rgba(22,163,74,0.08));'
+        'border:2px solid #4ade80;border-radius:16px;padding:20px 24px;margin-bottom:10px;">'
+        '<div style="font-size:18px;font-weight:800;color:#166534;margin-bottom:10px;">'
+        '📅 Horarios de recolección — Comuna 2 Santa Cruz</div>',
+        unsafe_allow_html=True)
+
+    for barrio in BARRIOS:
+        info = HORARIOS_RECOLECCION.get(barrio)
+        if not info:
+            continue
+        nota_html = (f'<br><span style="font-size:11px;color:#a16207;">⚠️ {info["nota"]}</span>'
+                     if info["nota"] else "")
+        st.markdown(
+            f'<div style="background:#ffffff;border:1px solid #bbf7d0;border-radius:10px;'
+            f'padding:10px 14px;margin-bottom:6px;">'
+            f'<b style="color:#166534;">{barrio}</b><br>'
+            f'<span style="font-size:13px;color:#374151;">🗓️ {info["dias"]} · 🕐 {info["horario"]}</span>'
+            f'{nota_html}</div>',
+            unsafe_allow_html=True)
+
+    st.markdown(
+        '<p style="font-size:11px;color:#6b7280;margin-top:8px;">'
+        'Fuente: Emvarias, Horarios y Frecuencias de Recolección 2024 (Zona 1) '
+        '+ actualización de junio de 2026. Verifica el mapa interactivo de Emvarias '
+        'si tu calle no aparece angostada aquí, ya que la franja horaria se sigue '
+        'ajustando barrio por barrio.</p></div>',
+        unsafe_allow_html=True)
+
+    if st.button("✖ Cerrar horarios", key="cerrar_horarios", use_container_width=True):
+        st.session_state.mostrar_horarios = False
+        st.rerun()
+    st.markdown("---")
+
+
 def nav_tabs(seccion_actual):
     SECCIONES = [
         ("residuo",   "📸 Reportar Residuo"),
@@ -2379,6 +2438,11 @@ if st.sidebar.button("🎬 Ver tutorial de nuevo", use_container_width=True, key
     st.session_state.menu_extra = None
     st.rerun()
 
+if st.sidebar.button("📅 Horarios de recolección", use_container_width=True, key="ver_horarios_recoleccion"):
+    st.session_state.mostrar_horarios = True
+    st.session_state.menu_extra = None
+    st.rerun()
+
 st.sidebar.markdown("---")
 st.sidebar.markdown("""
 <div class="ecocom2-footer" style="font-size:11px;padding:8px;background:rgba(16,185,129,0.06);
@@ -2397,6 +2461,9 @@ if menu == "🏠 Inicio y Mapa":
 
     if not st.session_state.get("tutorial_visto", False):
         mostrar_tutorial()
+
+    if st.session_state.get("mostrar_horarios", False):
+        mostrar_horarios_recoleccion()
 
     if "agente_msgs" not in st.session_state:
         st.session_state.agente_msgs = [
