@@ -2148,6 +2148,40 @@ def progreso_pasos(paso_actual: int, labels=None):
                     f'⚪ {label}</div>', unsafe_allow_html=True)
 
 
+import math
+
+def gauge_svg_aguja(valor: float, titulo: str, sufijo: str = "%") -> str:
+    """Medidor de aguja con 3 bandas de 60° (rojo/amarillo/verde) — mismo
+    estilo semáforo que el dashboard de Excel, calculado en vivo con
+    Python, sin fórmulas ni macros."""
+    valor_clamp = max(0, min(100, valor))
+    angulo = math.radians(180 - (valor_clamp / 100) * 180)
+    cx, cy, r = 100, 95, 80
+    x_aguja = cx + r * 0.85 * math.cos(angulo)
+    y_aguja = cy - r * 0.85 * math.sin(angulo)
+
+    def arc(deg_ini, deg_fin):
+        a0, a1 = math.radians(deg_ini), math.radians(deg_fin)
+        x0, y0 = cx + r * math.cos(a0), cy - r * math.sin(a0)
+        x1, y1 = cx + r * math.cos(a1), cy - r * math.sin(a1)
+        return f"M {x0:.1f} {y0:.1f} A {r} {r} 0 0 0 {x1:.1f} {y1:.1f}"
+
+    return f'''<div style="text-align:center;background:#ffffff;border:1px solid #bbf7d0;
+border-radius:12px;padding:10px;">
+<svg viewBox="0 0 200 120" style="width:100%;max-width:180px;">
+<path d="{arc(180,120)}" stroke="#dc2626" stroke-width="18" fill="none"/>
+<path d="{arc(120,60)}" stroke="#eab308" stroke-width="18" fill="none"/>
+<path d="{arc(60,0)}" stroke="#16a34a" stroke-width="18" fill="none"/>
+<line x1="{cx}" y1="{cy}" x2="{x_aguja:.1f}" y2="{y_aguja:.1f}"
+      stroke="#111827" stroke-width="3" stroke-linecap="round"/>
+<circle cx="{cx}" cy="{cy}" r="5" fill="#111827"/>
+<text x="{cx}" y="115" text-anchor="middle" font-size="16" font-weight="700"
+      fill="#14532d">{valor_clamp:.0f}{sufijo}</text>
+</svg>
+<p style="font-size:12px;color:#166534;margin:2px 0 0;font-weight:600;">{titulo}</p>
+</div>'''
+
+
 def metricas(residuos, peso, nivel):
     c1, c2, c3 = st.columns(3)
     color = "#4ade80" if "🟢" in nivel else ("#fbbf24" if "🟡" in nivel else "#f87171")
@@ -3723,6 +3757,22 @@ elif menu == "📊 Comuna en Cifras":
                     f'<div class="metric-card"><h2 style="color:{color};margin:0">{val}</h2>'
                     f'<p style="font-size:11px;margin:4px 0 0 0;">{label}</p></div>',
                     unsafe_allow_html=True)
+
+        st.markdown("---")
+        st.markdown("#### 🎯 Semáforo de indicadores")
+        st.caption("Umbral fijo: 0-33 rojo · 33-66 amarillo · 66-100 verde (60° cada banda).")
+
+        pct_resueltos_g = (resueltos_pub / total_pub * 100) if total_pub else 0
+        pct_criticos_g = (criticos_pub / total_pub * 100) if total_pub else 0
+        pct_verdes_g = (verdes_pub / total_pub * 100) if total_pub else 0
+
+        g1, g2, g3 = st.columns(3)
+        with g1:
+            st.markdown(gauge_svg_aguja(pct_resueltos_g, "% Resueltos"), unsafe_allow_html=True)
+        with g2:
+            st.markdown(gauge_svg_aguja(pct_criticos_g, "% Críticos"), unsafe_allow_html=True)
+        with g3:
+            st.markdown(gauge_svg_aguja(pct_verdes_g, "% Reciclables"), unsafe_allow_html=True)
 
         st.markdown(
             f'<div style="background:rgba(167,139,250,0.10);border:1px solid #a78bfa;'
