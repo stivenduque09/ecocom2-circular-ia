@@ -229,5 +229,26 @@
     "ReportesFalsos": null,
     "FotoURL": "https://raw.githubusercontent.com/stivenduque09/ecocom2-circular-ia/main/evidencias_reportes/CRIT-510.jpg",
     "FotoClasificadaURL": "https://raw.githubusercontent.com/stivenduque09/ecocom2-circular-ia/main/evidencias_clasificadas/CRIT-510.jpg"
+  },
+  {
+    "Código": "CRIT-511",
+    "Sector": "Santa Cruz",
+    "Referencia": "Carrera 49A, Comuna 2 - Santa Cruz, Medellín",
+    "Objetos": 20,
+    "Peso (Kg)": 3.3,
+    "Predominante": "Plasticos",
+    "Clasificación": "🟡 Punto amarillo — Buen material, pero gran volumen",
+    "Lat": 6.299516,
+    "Lon": -75.5524635,
+    "Fecha": "2026-09-25 21:54",
+    "Estado": "🔴 Pendiente",
+    "Observaciones": "acumulacion de residuos",
+    "CodigoResidente": "",
+    "Confirmaciones": 0,
+    "FechaResuelto": null,
+    "FotoResueltaURL": null,
+    "ReportesFalsos": null,
+    "FotoURL": "https://raw.githubusercontent.com/stivenduque09/ecocom2-circular-ia/main/evidencias_reportes/CRIT-511.jpg",
+    "FotoClasificadaURL": "https://raw.githubusercontent.com/stivenduque09/ecocom2-circular-ia/main/evidencias_clasificadas/CRIT-511.jpg"
   }
 ]
