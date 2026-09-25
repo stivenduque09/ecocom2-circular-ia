@@ -1728,13 +1728,78 @@ Las coordenadas box_2d deben estar normalizadas en una escala de 0 a 1000,
 en el orden [ymin, xmin, ymax, xmax]. Detecta como máximo 40 objetos."""
 
 
-def analizar_con_gemini(img_pil, modelo_gemini="gemini-3.6-flash"):
+# Modelos de Gemini a probar, en orden. Ordenados de MAYOR a MENOR cupo
+# gratuito disponible (RPM = solicitudes por minuto), según el panel de
+# Google AI Studio — así la app gasta primero el cupo de los modelos que
+# menos se usan, en vez de agotar siempre el mismo (gemini-3.6-flash, que
+# ya estaba casi al tope: 4/5). Solo se incluyen modelos "de texto de
+# salida" que aceptan imagen + texto y devuelven JSON — no las variantes
+# Pro (0/0 de cupo en tu cuenta), ni las de imagen/TTS/agentes, que no
+# sirven para este clasificador.
+MODELOS_GEMINI_RESPALDO = [
+    "gemini-3.1-flash-lite",  # 15 RPM — el de más cupo libre
+    "gemini-2.5-flash-lite",  # 10 RPM
+    "gemini-2.5-flash",       # 5 RPM
+    "gemini-3-flash",         # 5 RPM
+    "gemini-3.6-flash",       # 5 RPM — último, porque ya se satura más rápido
+]
+
+
+def _llamar_gemini_con_respaldo(payload, timeout=30, reintentos_por_modelo=2):
+    """Prueba varios modelos de Gemini en orden hasta que uno responda.
+    503/429 (saturado o sin cupo) o 404 (modelo inexistente en tu cuenta)
+    -> pasa al siguiente. Devuelve (respuesta_json, modelo_usado, error)."""
+    import requests
+    api_key = _gemini_config()
+    if not api_key:
+        return None, None, "Falta configurar GEMINI_API_KEY en Secrets."
+
+    headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
+    ultimo_error = "error desconocido"
+
+    for nombre_modelo in MODELOS_GEMINI_RESPALDO:
+        url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
+               f"{nombre_modelo}:generateContent")
+        resp = None
+        for intento in range(reintentos_por_modelo):
+            try:
+                resp = requests.post(url, headers=headers, json=payload, timeout=timeout)
+            except Exception as e:
+                ultimo_error = f"Error de conexión ({nombre_modelo}): {e}"
+                resp = None
+                break
+            if resp.status_code not in (503, 429):
+                break
+            if intento < reintentos_por_modelo - 1:
+                time.sleep(2)
+
+        if resp is None:
+            continue
+        if resp.status_code == 200:
+            return resp.json(), nombre_modelo, None
+
+        try:
+            detalle = resp.json().get("error", {}).get("message", "")
+        except Exception:
+            detalle = ""
+        ultimo_error = f"{nombre_modelo} respondió {resp.status_code}: {detalle or 'error desconocido'}"
+
+        if resp.status_code not in (503, 429, 404):
+            break  # 401/400: error real, no sirve probar otro modelo
+
+    return None, None, ultimo_error
+
+
+def analizar_con_gemini(img_pil, modelo_gemini=None):
     """Envía la imagen a la API de Gemini (Google) para que primero evalúe
     si la foto realmente muestra una acumulación de residuos (filtro
     contra reportes falsos o de mala fe — ej. fotografiar un negocio o a
     una persona para hacerlo pasar por basura), y si es así, detecte y
     clasifique cada residuo visible en Orgánicos / Plásticos / Vidrio /
     Cartón / Papel / Otros con una caja delimitadora por objeto.
+
+    Usa una cadena de modelos de respaldo (MODELOS_GEMINI_RESPALDO), así
+    que si uno se queda sin cupo se prueba el siguiente automáticamente.
 
     Devuelve (detecciones, error, es_valido, motivo):
     - detecciones: lista de dicts con 'categoria' y 'box' en píxeles.
@@ -1743,28 +1808,15 @@ def analizar_con_gemini(img_pil, modelo_gemini="gemini-3.6-flash"):
       real de residuos; None si no se pudo determinar (ej. hubo error).
     - motivo: breve explicación de Gemini, útil para mostrarle al usuario
       por qué se rechazó su foto."""
-    api_key = _gemini_config()
-    if not api_key:
+    if not _gemini_config():
         return None, "Falta configurar GEMINI_API_KEY en Secrets.", None, ""
     try:
-        import requests
         img_rgb = img_pil.convert("RGB")
         w, h = img_rgb.size
         buf = BytesIO()
         img_rgb.save(buf, format="JPEG", quality=85)
         img_b64 = base64.b64encode(buf.getvalue()).decode("utf-8")
 
-        # La clave se manda por header (x-goog-api-key), no por ?key= en la
-        # URL — con las claves nuevas de Google ("AQ.Ab...", tipo Auth key,
-        # vigentes desde 2026 en reemplazo de las viejas "AIzaSy...") este
-        # es el método que Google documenta como el confiable; por la URL
-        # a veces devuelve 401 ACCESS_TOKEN_TYPE_UNSUPPORTED.
-        url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
-               f"{modelo_gemini}:generateContent")
-        headers = {
-            "Content-Type": "application/json",
-            "x-goog-api-key": api_key,
-        }
         payload = {
             "contents": [{
                 "parts": [
@@ -1777,27 +1829,11 @@ def analizar_con_gemini(img_pil, modelo_gemini="gemini-3.6-flash"):
                 "response_mime_type": "application/json",
             },
         }
-        # Reintento automático para errores transitorios (503 = modelo con
-        # mucha demanda, 429 = límite de tasa momentáneo) — casi siempre se
-        # resuelven solos en un par de segundos, así que vale la pena
-        # reintentar antes de rendirse y caer a YOLO local.
-        resp = None
-        for intento in range(2):
-            resp = requests.post(url, headers=headers, json=payload, timeout=45)
-            if resp.status_code not in (503, 429):
-                break
-            if intento == 0:
-                time.sleep(2)
 
-        if resp.status_code != 200:
-            detalle = ""
-            try:
-                detalle = resp.json().get("error", {}).get("message", "")
-            except Exception:
-                pass
-            return None, f"Gemini respondió {resp.status_code}: {detalle or 'error desconocido'}", None, ""
+        data, _modelo_usado, error = _llamar_gemini_con_respaldo(payload, timeout=45)
+        if error:
+            return None, error, None, ""
 
-        data = resp.json()
         texto = data["candidates"][0]["content"]["parts"][0]["text"]
         texto_limpio = texto.replace("```json", "").replace("```", "").strip()
         resultado = json.loads(texto_limpio)
@@ -2513,37 +2549,24 @@ Redirige preguntas no relacionadas al tema de residuos."""
                     "rápida: 1️⃣ Verifica dirección 2️⃣ Toca el mapa "
                     "3️⃣ Sube foto 4️⃣ Publica.")
         try:
-            import requests
-            api_key = _gemini_config()
-
             contenidos = [
                 {"role": "model" if m["role"] == "assistant" else "user",
                  "parts": [{"text": m["content"]}]}
                 for m in mensajes_historial
             ]
-
-            url = ("https://generativelanguage.googleapis.com/v1beta/models/"
-                   "gemini-3.6-flash:generateContent")
-            headers = {
-                "Content-Type": "application/json",
-                "x-goog-api-key": api_key,
+            payload = {
+                "systemInstruction": {"parts": [{"text": SISTEMA_AGENTE}]},
+                "contents": contenidos,
+                # 1024 (antes 250): los modelos 2.5/3.x gastan tokens
+                # "pensando" y con 250 la respuesta podía llegar vacía.
+                "generationConfig": {"temperature": 0.4, "maxOutputTokens": 1024},
             }
-            resp = requests.post(
-                url,
-                headers=headers,
-                json={
-                    "systemInstruction": {"parts": [{"text": SISTEMA_AGENTE}]},
-                    "contents": contenidos,
-                    "generationConfig": {"temperature": 0.4, "maxOutputTokens": 250},
-                },
-                timeout=20,
-            )
-            if resp.status_code == 200:
-                return resp.json()["candidates"][0]["content"]["parts"][0]["text"]
-            else:
+            data, _modelo_usado, error = _llamar_gemini_con_respaldo(payload, timeout=20)
+            if error:
                 return ("⚠️ No pude conectarme ahora. "
                         "Pasos: 1️⃣ Verifica dirección 2️⃣ Toca el mapa "
                         "3️⃣ Sube foto 4️⃣ Publica.")
+            return data["candidates"][0]["content"]["parts"][0]["text"]
         except Exception:
             return ("🤖 Sin conexión al asistente. "
                     "Pasos: 1️⃣ Verifica dirección 2️⃣ Toca el mapa "
@@ -3061,6 +3084,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
 
                         reporte_invalido = False
                         motivo_invalido = ""
+                        error_g = None
 
                         if usar_gemini_r:
                             detecciones_g, error_g, es_valido_g, motivo_g = analizar_con_gemini(img_blur)
@@ -3389,6 +3413,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
 
                         reporte_invalido_cr = False
                         motivo_invalido_cr = ""
+                        error_g2 = None
 
                         if usar_gemini_cr:
                             detecciones_g2, error_g2, es_valido_g2, motivo_g2 = analizar_con_gemini(img2_blur)
