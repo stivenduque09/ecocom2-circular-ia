@@ -208,5 +208,26 @@
     "ReportesFalsos": null,
     "FotoURL": "https://raw.githubusercontent.com/stivenduque09/ecocom2-circular-ia/main/evidencias_reportes/CRIT-509.jpg",
     "FotoClasificadaURL": "https://raw.githubusercontent.com/stivenduque09/ecocom2-circular-ia/main/evidencias_clasificadas/CRIT-509.jpg"
+  },
+  {
+    "Código": "CRIT-510",
+    "Sector": "La Isla",
+    "Referencia": "6.30122, -75.55461",
+    "Objetos": 21,
+    "Peso (Kg)": 4.4,
+    "Predominante": "Carton",
+    "Clasificación": "🔴 Punto crítico — Acumulación sin valorización",
+    "Lat": 6.3012222,
+    "Lon": -75.5546093,
+    "Fecha": "2026-09-25 21:41",
+    "Estado": "🔴 Pendiente",
+    "Observaciones": "",
+    "CodigoResidente": "",
+    "Confirmaciones": 0,
+    "FechaResuelto": null,
+    "FotoResueltaURL": null,
+    "ReportesFalsos": null,
+    "FotoURL": "https://raw.githubusercontent.com/stivenduque09/ecocom2-circular-ia/main/evidencias_reportes/CRIT-510.jpg",
+    "FotoClasificadaURL": "https://raw.githubusercontent.com/stivenduque09/ecocom2-circular-ia/main/evidencias_clasificadas/CRIT-510.jpg"
   }
 ]
