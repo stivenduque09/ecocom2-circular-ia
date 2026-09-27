@@ -22,6 +22,7 @@ import imagehash
 from math import radians, sin, cos, sqrt, atan2
 import re
 import time
+import hashlib  # MEJORA 4 — para detectar si una foto ya fue analizada
 
 # ====================================================================
 # PERSISTENCIA — SQLite en vez de JSON en /tmp
@@ -1478,6 +1479,58 @@ def distancia_metros(lat1, lon1, lat2, lon2) -> float:
     return R * 2 * atan2(sqrt(a), sqrt(1 - a))
 
 
+def optimizar_ruta_recoleccion(reportes_lista: list, origen=None):
+    """MEJORA 5 — Ordena reportes por proximidad usando un heurístico de
+    vecino más cercano (greedy): en cada paso salta al punto no visitado
+    más cercano al actual. No es la ruta matemáticamente más corta posible
+    (eso es un problema NP-difícil — el "problema del viajante"), pero da
+    un orden razonable para no cruzar la comuna de un extremo a otro sin
+    necesidad, que es justo lo que pasa hoy si el camión sigue el orden en
+    que llegaron los reportes.
+
+    'origen' es una tupla (lat, lon) desde donde arranca el recorrido (por
+    ejemplo, la base de operaciones); si no se da, arranca desde el primer
+    reporte de la lista."""
+    pendientes = [r for r in reportes_lista
+                  if r.get("Lat") is not None and r.get("Lon") is not None]
+    if not pendientes:
+        return []
+
+    ruta = []
+    if origen:
+        actual_lat, actual_lon = origen
+    else:
+        primero = pendientes.pop(0)
+        ruta.append(primero)
+        actual_lat, actual_lon = primero["Lat"], primero["Lon"]
+
+    while pendientes:
+        mas_cercano = min(
+            pendientes,
+            key=lambda r: distancia_metros(actual_lat, actual_lon, r["Lat"], r["Lon"])
+        )
+        pendientes.remove(mas_cercano)
+        ruta.append(mas_cercano)
+        actual_lat, actual_lon = mas_cercano["Lat"], mas_cercano["Lon"]
+
+    return ruta
+
+
+def generar_link_google_maps_ruta(ruta: list, origen=None) -> str:
+    """MEJORA 5 — Arma un link de Google Maps con paradas encadenadas,
+    formato https://www.google.com/maps/dir/lat1,lon1/lat2,lon2/... — a
+    diferencia del formato con '?api=1&waypoints=' (limitado a pocas
+    paradas), este formato de navegador soporta muchas más, así que sirve
+    aunque la ruta del día tenga más de 10 puntos críticos."""
+    puntos = []
+    if origen:
+        puntos.append(f"{origen[0]},{origen[1]}")
+    puntos += [f"{r['Lat']},{r['Lon']}" for r in ruta]
+    if len(puntos) < 2:
+        return ""
+    return "https://www.google.com/maps/dir/" + "/".join(puntos)
+
+
 LIMITE_REPORTES_DIA = 8
 
 def contar_reportes_hoy(codigo_residente: str) -> int:
@@ -1633,6 +1686,19 @@ def set_ubicacion(lat, lon, direccion=""):
 
 def _abrir_img_subida(uploaded_file) -> Image.Image:
     return Image.open(BytesIO(uploaded_file.getvalue()))
+
+
+def _hash_imagen(img_pil) -> str:
+    """MEJORA 4 — Genera una huella única y rápida de una imagen ya abierta,
+    para saber si es LA MISMA foto que ya se analizó (y así no relanzar el
+    análisis en cada rerun de Streamlit) o si el usuario subió una foto
+    distinta (y entonces sí hay que re-analizar automáticamente)."""
+    try:
+        buf = BytesIO()
+        img_pil.save(buf, format="JPEG")
+        return hashlib.md5(buf.getvalue()).hexdigest()
+    except Exception:
+        return ""
 
 
 # ====================================================================
@@ -2513,6 +2579,122 @@ if menu == "🏠 Inicio y Mapa":
     if "agente_pendiente" not in st.session_state:
         st.session_state.agente_pendiente = False
 
+    # ----------------------------------------------------------------
+    # MEJORA 4 — Herramientas de "function calling" para EcoBot: le dan
+    # acceso a datos REALES de la app (estado de un reporte, cuántos
+    # tiene un residente, cuántos activos hay en un barrio, resumen
+    # general), en vez de que solo pueda responder con texto genérico.
+    # ----------------------------------------------------------------
+    def _herramientas_ecobot_definiciones():
+        """Declara, en el formato que exige la API de Gemini, qué funciones
+        puede 'pedir ejecutar' el modelo durante la conversación. Cada una
+        describe su propósito y sus parámetros en lenguaje natural — Gemini
+        usa esa descripción para decidir cuándo llamarlas."""
+        return [{
+            "functionDeclarations": [
+                {
+                    "name": "consultar_estado_reporte",
+                    "description": ("Consulta el estado actual de un reporte de EcoCom2 "
+                                     "dado su código exacto (ej. REP-203 o CRIT-510)."),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "codigo": {"type": "string",
+                                       "description": "Código del reporte, ej. REP-203"}
+                        },
+                        "required": ["codigo"],
+                    },
+                },
+                {
+                    "name": "contar_reportes_de_residente",
+                    "description": ("Cuenta cuántos reportes ha hecho un residente dado su "
+                                     "código o teléfono, y cuántos de esos siguen pendientes, "
+                                     "en proceso o ya resueltos."),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "codigo_residente": {"type": "string",
+                                                  "description": "El código o teléfono que la persona usó al reportar"}
+                        },
+                        "required": ["codigo_residente"],
+                    },
+                },
+                {
+                    "name": "reportes_activos_en_barrio",
+                    "description": ("Devuelve cuántos reportes activos (no resueltos) hay "
+                                     "ahora mismo en un barrio específico de la Comuna 2, y "
+                                     "cuántos de esos son puntos críticos."),
+                    "parameters": {
+                        "type": "object",
+                        "properties": {
+                            "barrio": {"type": "string",
+                                       "description": "Nombre del barrio, ej. 'La Frontera' o 'Andalucía'"}
+                        },
+                        "required": ["barrio"],
+                    },
+                },
+                {
+                    "name": "resumen_general_comuna",
+                    "description": ("Da el resumen general de TODOS los reportes de la "
+                                     "Comuna 2 hasta ahora: total, pendientes, en proceso, "
+                                     "resueltos y el peso acumulado estimado."),
+                    "parameters": {"type": "object", "properties": {}},
+                },
+            ]
+        }]
+
+    def _ejecutar_herramienta_ecobot(nombre_funcion: str, argumentos: dict) -> dict:
+        """Ejecuta LOCALMENTE (sin salir de tu servidor) la función que
+        Gemini pidió invocar, leyendo directamente de
+        st.session_state.reportes — la misma fuente de verdad que usa el
+        resto de la app. Gemini nunca toca tus datos directamente, solo
+        recibe el resultado ya calculado."""
+        reportes = st.session_state.get("reportes", [])
+
+        if nombre_funcion == "consultar_estado_reporte":
+            codigo = (argumentos.get("codigo") or "").strip().upper()
+            for r in reportes:
+                if r.get("Código", "").strip().upper() == codigo:
+                    return {
+                        "encontrado": True,
+                        "estado": r.get("Estado", ""),
+                        "sector": r.get("Sector", ""),
+                        "clasificacion": r.get("Clasificación", ""),
+                        "fecha": r.get("Fecha", ""),
+                    }
+            return {"encontrado": False}
+
+        if nombre_funcion == "contar_reportes_de_residente":
+            cod = (argumentos.get("codigo_residente") or "").strip().lower()
+            propios = [r for r in reportes
+                       if cod and r.get("CodigoResidente", "").strip().lower() == cod]
+            return {
+                "total": len(propios),
+                "pendientes": sum(1 for r in propios if "Pendiente" in r.get("Estado", "")),
+                "en_proceso": sum(1 for r in propios if "proceso" in r.get("Estado", "")),
+                "resueltos": sum(1 for r in propios if "Resuelto" in r.get("Estado", "")),
+            }
+
+        if nombre_funcion == "reportes_activos_en_barrio":
+            barrio_solicitado = argumentos.get("barrio", "")
+            barrio = adivinar_barrio(barrio_solicitado) or barrio_solicitado
+            activos = [r for r in reportes
+                       if r.get("Sector") == barrio and "Resuelto" not in r.get("Estado", "")]
+            criticos = sum(1 for r in activos if "crítico" in r.get("Clasificación", "").lower())
+            return {"barrio": barrio, "reportes_activos": len(activos), "criticos": criticos}
+
+        if nombre_funcion == "resumen_general_comuna":
+            total = len(reportes)
+            return {
+                "total": total,
+                "pendientes": sum(1 for r in reportes if "Pendiente" in r.get("Estado", "")),
+                "en_proceso": sum(1 for r in reportes if "proceso" in r.get("Estado", "")),
+                "resueltos": sum(1 for r in reportes if "Resuelto" in r.get("Estado", "")),
+                "peso_total_kg": round(sum(float(r.get("Peso (Kg)", 0) or 0) for r in reportes), 1),
+            }
+
+        return {"error": f"Función desconocida: {nombre_funcion}"}
+
     def llamar_ecobot(mensajes_historial: list) -> str:
         ultimo_mensaje = mensajes_historial[-1]["content"] if mensajes_historial else ""
         respuesta_faq = _responder_faq_ecobot(ultimo_mensaje)
@@ -2527,6 +2709,12 @@ oraciones). Usa emojis. Sé accesible para niños, adultos y personas
 mayores. NUNCA respondas con una frase vaga como "¡Es muy fácil!" sin
 explicar el cómo — siempre da el paso concreto que la persona necesita.
 
+Tienes herramientas para consultar datos REALES: el estado de un reporte
+por su código, cuántos reportes tiene un residente, cuántos reportes
+activos hay en un barrio, y el resumen general de la comuna. Úsalas
+siempre que la pregunta dependa de datos actuales — nunca inventes un
+estado o una cifra que podrías consultar con una herramienta.
+
 La app permite:
 - Verificar si el usuario vive en la Comuna 2
 - Tocar el mapa para marcar el punto del residuo
@@ -2538,9 +2726,8 @@ Pasos para reportar:
 1. Escribe tu dirección y presiona Verificar
 2. Toca el mapa en el punto del residuo
 3. Presiona "Reportar Residuo" o "Punto Crítico"
-4. Sube una foto
-5. La IA analiza automáticamente
-6. Presiona Publicar
+4. Sube una foto — el análisis corre automáticamente
+5. Presiona Publicar
 
 Redirige preguntas no relacionadas al tema de residuos."""
         if not verificar_gemini_key():
@@ -2557,16 +2744,42 @@ Redirige preguntas no relacionadas al tema de residuos."""
             payload = {
                 "systemInstruction": {"parts": [{"text": SISTEMA_AGENTE}]},
                 "contents": contenidos,
+                "tools": _herramientas_ecobot_definiciones(),
                 # 1024 (antes 250): los modelos 2.5/3.x gastan tokens
                 # "pensando" y con 250 la respuesta podía llegar vacía.
                 "generationConfig": {"temperature": 0.4, "maxOutputTokens": 1024},
             }
-            data, _modelo_usado, error = _llamar_gemini_con_respaldo(payload, timeout=20)
-            if error:
-                return ("⚠️ No pude conectarme ahora. "
-                        "Pasos: 1️⃣ Verifica dirección 2️⃣ Toca el mapa "
-                        "3️⃣ Sube foto 4️⃣ Publica.")
-            return data["candidates"][0]["content"]["parts"][0]["text"]
+
+            # Hasta 3 rondas de "pregunta → ejecuta función → responde"
+            # antes de rendirnos y pedirle a la persona que reformule.
+            for _ in range(3):
+                data, _modelo_usado, error = _llamar_gemini_con_respaldo(payload, timeout=20)
+                if error:
+                    return ("⚠️ No pude conectarme ahora. "
+                            "Pasos: 1️⃣ Verifica dirección 2️⃣ Toca el mapa "
+                            "3️⃣ Sube foto 4️⃣ Publica.")
+
+                partes = data["candidates"][0]["content"]["parts"]
+                llamadas = [p["functionCall"] for p in partes if "functionCall" in p]
+
+                if not llamadas:
+                    textos = [p.get("text", "") for p in partes if "text" in p]
+                    return "\n".join(t for t in textos if t) or "🤖 No tengo una respuesta clara para eso."
+
+                # Anexamos el turno del modelo (con sus llamadas) y
+                # ejecutamos cada función localmente contra los datos
+                # reales de la app.
+                payload["contents"].append({"role": "model", "parts": partes})
+                partes_respuesta_funciones = []
+                for llamada in llamadas:
+                    resultado = _ejecutar_herramienta_ecobot(
+                        llamada["name"], llamada.get("args", {}) or {})
+                    partes_respuesta_funciones.append({
+                        "functionResponse": {"name": llamada["name"], "response": resultado}
+                    })
+                payload["contents"].append({"role": "user", "parts": partes_respuesta_funciones})
+
+            return "🤖 Tuve dificultades procesando esa consulta en varios pasos. ¿Puedes reformularla?"
         except Exception:
             return ("🤖 Sin conexión al asistente. "
                     "Pasos: 1️⃣ Verifica dirección 2️⃣ Toca el mapa "
@@ -3073,8 +3286,24 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                                "en Secrets); se usará YOLO local en su lugar.")
                     usar_gemini_r = False
 
-                if st.button("🔍 Analizar con IA", type="primary",
-                             use_container_width=True, key="r_analizar"):
+                # ------------------------------------------------------
+                # MEJORA 4 — Análisis automático al subir foto: en vez de
+                # esperar a que alguien toque el botón, comparamos un hash
+                # de la foto actual contra la última que ya se analizó. Si
+                # es una foto nueva, el análisis corre solo. El botón
+                # sigue ahí para forzar un reanálisis (ej. si cambian de
+                # motor Gemini/YOLO con la misma foto).
+                # ------------------------------------------------------
+                hash_actual_r = _hash_imagen(img)
+                ya_analizada_r = hash_actual_r == st.session_state.get("r_ultimo_hash_analizado")
+                disparar_analisis_r = (
+                    st.button("🔍 Analizar con IA", type="primary",
+                             use_container_width=True, key="r_analizar")
+                    or not ya_analizada_r
+                )
+
+                if disparar_analisis_r:
+                    st.session_state.r_ultimo_hash_analizado = hash_actual_r
                     with st.spinner("Analizando imagen..."):
                         # El modelo YOLO local siempre corre, aunque el motor de
                         # clasificación sea Gemini — solo para difuminar personas
@@ -3402,8 +3631,21 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                                "en Secrets); se usará YOLO local en su lugar.")
                     usar_gemini_cr = False
 
-                if st.button("🔍 Evaluar con IA", type="primary",
-                             use_container_width=True, key="cr_analizar"):
+                # ------------------------------------------------------
+                # MEJORA 4 — Mismo patrón de auto-análisis que en 📸
+                # Reportar Residuo, con claves propias de esta sección
+                # para no pisar el estado del otro formulario.
+                # ------------------------------------------------------
+                hash_actual_cr = _hash_imagen(img2)
+                ya_analizada_cr = hash_actual_cr == st.session_state.get("cr_ultimo_hash_analizado")
+                disparar_analisis_cr = (
+                    st.button("🔍 Evaluar con IA", type="primary",
+                             use_container_width=True, key="cr_analizar")
+                    or not ya_analizada_cr
+                )
+
+                if disparar_analisis_cr:
+                    st.session_state.cr_ultimo_hash_analizado = hash_actual_cr
                     with st.spinner("Analizando imagen en alta resolución..."):
                         # El modelo YOLO local siempre corre, aunque el motor de
                         # clasificación sea Gemini — solo para difuminar personas
@@ -4010,10 +4252,13 @@ margin-bottom:8px;">
 
     reportes = st.session_state.reportes
 
-    tab_dash, tab_mapa, tab_lista, tab_export = st.tabs([
+    # MEJORA 5 — se agrega la pestaña "🚚 Ruta de recolección" entre
+    # "Gestión de reportes" y "Exportar / Limpiar".
+    tab_dash, tab_mapa, tab_lista, tab_ruta, tab_export = st.tabs([
         "📊 Dashboard",
         "🗺️ Mapa de control",
         "🗂️ Gestión de reportes",
+        "🚚 Ruta de recolección",
         "📥 Exportar / Limpiar"
     ])
 
@@ -4439,6 +4684,94 @@ padding:10px 16px;margin-top:12px;font-size:14px;">
                             unsafe_allow_html=True)
                     else:
                         st.caption("📲 Este residente no dejó un teléfono válido para notificar.")
+
+    with tab_ruta:
+        st.markdown("#### 🚚 Ruta sugerida de recolección")
+        st.caption(
+            "Ordena los puntos activos por cercanía (vecino más próximo) para armar "
+            "un recorrido razonable — no es matemáticamente la ruta más corta posible, "
+            "pero evita saltos absurdos de un extremo a otro de la comuna."
+        )
+
+        rf1, rf2 = st.columns(2)
+        with rf1:
+            ruta_barrio = st.selectbox("Filtrar por barrio:", ["Todos"] + BARRIOS,
+                                       key="ruta_barrio")
+        with rf2:
+            ruta_solo_criticos = st.checkbox("Solo puntos 🔴 críticos",
+                                             key="ruta_solo_criticos")
+
+        activos_ruta = [r for r in st.session_state.reportes
+                        if "Resuelto" not in r.get("Estado", "")]
+        if ruta_barrio != "Todos":
+            activos_ruta = [r for r in activos_ruta if r.get("Sector") == ruta_barrio]
+        if ruta_solo_criticos:
+            activos_ruta = [r for r in activos_ruta
+                            if "crítico" in r.get("Clasificación", "").lower()]
+
+        st.caption(f"{len(activos_ruta)} punto(s) activos con los filtros actuales.")
+
+        if st.button("🧭 Generar ruta optimizada", type="primary",
+                     key="btn_generar_ruta", disabled=len(activos_ruta) < 2):
+            st.session_state.ruta_generada = optimizar_ruta_recoleccion(activos_ruta)
+
+        if len(activos_ruta) < 2:
+            st.info("Se necesitan al menos 2 puntos activos con los filtros actuales "
+                    "para generar una ruta.")
+
+        ruta_actual = st.session_state.get("ruta_generada")
+        if ruta_actual:
+            distancia_total_km = 0.0
+            filas_ruta = []
+            for i, r in enumerate(ruta_actual):
+                if i > 0:
+                    d = distancia_metros(ruta_actual[i-1]["Lat"], ruta_actual[i-1]["Lon"],
+                                         r["Lat"], r["Lon"])
+                    distancia_total_km += d / 1000
+                filas_ruta.append({
+                    "Parada": i + 1, "Código": r["Código"],
+                    "Barrio": r.get("Sector", ""),
+                    "Nivel": r.get("Clasificación", ""),
+                    "Referencia": r.get("Referencia", "")[:40],
+                })
+            st.dataframe(pd.DataFrame(filas_ruta), use_container_width=True, hide_index=True)
+            st.markdown(
+                f"📏 **Distancia aproximada en línea recta:** {distancia_total_km:.1f} km "
+                f"({len(ruta_actual)} paradas — el recorrido real en carro será más largo, "
+                f"esto es solo un estimado para priorizar)."
+            )
+
+            link_ruta = generar_link_google_maps_ruta(ruta_actual)
+            st.markdown(
+                f'<a href="{link_ruta}" target="_blank" style="display:inline-block;'
+                f'background:#16a34a;color:white !important;text-decoration:none;'
+                f'padding:10px 18px;border-radius:8px;font-weight:700;margin:8px 0;">'
+                f'🗺️ Abrir ruta completa en Google Maps</a>', unsafe_allow_html=True
+            )
+
+            mapa_ruta = folium.Map(
+                location=[ruta_actual[0]["Lat"], ruta_actual[0]["Lon"]],
+                zoom_start=14, tiles="CartoDB positron"
+            )
+            coords_ruta = [(r["Lat"], r["Lon"]) for r in ruta_actual]
+            folium.PolyLine(coords_ruta, color="#16a34a", weight=4, opacity=0.8).add_to(mapa_ruta)
+            for i, r in enumerate(ruta_actual):
+                folium.Marker(
+                    location=[r["Lat"], r["Lon"]],
+                    popup=f"{i+1}. {r['Código']} — {r.get('Sector','')}",
+                    icon=folium.DivIcon(html=(
+                        f'<div style="background:#16a34a;color:white;border-radius:50%;'
+                        f'width:26px;height:26px;text-align:center;line-height:26px;'
+                        f'font-weight:700;font-size:12px;">{i+1}</div>'
+                    ))
+                ).add_to(mapa_ruta)
+            st_folium(mapa_ruta, width="100%", height=420, returned_objects=[])
+
+            if st.button("🗑️ Limpiar ruta generada", key="btn_limpiar_ruta"):
+                st.session_state.ruta_generada = None
+                st.rerun()
+        else:
+            st.info("Aplica los filtros y presiona 'Generar ruta optimizada'.")
 
     with tab_export:
         st.markdown("#### 📥 Exportar datos")
