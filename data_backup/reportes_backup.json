@@ -250,5 +250,26 @@
     "ReportesFalsos": null,
     "FotoURL": "https://raw.githubusercontent.com/stivenduque09/ecocom2-circular-ia/main/evidencias_reportes/CRIT-511.jpg",
     "FotoClasificadaURL": "https://raw.githubusercontent.com/stivenduque09/ecocom2-circular-ia/main/evidencias_clasificadas/CRIT-511.jpg"
+  },
+  {
+    "Código": "CRIT-512",
+    "Sector": "Santa Cruz",
+    "Referencia": "Calle 122, Comuna 2 - Santa Cruz, Medellín",
+    "Objetos": 15,
+    "Peso (Kg)": 3.1,
+    "Predominante": "Plasticos",
+    "Clasificación": "🟢 Punto verde — Alta valorización reciclable",
+    "Lat": 6.3064262,
+    "Lon": -75.5546093,
+    "Fecha": "2026-10-03 23:28",
+    "Estado": "🔴 Pendiente",
+    "Observaciones": "",
+    "CodigoResidente": "",
+    "Confirmaciones": 0,
+    "FechaResuelto": null,
+    "FotoResueltaURL": null,
+    "ReportesFalsos": null,
+    "FotoURL": "https://raw.githubusercontent.com/stivenduque09/ecocom2-circular-ia/main/evidencias_reportes/CRIT-512.jpg",
+    "FotoClasificadaURL": "https://raw.githubusercontent.com/stivenduque09/ecocom2-circular-ia/main/evidencias_clasificadas/CRIT-512.jpg"
   }
 ]
