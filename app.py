@@ -2786,13 +2786,20 @@ def _hoy_colombia():
     return datetime.utcnow() - _td(hours=5)
 
 
+def camion_pasa_hoy(barrio: str) -> bool:
+    info = HORARIOS_RECOLECCION.get(barrio)
+    if not info:
+        return False
+    dias_n = _normalizar_txt(info["dias"])
+    nums = [n for d, n in _DIAS_ES.items() if d in dias_n]
+    return _hoy_colombia().weekday() in nums
+
+
 def mensaje_horario(barrio: str) -> str:
     info = HORARIOS_RECOLECCION.get(barrio)
     if not info:
         return ""
-    dias_n = _normalizar_txt(info["dias"])
-    nums = [n for d, n in _DIAS_ES.items() if d in dias_n]
-    pasa_hoy = _hoy_colombia().weekday() in nums
+    pasa_hoy = camion_pasa_hoy(barrio)
     if pasa_hoy:
         msg = f"🚛 ¡HOY pasa el camión en **{barrio}**! Horario: {info['horario']}"
     else:
@@ -2932,6 +2939,12 @@ def router_ecobot(texto: str):
             partes.append("\n👉 Solo sube la foto en el formulario (o mándamela aquí abajo 📷).")
         if barrio:
             partes.append("\n" + mensaje_horario(barrio))
+            if etiqueta == "Bolsas de basura" and not critico and camion_pasa_hoy(barrio):
+                info_h = HORARIOS_RECOLECCION[barrio]
+                partes.append(
+                    f"\n💡 **Ojo:** hoy pasa el camión en {barrio} ({info_h['horario']}). "
+                    f"Si son bolsas domiciliarias, sácalas poco antes de esa hora y quizá "
+                    f"ni necesites reportar. Si llevan días ahí, sigue con el reporte.")
         return "\n".join(partes)
 
     return None
@@ -3246,6 +3259,16 @@ if menu == "🏠 Inicio y Mapa":
 
     if st.session_state.get("mostrar_horarios", False):
         mostrar_horarios_recoleccion()
+
+    # Cartel automático: si ya sabemos el barrio de la persona, le decimos de
+    # una vez si HOY pasa el camión (sin que tenga que preguntar).
+    _barrio_cartel = (st.session_state.get("click_barrio")
+                      or st.session_state.get("prefill_barrio"))
+    if _barrio_cartel in HORARIOS_RECOLECCION:
+        if camion_pasa_hoy(_barrio_cartel):
+            st.success(mensaje_horario(_barrio_cartel))
+        else:
+            st.info(mensaje_horario(_barrio_cartel))
 
     if "agente_msgs" not in st.session_state:
         st.session_state.agente_msgs = [
