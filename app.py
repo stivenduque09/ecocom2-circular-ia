@@ -2738,7 +2738,8 @@ def inyectar_css_ecobot():
     fondo = f"url(data:image/png;base64,{logo})" if logo else "none"
     st.markdown(f"""<style>
 .st-key-ecobot_flotante {{
-    position: fixed; bottom: 18px; right: 18px; z-index: 999990; width: auto !important;
+    position: fixed; bottom: 80px; right: 28px; z-index: 999990; width: auto !important;
+    max-width: calc(100vw - 40px);
 }}
 .st-key-ecobot_flotante button {{
     background: #16a34a !important; border: 3px solid #ffffff !important;
@@ -3785,7 +3786,7 @@ if menu == "🏠 Inicio y Mapa":
     lat_c = st.session_state.get("lat") or st.session_state.get("gps_lat") or LAT_C
     lon_c = st.session_state.get("lon") or st.session_state.get("gps_lon") or LON_C
 
-    mapa = folium.Map(location=[lat_c, lon_c], zoom_start=14, tiles="CartoDB positron")
+    mapa = folium.Map(location=[lat_c, lon_c], zoom_start=14, tiles="OpenStreetMap")
 
     coords_p = [(la, lo) for lo, la in POLIGONO_COMUNA2.exterior.coords]
     folium.Polygon(
@@ -5202,7 +5203,7 @@ padding:10px 16px;margin-top:12px;font-size:14px;">
                     key="vista_mapa_admin", horizontal=True)
 
             mapa_adm = folium.Map(location=[LAT_C, LON_C],
-                                  zoom_start=14, tiles="CartoDB positron")
+                                  zoom_start=14, tiles="OpenStreetMap")
 
             coords_p = [(la, lo) for lo, la in POLIGONO_COMUNA2.exterior.coords]
             folium.Polygon(locations=coords_p, color="#4ade80", weight=2,
@@ -5554,7 +5555,7 @@ padding:10px 16px;margin-top:12px;font-size:14px;">
 
             mapa_ruta = folium.Map(
                 location=[ruta_actual[0]["Lat"], ruta_actual[0]["Lon"]],
-                zoom_start=14, tiles="CartoDB positron"
+                zoom_start=14, tiles="OpenStreetMap"
             )
             coords_ruta = [(r["Lat"], r["Lon"]) for r in ruta_actual]
             folium.PolyLine(coords_ruta, color="#16a34a", weight=4, opacity=0.8).add_to(mapa_ruta)
