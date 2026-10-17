@@ -2945,6 +2945,22 @@ def limpiar_prefill_bot():
         st.session_state.pop(k, None)
 
 
+def reiniciar_flujo_reporte():
+    """Deja la página como queda después de publicar un reporte con el
+    formulario: sin punto elegido en el mapa, sin foto analizada y sin texto
+    prellenado, y lleva a Mi Historial. Antes, al publicar desde EcoBot el
+    reporte sí llegaba al mapa, pero el formulario de abajo se quedaba
+    'colgado' en el paso Foto con la dirección anterior. Ahora, para el
+    siguiente reporte hay que elegir de nuevo el punto a reportar."""
+    limpiar_prefill_bot()
+    for k in list(st.session_state.keys()):
+        if str(k).startswith("cache"):
+            st.session_state[k] = None
+    for k in ("click_lat", "click_lon", "click_dir", "click_barrio", "punto_para_reporte"):
+        st.session_state.pop(k, None)
+    st.session_state.seccion = "historial"
+
+
 def _estado_reporte_texto(rep: dict) -> str:
     txt = (f"**{rep.get('Código')}** · {rep.get('Sector','')}\n"
            f"- Estado: {rep.get('Estado','')}\n"
@@ -3124,9 +3140,10 @@ def publicar_desde_chat(an: dict, barrio: str, obs: str):
     st.session_state.mis_estados_vistos[codigo] = nuevo["Estado"]
     st.session_state.reportes_hoy_sesion = st.session_state.get("reportes_hoy_sesion", 0) + 1
     guardar_reportes_disco(st.session_state.reportes)
-    limpiar_prefill_bot()
+    reiniciar_flujo_reporte()
     return True, (f"¡Listo! Publiqué tu reporte **{codigo}** en **{barrio}** "
-                  f"({an['nivel']}). Puedes seguirlo en Mi Historial.\n\n"
+                  f"({an['nivel']}). Ya lo ves en el mapa y en Mi Historial. "
+                  f"Para el siguiente reporte, toca de nuevo el punto exacto en el mapa.\n\n"
                   + mensaje_horario(barrio))
 
 
@@ -3725,20 +3742,21 @@ Redirige preguntas no relacionadas al tema de residuos."""
                 st.session_state.ir_a_inicio = True
                 st.rerun()
 
-        pregunta = st.text_input(
-            "Pregunta:", placeholder="¿Cómo reporto basura?",
-            key="agente_input", label_visibility="collapsed",
-            max_chars=MAX_LARGO_MENSAJE_BOT)
-
-        col_send, col_clear = st.columns([3, 1])
-        with col_send:
-            enviar = st.button("Enviar", key="agente_enviar",
-                               type="primary", use_container_width=True)
-        with col_clear:
-            if st.button("Limpiar", key="agente_limpiar", use_container_width=True,
-                         help="Limpiar chat"):
-                st.session_state.agente_msgs = [st.session_state.agente_msgs[0]]
-                st.rerun()
+        # Formulario con clear_on_submit: la caja se vacía sola al enviar y
+        # también se puede enviar con la tecla Enter.
+        with st.form("form_agente", clear_on_submit=True, border=False):
+            col_in, col_send = st.columns([4, 2])
+            with col_in:
+                pregunta = st.text_input(
+                    "Pregunta:", placeholder="Escribe tu mensaje",
+                    key="agente_input", label_visibility="collapsed",
+                    max_chars=MAX_LARGO_MENSAJE_BOT)
+            with col_send:
+                enviar = st.form_submit_button("Enviar", type="primary",
+                                               use_container_width=True)
+        if st.button("Limpiar conversación", key="agente_limpiar", use_container_width=True):
+            st.session_state.agente_msgs = [st.session_state.agente_msgs[0]]
+            st.rerun()
 
         if enviar and pregunta.strip():
             st.session_state.agente_msgs.append(
