@@ -59,6 +59,9 @@ def limpiar_texto_libre(txt: str, max_len: int = MAX_LARGO_TEXTO_LIBRE) -> str:
     txt = "".join(ch for ch in (txt or "") if ch == "\n" or ch >= " ")
     # Sin enlaces: el mapa es público y alguien podría pegar un link de phishing/spam
     txt = re.sub(r"(https?://|www\.)\S+", "[enlace eliminado]", txt, flags=re.IGNORECASE)
+    # Sin celulares: un número escrito en 'Observaciones' queda visible en el mapa público
+    txt = re.sub(r"(?<!\d)(?:\+?57[\s.-]?)?3\d{2}[\s.-]?\d{3}[\s.-]?\d{4}(?!\d)",
+                 "[número oculto]", txt)
     return txt.strip()[:max_len]
 
 
@@ -94,6 +97,52 @@ def semaforo(niv) -> str:
     if "\U0001F7E1" in t or "amarillo" in t or "mixto" in t:
         return "amarillo"
     return "verde"
+
+
+def _sal_respaldo() -> str:
+    """Secreto para ocultar los teléfonos en el respaldo. Se configura en
+    Secrets como BACKUP_SALT (cualquier texto largo y secreto)."""
+    try:
+        sal = str(st.secrets.get("BACKUP_SALT", "")).strip()
+    except Exception:
+        sal = ""
+    return sal or os.environ.get("ECOCOM2_BACKUP_SALT", "").strip()
+
+
+def pseudonimo_residente(codigo: str) -> str:
+    """Convierte el teléfono/código de un residente en una 'huella' que no se
+    puede revertir (HMAC-SHA256 con secreto). Sirve para reconocer al mismo
+    residente sin publicar su número. Sin BACKUP_SALT devuelve '' (el dato
+    simplemente no se respalda: privacidad primero)."""
+    codigo = (codigo or "").strip().lower()
+    sal = _sal_respaldo()
+    if not codigo or not sal:
+        return ""
+    if codigo.startswith("h:"):
+        return codigo
+    return "h:" + hmac.new(sal.encode("utf-8"), codigo.encode("utf-8"),
+                           hashlib.sha256).hexdigest()[:32]
+
+
+def coincide_residente(guardado, buscado) -> bool:
+    """True si el código/teléfono 'buscado' corresponde al guardado en un
+    reporte, ya sea guardado en claro o como huella (reportes restaurados)."""
+    g = (guardado or "").strip().lower()
+    b = (buscado or "").strip().lower()
+    if not g or not b:
+        return False
+    if g == b:
+        return True
+    if g.startswith("h:"):
+        h = pseudonimo_residente(b)
+        return bool(h) and hmac.compare_digest(g, h)
+    return False
+
+
+def contacto_visible(valor) -> str:
+    """Para exportar: no mostrar huellas como si fueran teléfonos."""
+    v = (valor or "")
+    return "(protegido)" if str(v).startswith("h:") else v
 
 
 def solo_b64(valor) -> str:
@@ -278,7 +327,8 @@ def _github_config():
     try:
         token = st.secrets.get("GITHUB_TOKEN", "").strip()
         repo = st.secrets.get("GITHUB_REPO", "").strip()
-        branch = st.secrets.get("GITHUB_BRANCH", "main").strip() or "main"
+        branch = (str(st.secrets.get("GITHUB_BRANCH_DATOS", "")).strip()
+                  or st.secrets.get("GITHUB_BRANCH", "main").strip() or "main")
         if token and repo:
             return token, repo, branch
     except Exception:
@@ -304,6 +354,11 @@ def respaldar_en_github(reportes: list):
         reportes_ligeros = [
             {c: r.get(c) for c in _CAMPOS_RESPALDO} for r in reportes
         ]
+        # PRIVACIDAD: el repositorio puede ser público, así que el teléfono
+        # nunca se sube en claro: se sube una huella irreversible (o nada,
+        # si falta BACKUP_SALT en Secrets).
+        for _rl in reportes_ligeros:
+            _rl["CodigoResidente"] = pseudonimo_residente(_rl.get("CodigoResidente", ""))
         contenido = json.dumps(reportes_ligeros, ensure_ascii=False, indent=2)
         contenido_b64 = base64.b64encode(contenido.encode("utf-8")).decode("utf-8")
 
@@ -1569,7 +1624,7 @@ def generar_excel_reportes(reportes: list, incluir_contacto: bool = False) -> by
             r.get("Observaciones", ""),
         ]
         if incluir_contacto:
-            valores.append(r.get("CodigoResidente", ""))
+            valores.append(contacto_visible(r.get("CodigoResidente", "")))
         valores += [r.get("Lat", ""), r.get("Lon", "")]
         valores = [seguro_excel(v) for v in valores]  # neutraliza =, +, -, @ al inicio
 
@@ -1698,7 +1753,7 @@ def contar_reportes_hoy(codigo_residente: str) -> int:
     if codigo_residente.strip():
         return sum(
             1 for r in st.session_state.reportes
-            if r.get("CodigoResidente", "").strip().lower() == codigo_residente.strip().lower()
+            if coincide_residente(r.get("CodigoResidente", ""), codigo_residente)
             and r.get("Fecha", "").startswith(hoy)
         )
     return st.session_state.get("reportes_hoy_sesion", 0)
@@ -1811,7 +1866,7 @@ def aviso_duplicado(resultado, key_confirmar: str) -> bool:
 
 
 def extraer_telefono_whatsapp(codigo_residente: str):
-    if not codigo_residente:
+    if not codigo_residente or str(codigo_residente).startswith("h:"):
         return None
     digitos = "".join(c for c in codigo_residente if c.isdigit())
     if len(digitos) == 10 and digitos.startswith(("3",)):
@@ -3075,6 +3130,54 @@ def publicar_desde_chat(an: dict, barrio: str, obs: str):
                   + mensaje_horario(barrio))
 
 
+# ---------- Voz: hablarle al bot ----------
+MAX_BYTES_AUDIO_BOT = 4 * 1024 * 1024   # ~2 minutos de grabación
+
+
+def transcribir_audio_gemini(audio_bytes: bytes, mime: str = "audio/wav"):
+    """Convierte un mensaje de voz en texto usando Gemini (entiende español
+    colombiano, incluso con ruido de calle). Devuelve (texto, error)."""
+    if not audio_bytes:
+        return "", "No se recibió audio."
+    if len(audio_bytes) > MAX_BYTES_AUDIO_BOT:
+        return "", "El audio es muy largo. Intenta un mensaje de menos de 1 minuto."
+    payload = {
+        "contents": [{"parts": [
+            {"inline_data": {"mime_type": mime or "audio/wav",
+                             "data": base64.b64encode(audio_bytes).decode("utf-8")}},
+            {"text": ("Transcribe este mensaje de voz de un vecino de la Comuna 2 "
+                      "(Santa Cruz, Medellín, Colombia). Escribe SOLO lo que dijo, en español, "
+                      "sin comillas ni comentarios. Si no hay voz o no se entiende nada, "
+                      "responde exactamente: [inaudible]")},
+        ]}],
+        "generationConfig": {"temperature": 0.0, "maxOutputTokens": 400},
+    }
+    data, _modelo, error = _llamar_gemini_con_respaldo(payload, timeout=45)
+    if error or not data:
+        return "", error or "No se pudo transcribir el audio."
+    try:
+        texto = "".join(p.get("text", "") for p in
+                        data["candidates"][0]["content"]["parts"]).strip()
+    except Exception:
+        return "", "Gemini no devolvió una transcripción."
+    if not texto or "[inaudible]" in texto.lower():
+        return "", "No logré escuchar bien el audio."
+    return limpiar_texto_libre(texto, MAX_LARGO_MENSAJE_BOT), None
+
+
+def hablar_en_voz_alta(texto: str):
+    """Lee un texto con la voz del navegador (sin costo ni claves)."""
+    import json as _json
+    import streamlit.components.v1 as components
+    limpio = re.sub(r"[*_`#>]", "", texto or "")
+    limpio = re.sub(r"\s*\n+\s*", ". ", limpio)[:600]
+    js_texto = _json.dumps(limpio, ensure_ascii=False).replace("</", "<\\/")
+    components.html(
+        "<script>try{const u=new SpeechSynthesisUtterance(" + js_texto + ");"
+        "u.lang='es-CO';u.rate=1.0;window.speechSynthesis.cancel();"
+        "window.speechSynthesis.speak(u);}catch(e){}</script>", height=0)
+
+
 def renderizar_foto_ecobot():
     st.markdown("**Mándame una foto y yo la analizo**")
     clat, clon = st.session_state.get("click_lat"), st.session_state.get("click_lon")
@@ -3227,6 +3330,10 @@ def alertas_automaticas(reportes: list) -> list:
     if not _github_config()[0]:
         alertas.append(("warn", "El respaldo en GitHub no está configurado: si el servidor "
                                 "se reinicia se pierden los reportes."))
+    elif not _sal_respaldo():
+        alertas.append(("warn", "Falta BACKUP_SALT en Secrets: el respaldo se sube SIN los "
+                                "teléfonos, así que tras un reinicio los vecinos no verán su "
+                                "historial. Agrégalo para conservarlo de forma segura."))
     return alertas
 
 
@@ -3337,7 +3444,7 @@ if menu != "Panel Admin":
             {"role": "assistant",
              "content": "¡Hola! Soy EcoBot, el asistente de EcoCom2.\n\n"
                         "Puedes escribirme cosas como *\"hay escombros en La Frontera\"* y preparo "
-                        "el reporte por ti, mandarme una **foto**, o decirme un código "
+                        "el reporte por ti, grabarme un **audio**, mandarme una **foto**, o decirme un código "
                         "(*confirmo REP-205*). También te digo cuándo pasa el camión. ¿Qué necesitas?"}
         ]
     if "agente_pendiente" not in st.session_state:
@@ -3431,7 +3538,7 @@ if menu != "Panel Admin":
         if nombre_funcion == "contar_reportes_de_residente":
             cod = (argumentos.get("codigo_residente") or "").strip().lower()
             propios = [r for r in reportes
-                       if cod and r.get("CodigoResidente", "").strip().lower() == cod]
+                       if cod and coincide_residente(r.get("CodigoResidente", ""), cod)]
             return {
                 "total": len(propios),
                 "pendientes": sum(1 for r in propios if "Pendiente" in r.get("Estado", "")),
@@ -3573,7 +3680,7 @@ Redirige preguntas no relacionadas al tema de residuos."""
             f'border-radius:12px;padding:10px 14px;font-weight:800;font-size:15px;'
             f'margin-bottom:10px;display:flex;align-items:center;">{_img_hdr}'
             f'<div>Hola, soy EcoBot<br><span style="font-weight:400;font-size:12px">'
-            f'Reporto, analizo fotos y te aviso cuándo pasa el camión</span></div></div>',
+            f'Escríbeme, háblame o mándame una foto</span></div></div>',
             unsafe_allow_html=True)
 
         st.caption("¿Ya sabes qué quieres hacer? Toca directo:")
@@ -3641,6 +3748,46 @@ Redirige preguntas no relacionadas al tema de residuos."""
             st.session_state.agente_msgs.append(
                 {"role": "assistant", "content": respuesta})
             st.rerun()
+
+        # ---- Entrada por voz ----
+        if verificar_gemini_key():
+            _n_aud = st.session_state.get("bot_audio_n", 0)
+            st.caption("Prefieres hablar: toca el micrófono, di tu mensaje y detén la grabación.")
+            audio_bot = st.audio_input("Hablar con EcoBot", key=f"agente_audio_{_n_aud}",
+                                       label_visibility="collapsed")
+            st.toggle("Leer las respuestas en voz alta", key="bot_voz_salida")
+            if audio_bot is not None:
+                _datos_aud = audio_bot.getvalue()
+                _h_aud = hashlib.md5(_datos_aud).hexdigest()
+                if _h_aud != st.session_state.get("bot_audio_hash"):
+                    st.session_state.bot_audio_hash = _h_aud
+                    if not ecobot_cupo_disponible():
+                        st.session_state.agente_msgs.append({"role": "assistant", "content":
+                            "Has enviado muchos mensajes seguidos. Espera un rato e inténtalo de nuevo."})
+                    else:
+                        with st.spinner("Escuchando tu mensaje..."):
+                            _texto_aud, _err_aud = transcribir_audio_gemini(
+                                _datos_aud, getattr(audio_bot, "type", "audio/wav"))
+                        if _err_aud or not _texto_aud:
+                            st.session_state.agente_msgs.append({"role": "assistant", "content":
+                                f"{_err_aud or 'No logré entender el audio.'} Puedes intentarlo "
+                                f"de nuevo o escribirme tu mensaje."})
+                        else:
+                            st.session_state.agente_msgs.append(
+                                {"role": "user", "content": _texto_aud})
+                            with st.spinner("EcoBot está pensando..."):
+                                _resp_aud = llamar_ecobot(st.session_state.agente_msgs)
+                            st.session_state.agente_msgs.append(
+                                {"role": "assistant", "content": _resp_aud})
+                            if st.session_state.get("bot_voz_salida"):
+                                st.session_state.bot_hablar = _resp_aud
+                    st.session_state.bot_audio_n = _n_aud + 1   # limpia la grabadora
+                    st.rerun()
+            _por_hablar = st.session_state.pop("bot_hablar", None)
+            if _por_hablar:
+                hablar_en_voz_alta(_por_hablar)
+        else:
+            st.caption("La entrada por voz necesita la clave de Gemini configurada.")
 
         st.markdown("---")
         renderizar_foto_ecobot()
@@ -4746,7 +4893,7 @@ if menu == "Inicio y Mapa":
         elif _busq_limpia:
             reportes_mostrar = [
                 r for r in st.session_state.reportes
-                if r.get("CodigoResidente", "").strip().lower() == _busq_limpia.lower()
+                if coincide_residente(r.get("CodigoResidente", ""), _busq_limpia)
             ]
         else:
             reportes_mostrar = mis_reportes_actuales
