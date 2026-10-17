@@ -2926,6 +2926,7 @@ def router_ecobot(texto: str):
             st.session_state.prefill_barrio = barrio
             st.session_state.click_barrio = barrio
         st.session_state.seccion = "critico" if critico else "residuo"
+        st.session_state.ir_a_inicio = True
 
         partes = ["✅ ¡Entendido! Ya preparé tu reporte:"]
         partes.append(f"- 📍 Barrio: **{barrio}**" if barrio else "- 📍 Barrio: elígelo en el formulario")
@@ -3119,6 +3120,47 @@ def renderizar_foto_ecobot():
             st.rerun()
 
 
+def generar_resumen_semanal(reportes: list) -> str:
+    """Texto listo para copiar/enviar por WhatsApp con el estado de los
+    últimos 7 días: lo que antes había que armar a mano mirando el panel."""
+    from collections import Counter
+    from datetime import timedelta as _td
+    ahora = datetime.now()
+    limite = ahora - _td(days=7)
+
+    def _f(txt):
+        try:
+            return datetime.strptime(txt or "", "%Y-%m-%d %H:%M")
+        except Exception:
+            return None
+
+    nuevos = [r for r in reportes if (_f(r.get("Fecha")) or datetime.min) >= limite]
+    resueltos_sem = [r for r in reportes if "Resuelto" in r.get("Estado", "")
+                     and (_f(r.get("FechaResuelto")) or datetime.min) >= limite]
+    activos = [r for r in reportes if "Resuelto" not in r.get("Estado", "")]
+    criticos = [r for r in activos if "crítico" in r.get("Clasificación", "").lower()]
+    viejos = [r for r in criticos if "Pendiente" in r.get("Estado", "")
+              and (_f(r.get("Fecha")) or ahora) < ahora - _td(hours=48)]
+    top = Counter(r.get("Sector", "—") for r in nuevos).most_common(3)
+    kg = sum(float(r.get("Peso (Kg)", 0) or 0) for r in nuevos)
+
+    lineas = [
+        f"♻️ *EcoCom2 — Resumen semanal* ({limite:%d/%m} al {ahora:%d/%m/%Y})",
+        "",
+        f"📥 Reportes nuevos: *{len(nuevos)}*",
+        f"✅ Resueltos esta semana: *{len(resueltos_sem)}*",
+        f"🔴 Puntos críticos pendientes: *{len(criticos)}*",
+        f"⏰ Críticos con más de 48 h sin atender: *{len(viejos)}*",
+        f"⚖️ Peso estimado reportado: *{kg:.1f} kg*",
+    ]
+    if top:
+        lineas += ["", "📍 Barrios con más reportes:"]
+        lineas += [f"  {i}. {b} — {c}" for i, (b, c) in enumerate(top, 1)]
+    if viejos:
+        lineas += ["", "⚠️ Atender primero: " + ", ".join(r["Código"] for r in viejos[:6])]
+    return "\n".join(lineas)
+
+
 def alertas_automaticas(reportes: list) -> list:
     """Revisión automática para la administración: marca lo que requiere
     atención sin que nadie tenga que buscarlo a mano."""
@@ -3181,7 +3223,10 @@ else:
 st.sidebar.markdown("---")
 
 PAGINAS = ["🏠 Reportar y Ver Mapa", "ℹ️ Información"]
-menu_elegido = st.sidebar.radio("Menú", PAGINAS)
+if st.session_state.pop("ir_a_inicio", False):
+    st.session_state.menu_radio = PAGINAS[0]   # el bot nos lleva a reportar
+    st.session_state.menu_extra = None
+menu_elegido = st.sidebar.radio("Menú", PAGINAS, key="menu_radio")
 
 with st.sidebar.expander("⚙️ Más opciones"):
     st.caption("Estadísticas públicas y gestión — para curiosos y administración.")
@@ -3248,28 +3293,10 @@ Dev: <b style="color:#16a34a">Brandon Duque</b>
 </div>""", unsafe_allow_html=True)
 
 # ====================================================================
-# 8. INICIO Y MAPA
+# ECOBOT EN TODAS LAS PANTALLAS (menos el Panel Admin, para no tapar
+# los controles de administración)
 # ====================================================================
-if menu == "🏠 Inicio y Mapa":
-    st.title("♻️ EcoCom2 Circular IA")
-    st.caption("Gestión inteligente de residuos — Solo residentes de la **Comuna 2** pueden publicar reportes.")
-
-    if not st.session_state.get("tutorial_visto", False):
-        mostrar_tutorial()
-
-    if st.session_state.get("mostrar_horarios", False):
-        mostrar_horarios_recoleccion()
-
-    # Cartel automático: si ya sabemos el barrio de la persona, le decimos de
-    # una vez si HOY pasa el camión (sin que tenga que preguntar).
-    _barrio_cartel = (st.session_state.get("click_barrio")
-                      or st.session_state.get("prefill_barrio"))
-    if _barrio_cartel in HORARIOS_RECOLECCION:
-        if camion_pasa_hoy(_barrio_cartel):
-            st.success(mensaje_horario(_barrio_cartel))
-        else:
-            st.info(mensaje_horario(_barrio_cartel))
-
+if menu != "🛡️ Panel Admin":
     if "agente_msgs" not in st.session_state:
         st.session_state.agente_msgs = [
             {"role": "assistant",
@@ -3520,6 +3547,7 @@ Redirige preguntas no relacionadas al tema de residuos."""
             if st.button("📸 Reportar residuo", key="ecobot_cta_residuo",
                          use_container_width=True, type="primary"):
                 st.session_state.seccion = "residuo"
+                st.session_state.ir_a_inicio = True
                 st.session_state.agente_msgs.append(
                     {"role": "assistant",
                      "content": "¡Listo! Te llevé a 📸 Reportar Residuo. Ahora solo toca "
@@ -3530,6 +3558,7 @@ Redirige preguntas no relacionadas al tema de residuos."""
             if st.button("🚨 Punto crítico", key="ecobot_cta_critico",
                          use_container_width=True, type="primary"):
                 st.session_state.seccion = "critico"
+                st.session_state.ir_a_inicio = True
                 st.session_state.agente_msgs.append(
                     {"role": "assistant",
                      "content": "¡Perfecto! Te llevé a 🚨 Punto Crítico. Toca el punto en "
@@ -3551,6 +3580,7 @@ Redirige preguntas no relacionadas al tema de residuos."""
             if st.button("🚀 Sí, llévame a reportar ahora", key="ecobot_ir_reportar",
                          type="primary", use_container_width=True):
                 st.session_state.seccion = "residuo"
+                st.session_state.ir_a_inicio = True
                 st.rerun()
 
         pregunta = st.text_input(
@@ -3598,6 +3628,30 @@ Redirige preguntas no relacionadas al tema de residuos."""
                     st.session_state.agente_msgs.append({"role": "user", "content": pq})
                     st.session_state.agente_pendiente = True
                     st.rerun()
+
+
+# ====================================================================
+# 8. INICIO Y MAPA
+# ====================================================================
+if menu == "🏠 Inicio y Mapa":
+    st.title("♻️ EcoCom2 Circular IA")
+    st.caption("Gestión inteligente de residuos — Solo residentes de la **Comuna 2** pueden publicar reportes.")
+
+    if not st.session_state.get("tutorial_visto", False):
+        mostrar_tutorial()
+
+    if st.session_state.get("mostrar_horarios", False):
+        mostrar_horarios_recoleccion()
+
+    # Cartel automático: si ya sabemos el barrio de la persona, le decimos de
+    # una vez si HOY pasa el camión (sin que tenga que preguntar).
+    _barrio_cartel = (st.session_state.get("click_barrio")
+                      or st.session_state.get("prefill_barrio"))
+    if _barrio_cartel in HORARIOS_RECOLECCION:
+        if camion_pasa_hoy(_barrio_cartel):
+            st.success(mensaje_horario(_barrio_cartel))
+        else:
+            st.info(mensaje_horario(_barrio_cartel))
 
     dir_auto = st.session_state.get("click_dir") or st.session_state.get("direccion") or ""
 
@@ -5006,6 +5060,12 @@ margin-bottom:8px;">
             st.success("✅ Sin alertas: nada requiere atención inmediata.")
         for _nivel_a, _msg_a in _alertas_adm:
             (st.error if _nivel_a == "err" else st.warning)(_msg_a)
+        st.markdown("#### 📋 Resumen semanal (listo para enviar)")
+        _txt_resumen = generar_resumen_semanal(reportes)
+        st.code(_txt_resumen, language=None)   # el ícono de la esquina lo copia
+        st.link_button("📲 Enviar por WhatsApp",
+                       f"https://wa.me/?text={url_quote(_txt_resumen)}",
+                       use_container_width=True)
         st.markdown("#### ⚙️ Estado del sistema")
         est1, est2, est3, est4 = st.columns(4)
         with est1:
