@@ -23,6 +23,60 @@ from math import radians, sin, cos, sqrt, atan2
 import re
 import time
 import hashlib  # MEJORA 4 — para detectar si una foto ya fue analizada
+import hmac            # SEGURIDAD — comparación de contraseña en tiempo constante
+import html as _html   # SEGURIDAD — escapar texto de usuarios antes de pintarlo como HTML
+import logging         # SEGURIDAD — dejar rastro de errores en vez de tragárselos en silencio
+import threading       # SEGURIDAD — evitar escrituras simultáneas a la base de datos
+
+logging.basicConfig(level=logging.INFO)
+_log = logging.getLogger("ecocom2")
+
+# ====================================================================
+# SEGURIDAD — constantes y utilidades (tomadas/adaptadas de app v8)
+# ====================================================================
+MAX_INTENTOS_ADMIN = 5
+BLOQUEO_ADMIN_SEGUNDOS = 300          # 5 min de bloqueo tras demasiados intentos
+MAX_BYTES_FOTO = 8 * 1024 * 1024      # 8 MB por foto
+MAX_PIXELES_FOTO = 40_000_000         # evita "bombas de descompresión"
+MAX_LARGO_MENSAJE_BOT = 500           # caracteres por mensaje a EcoBot
+MAX_MENSAJES_BOT_HORA = 30            # mensajes a EcoBot por sesión y hora
+MAX_LARGO_TEXTO_LIBRE = 600           # observaciones / referencia
+
+_LOCK_DB = threading.Lock()
+
+
+def esc(valor) -> str:
+    """Escapa cualquier texto escrito por un usuario antes de meterlo en HTML
+    (unsafe_allow_html, popups de folium, etc.). Evita XSS almacenado: sin
+    esto, una 'Referencia' como <img src=x onerror=...> se ejecutaría en el
+    navegador de TODO el que abra el mapa, incluido el administrador."""
+    return _html.escape(str(valor if valor is not None else ""), quote=True)
+
+
+def limpiar_texto_libre(txt: str, max_len: int = MAX_LARGO_TEXTO_LIBRE) -> str:
+    """Quita caracteres de control y recorta el largo de un texto libre."""
+    txt = "".join(ch for ch in (txt or "") if ch == "\n" or ch >= " ")
+    return txt.strip()[:max_len]
+
+
+def seguro_excel(valor):
+    """Evita 'inyección de fórmulas' en Excel: si un texto empieza con = + - @
+    Excel lo ejecutaría como fórmula al abrir el archivo. Se antepone un
+    apóstrofo para que se lea como texto."""
+    if isinstance(valor, str) and valor[:1] in ("=", "+", "-", "@", "\t", "\r"):
+        return "'" + valor
+    return valor
+
+
+def solo_b64(valor) -> str:
+    """Deja únicamente caracteres válidos de base64 (nada que rompa un src=)."""
+    return re.sub(r"[^A-Za-z0-9+/=]", "", str(valor or ""))
+
+
+def nombre_archivo_seguro(nombre: str) -> str:
+    """Deja solo letras, números, guion y punto — sin rutas ni '..'."""
+    base = re.sub(r"[^A-Za-z0-9._-]", "_", os.path.basename(nombre or ""))
+    return base.lstrip(".")[:80] or "archivo.jpg"
 
 # ====================================================================
 # PERSISTENCIA — SQLite en vez de JSON en /tmp
@@ -42,8 +96,17 @@ _COLUMNAS  = ["codigo","sector","referencia","objetos","peso_kg",
               "fecha_resuelto","reportes_falsos","foto_url","foto_clasificada_url"]
 
 def _conectar_db():
-    conn = sqlite3.connect(DB_PATH, check_same_thread=False)
+    """Conexión SQLite segura ante varias sesiones a la vez: modo WAL (los
+    lectores no bloquean al escritor) y espera de hasta 30 s si la base está
+    ocupada, en vez de fallar al instante y perder el reporte."""
+    conn = sqlite3.connect(str(DB_PATH), timeout=30.0, check_same_thread=False)
     conn.row_factory = sqlite3.Row
+    try:
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA synchronous=NORMAL;")
+        conn.execute("PRAGMA busy_timeout=30000;")
+    except sqlite3.Error:
+        pass
     return conn
 
 def _crear_tabla():
@@ -81,8 +144,8 @@ def _crear_tabla():
                     conn.execute(f"ALTER TABLE reportes ADD COLUMN {col_sql}")
                 except Exception:
                     pass
-    except Exception:
-        pass
+    except Exception as e:
+        _log.error("No se pudo crear/migrar la tabla de reportes: %s", e)
 
 _crear_tabla()
 
@@ -94,26 +157,72 @@ def cargar_reportes_disco():
             {campo: fila[col] for campo, col in zip(_CAMPOS, _COLUMNAS)}
             for fila in filas
         ]
-    except Exception:
+    except Exception as e:
+        _log.error("No se pudieron cargar los reportes: %s", e)
         return []
 
-def _guardar_sqlite(reportes):
-    """Escribe la lista de reportes en la base SQLite local — esto es lo
-    que ya existía, y sigue siendo la copia 'rápida' que usa la app en
-    cada sesión. El problema es que este archivo vive en el disco del
-    contenedor de Streamlit Cloud, que se borra por completo cada vez
-    que la app se reinicia (por inactividad o por un nuevo despliegue).
-    Por eso guardar_reportes_disco() también respalda en GitHub."""
+def _guardar_sqlite(reportes, eliminados=None, borrar_todo=False):
+    """Escribe los reportes en la base SQLite local.
+
+    ANTES esta función hacía DELETE de toda la tabla y reinsertaba lo que
+    hubiera en la memoria de ESA sesión. Con dos personas usando la app a la
+    vez, quien guardaba segundo borraba los reportes nuevos de la otra, y
+    cualquier error se tragaba en silencio. AHORA:
+      - Hace UPSERT (inserta o actualiza) reporte por reporte, en una sola
+        transacción.
+      - Solo borra lo que se le pide explícitamente (eliminados) o todo si
+        borrar_todo=True (zona de peligro del admin).
+    Devuelve True si guardó bien, False si falló (y deja el error en el log).
+    """
     try:
-        with _conectar_db() as conn:
-            conn.execute("DELETE FROM reportes")
-            conn.executemany(
-                f"INSERT INTO reportes ({','.join(_COLUMNAS)}) "
-                f"VALUES ({','.join('?' * len(_COLUMNAS))})",
-                [tuple(r.get(campo) for campo in _CAMPOS) for r in reportes]
-            )
+        with _LOCK_DB:
+            with _conectar_db() as conn:
+                if borrar_todo:
+                    conn.execute("DELETE FROM reportes")
+                elif eliminados:
+                    conn.executemany("DELETE FROM reportes WHERE codigo = ?",
+                                     [(c,) for c in eliminados])
+                if reportes:
+                    conn.executemany(
+                        f"INSERT OR REPLACE INTO reportes ({','.join(_COLUMNAS)}) "
+                        f"VALUES ({','.join('?' * len(_COLUMNAS))})",
+                        [tuple(r.get(campo) for campo in _CAMPOS) for r in reportes]
+                    )
+        return True
+    except Exception as e:
+        _log.error("Fallo guardando en SQLite: %s", e)
+        return False
+
+
+def _sincronizar_con_db(reportes, eliminados=None):
+    """Trae a la lista en memoria los reportes que OTRAS sesiones hayan
+    guardado en la base y esta sesión todavía no conoce, para que al guardar
+    no se pierdan ni se sobrescriban. Modifica 'reportes' en el lugar."""
+    try:
+        excluidos = set(eliminados or [])
+        conocidos = {r.get("Código") for r in reportes}
+        for r_db in cargar_reportes_disco():
+            cod = r_db.get("Código")
+            if cod and cod not in conocidos and cod not in excluidos:
+                reportes.append(r_db)
+    except Exception as e:
+        _log.error("Fallo sincronizando con la base: %s", e)
+
+
+def generar_codigo(prefijo: str, base: int) -> str:
+    """Genera un código único (REP-205, CRIT-512...). ANTES se usaba
+    len(reportes)+base: si el admin borraba un reporte, el siguiente nuevo
+    repetía un código ya existente y, con INSERT OR REPLACE, habría
+    SOBRESCRITO el reporte de otra persona (y su foto en GitHub)."""
+    usados = {r.get("Código") for r in st.session_state.get("reportes", [])}
+    try:
+        usados |= {r.get("Código") for r in cargar_reportes_disco()}
     except Exception:
         pass
+    numeros = [int(m.group(1)) for c in usados if c
+               for m in [re.match(rf"^{re.escape(prefijo)}-(\d+)$", c)] if m]
+    n = max(numeros + [base - 1]) + 1
+    return f"{prefijo}-{n}"
 
 
 RESPALDO_PATH_REPO = "data_backup/reportes_backup.json"
@@ -173,7 +282,7 @@ def respaldar_en_github(reportes: list):
         sha = r_get.json().get("sha") if r_get.status_code == 200 else None
 
         payload = {
-            "message": f"🔄 Respaldo automático EcoCom2 — {datetime.now():%Y-%m-%d %H:%M}",
+            "message": f"🔄 Respaldo automático EcoCom2 — {datetime.now():%Y-%m-%d %H:%M} [skip ci]",
             "content": contenido_b64,
             "branch": branch,
         }
@@ -220,7 +329,7 @@ def subir_foto_evidencia_github(imagen_bytes: bytes, nombre_archivo: str,
     try:
         import requests
         contenido_b64 = base64.b64encode(imagen_bytes).decode("utf-8")
-        ruta_repo = f"{carpeta}/{nombre_archivo}"
+        ruta_repo = f"{nombre_archivo_seguro(carpeta)}/{nombre_archivo_seguro(nombre_archivo)}"
         url_api = f"https://api.github.com/repos/{repo}/contents/{ruta_repo}"
         headers = {"Authorization": f"token {token}",
                    "Accept": "application/vnd.github+json"}
@@ -229,7 +338,7 @@ def subir_foto_evidencia_github(imagen_bytes: bytes, nombre_archivo: str,
         sha = r_get.json().get("sha") if r_get.status_code == 200 else None
 
         payload = {
-            "message": f"📷 Evidencia — {ruta_repo}",
+            "message": f"📷 Evidencia — {ruta_repo} [skip ci]",
             "content": contenido_b64,
             "branch": branch,
         }
@@ -277,11 +386,20 @@ def restaurar_desde_github_si_vacio():
         pass
 
 
-def guardar_reportes_disco(reportes):
+def guardar_reportes_disco(reportes, eliminados=None, borrar_todo=False):
     """Guarda en SQLite local (rápido, para uso normal de la app) Y
     respalda en GitHub (lento pero sobrevive a un reinicio completo del
-    contenedor de Streamlit Cloud)."""
-    _guardar_sqlite(reportes)
+    contenedor de Streamlit Cloud). 'eliminados' son los códigos que hay
+    que borrar de verdad; 'borrar_todo' vacía la tabla (solo admin)."""
+    if not borrar_todo:
+        _sincronizar_con_db(reportes, eliminados)
+    ok = _guardar_sqlite(reportes, eliminados=eliminados, borrar_todo=borrar_todo)
+    if not ok:
+        try:
+            st.warning("⚠️ No se pudo guardar en la base local. Tu reporte sigue en "
+                       "pantalla, pero avísale a la administración si se repite.")
+        except Exception:
+            pass
     respaldar_en_github(reportes)
 
 # ====================================================================
@@ -1094,9 +1212,10 @@ def fuente_imagen(b64_val: str, url_val: str) -> str:
     cae al link público de GitHub para que la foto no desaparezca del
     todo. Devuelve "" si no hay ninguna de las dos fuentes disponibles."""
     if b64_val:
-        return f"data:image/jpeg;base64,{b64_val}"
-    if url_val:
-        return url_val
+        # solo caracteres válidos de base64 — nada que rompa el atributo src
+        return "data:image/jpeg;base64," + solo_b64(b64_val)
+    if url_val and str(url_val).startswith("https://"):
+        return esc(url_val)
     return ""
 
 
@@ -1126,7 +1245,7 @@ def galeria_html(fotos_extra_json: str, ancho_px: int = 90) -> str:
     if not fotos:
         return ""
     imgs = "".join(
-        f'<img src="data:image/jpeg;base64,{f}" '
+        f'<img src="data:image/jpeg;base64,{solo_b64(f)}" '
         f'style="width:{ancho_px}px;height:{ancho_px}px;object-fit:cover;'
         f'border-radius:6px;margin:3px 3px 0 0;">'
         for f in fotos
@@ -1140,7 +1259,10 @@ def audio_a_b64(audio_uploadedfile) -> str:
     try:
         if audio_uploadedfile is None:
             return ""
-        return base64.b64encode(audio_uploadedfile.getvalue()).decode("utf-8")
+        datos_audio = audio_uploadedfile.getvalue()
+        if len(datos_audio) > 5 * 1024 * 1024:   # tope de 5 MB por nota de voz
+            return ""
+        return base64.b64encode(datos_audio).decode("utf-8")
     except Exception:
         return ""
 
@@ -1150,7 +1272,7 @@ def campo_codigo_residente(key: str) -> str:
         "📱 Tu código o teléfono (opcional):",
         value=st.session_state.get("mi_codigo_residente", ""),
         placeholder="Ej. tu número de celular — para recuperar tus reportes después",
-        key=key,
+        key=key, max_chars=30,
         help="No es una contraseña: sirve para que más adelante puedas buscar "
              "tus propios reportes en el Historial, incluso si cierras el "
              "navegador. Cualquiera que conozca este código podría ver esos "
@@ -1412,6 +1534,7 @@ def generar_excel_reportes(reportes: list, incluir_contacto: bool = False) -> by
         if incluir_contacto:
             valores.append(r.get("CodigoResidente", ""))
         valores += [r.get("Lat", ""), r.get("Lon", "")]
+        valores = [seguro_excel(v) for v in valores]  # neutraliza =, +, -, @ al inicio
 
         color = COLOR_NIVEL.get(niv_emoji, "FFFFFF")
         for col_i, val in enumerate(valores, start=1):
@@ -1672,6 +1795,87 @@ def boton_whatsapp_html(url: str, texto: str) -> str:
             f'text-align:center;width:100%;box-sizing:border-box;">{texto}</a>')
 
 
+DURACION_SESION_ADMIN_SEG = 60 * 60   # la sesión de admin caduca a la hora
+
+
+def verificar_credenciales_admin(password_ingresada: str):
+    """Verifica la contraseña de administrador SIN que exista en el código.
+    ANTES la clave "ecocom2admin2026" estaba escrita a la vista en este
+    archivo (y en el repositorio de GitHub): cualquiera podía leerla y entrar
+    al panel para borrar o editar reportes. AHORA:
+      - Se lee de st.secrets (ADMIN_PASS_SHA256 = hash, o ADMIN_PASSWORD) o de
+        la variable de entorno ECOCOM2_ADMIN_HASH.
+      - Se compara en tiempo constante (hmac.compare_digest).
+      - Tras MAX_INTENTOS_ADMIN fallos se bloquea el login por 5 minutos.
+      - Si no hay nada configurado, el panel queda CERRADO (no hay clave por
+        defecto).
+    Devuelve (ok, mensaje)."""
+    ahora = time.time()
+    bloqueado_hasta = st.session_state.get("admin_bloqueado_hasta", 0.0)
+    if ahora < bloqueado_hasta:
+        return False, (f"⏳ Demasiados intentos fallidos. Intenta de nuevo en "
+                       f"{int(bloqueado_hasta - ahora)} segundos.")
+    if not password_ingresada:
+        return False, "Ingresa la contraseña de administrador."
+
+    hash_ingresado = hashlib.sha256(password_ingresada.encode("utf-8")).hexdigest()
+    hash_configurado = ""
+    try:
+        if "ADMIN_PASS_SHA256" in st.secrets:
+            hash_configurado = str(st.secrets["ADMIN_PASS_SHA256"]).strip().lower()
+        elif "ADMIN_PASSWORD" in st.secrets:
+            hash_configurado = hashlib.sha256(
+                str(st.secrets["ADMIN_PASSWORD"]).encode("utf-8")).hexdigest()
+    except Exception:
+        pass
+    if not hash_configurado:
+        hash_configurado = os.environ.get("ECOCOM2_ADMIN_HASH", "").strip().lower()
+    if not hash_configurado:
+        return False, ("⚠️ El acceso de administrador no está configurado. Agrega "
+                       "ADMIN_PASS_SHA256 (o ADMIN_PASSWORD) en Settings → Secrets.")
+
+    if hmac.compare_digest(hash_ingresado, hash_configurado):
+        st.session_state.admin_intentos = 0
+        st.session_state.admin_login_ts = ahora
+        return True, "✅ Sesión iniciada"
+
+    intentos = st.session_state.get("admin_intentos", 0) + 1
+    st.session_state.admin_intentos = intentos
+    _log.warning("Intento fallido de acceso admin (%s/%s)", intentos, MAX_INTENTOS_ADMIN)
+    if intentos >= MAX_INTENTOS_ADMIN:
+        st.session_state.admin_bloqueado_hasta = ahora + BLOQUEO_ADMIN_SEGUNDOS
+        st.session_state.admin_intentos = 0
+        return False, "🚫 Acceso bloqueado 5 minutos por demasiados intentos fallidos."
+    return False, f"❌ Contraseña incorrecta. Intentos restantes: {MAX_INTENTOS_ADMIN - intentos}."
+
+
+def ecobot_cupo_disponible() -> bool:
+    """Limita cuántas veces por hora una sesión puede llamar a Gemini desde
+    EcoBot. Sin esto, cualquiera podía automatizar mensajes y gastar el cupo
+    gratuito de la GEMINI_API_KEY (que también usa el análisis de fotos),
+    dejando la app sin IA para el resto de los vecinos. Las respuestas ya
+    redactadas (FAQ) no cuentan porque no llaman a Gemini."""
+    ahora = time.time()
+    marcas = [t for t in st.session_state.get("ecobot_marcas", []) if ahora - t < 3600]
+    if len(marcas) >= MAX_MENSAJES_BOT_HORA:
+        st.session_state.ecobot_marcas = marcas
+        return False
+    marcas.append(ahora)
+    st.session_state.ecobot_marcas = marcas
+    return True
+
+
+def admin_sesion_vigente() -> bool:
+    """True si hay sesión admin y no ha caducado. Si caducó, la cierra."""
+    if not st.session_state.get("admin_ok", False):
+        return False
+    inicio = st.session_state.get("admin_login_ts", 0.0)
+    if time.time() - inicio > DURACION_SESION_ADMIN_SEG:
+        st.session_state.admin_ok = False
+        return False
+    return True
+
+
 def es_residente():
     return st.session_state.validado and not st.session_state.fuera
 
@@ -1682,6 +1886,43 @@ def set_ubicacion(lat, lon, direccion=""):
     st.session_state.validado = True
     st.session_state.fuera = not POLIGONO_COMUNA2.contains(Point(lon, lat))
     st.session_state.direccion = direccion
+
+
+Image.MAX_IMAGE_PIXELS = MAX_PIXELES_FOTO  # Pillow avisa/rechaza imágenes gigantes
+
+
+def validar_foto_subida(uploaded_file):
+    """Revisa una foto ANTES de procesarla: tamaño en bytes, formato real
+    (no solo la extensión) y cantidad de píxeles. Evita que alguien suba un
+    archivo disfrazado de .jpg, o una imagen diminuta en bytes pero enorme en
+    píxeles que agote la memoria del servidor al abrirla."""
+    try:
+        datos = uploaded_file.getvalue()
+        if len(datos) > MAX_BYTES_FOTO:
+            return False, f"pesa más de {MAX_BYTES_FOTO // (1024*1024)} MB"
+        im = Image.open(BytesIO(datos))
+        if im.format not in ("JPEG", "PNG"):
+            return False, "no es una imagen JPG o PNG válida"
+        ancho, alto = im.size
+        if ancho * alto > MAX_PIXELES_FOTO:
+            return False, "tiene una resolución demasiado grande"
+        im.verify()
+        return True, ""
+    except Exception:
+        return False, "no se pudo leer como imagen"
+
+
+def filtrar_fotos_validas(lista_archivos):
+    """Devuelve solo las fotos que pasan validar_foto_subida y avisa por cada
+    una rechazada."""
+    validas = []
+    for f in (lista_archivos or []):
+        ok, motivo = validar_foto_subida(f)
+        if ok:
+            validas.append(f)
+        else:
+            st.error(f"🚫 La foto '{esc(getattr(f, 'name', 'sin nombre'))}' se descartó: {motivo}.")
+    return validas
 
 
 def _abrir_img_subida(uploaded_file) -> Image.Image:
@@ -2477,7 +2718,7 @@ if st.session_state.validado:
     if not st.session_state.fuera:
         st.sidebar.markdown(
             f'<div class="badge-ok" style="font-size:12px;">✅ Dentro de la Comuna 2<br>'
-            f'<span style="font-weight:normal">{st.session_state.direccion[:55]}</span></div>',
+            f'<span style="font-weight:normal">{esc(st.session_state.direccion[:55])}</span></div>',
             unsafe_allow_html=True)
     else:
         st.sidebar.markdown(
@@ -2513,7 +2754,7 @@ if menu == "🏠 Reportar y Ver Mapa":
     menu = "🏠 Inicio y Mapa"  # nombre interno sin cambiar el resto de la lógica
 
 st.sidebar.markdown("---")
-es_admin = st.session_state.get("admin_ok", False)
+es_admin = admin_sesion_vigente()
 
 if not es_admin:
     with st.sidebar.expander("🔐 Acceso Administrador"):
@@ -2521,12 +2762,13 @@ if not es_admin:
                             placeholder="Ingresa la contraseña")
         if st.button("Ingresar", key="adm_login", type="primary",
                      use_container_width=True):
-            if pwd == "ecocom2admin2026":
+            ok_adm, msg_adm = verificar_credenciales_admin(pwd)
+            if ok_adm:
                 st.session_state.admin_ok = True
-                st.success("✅ Sesión iniciada")
+                st.success(msg_adm)
                 st.rerun()
             else:
-                st.error("❌ Contraseña incorrecta")
+                st.error(msg_adm)
 else:
     st.sidebar.markdown(
         '<div class="badge-ok" style="font-size:12px;margin-bottom:6px;">'
@@ -2730,6 +2972,10 @@ Pasos para reportar:
 5. Presiona Publicar
 
 Redirige preguntas no relacionadas al tema de residuos."""
+        if not ecobot_cupo_disponible():
+            return ("⏳ Has hecho muchas preguntas seguidas. Espera un rato y "
+                    "vuelve a intentarlo — mientras tanto, las preguntas rápidas "
+                    "de abajo siguen funcionando.")
         if not verificar_gemini_key():
             return ("🤖 El asistente con IA no está disponible en este momento "
                     "(falta configuración del administrador). Aquí va la ayuda "
@@ -2739,7 +2985,7 @@ Redirige preguntas no relacionadas al tema de residuos."""
             contenidos = [
                 {"role": "model" if m["role"] == "assistant" else "user",
                  "parts": [{"text": m["content"]}]}
-                for m in mensajes_historial
+                for m in mensajes_historial[-12:]   # solo el contexto reciente
             ]
             payload = {
                 "systemInstruction": {"parts": [{"text": SISTEMA_AGENTE}]},
@@ -2824,7 +3070,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                 st.rerun()
 
         for msg in st.session_state.agente_msgs[-6:]:
-            contenido_html = msg["content"].replace("\n", "<br>")
+            contenido_html = esc(msg["content"]).replace("\n", "<br>")
             if msg["role"] == "assistant":
                 st.markdown(
                     f'<div class="ecobot-bubble-bot" style="border:1px solid #bbf7d0;'
@@ -2851,7 +3097,8 @@ font-size:14px;text-align:center;margin-bottom:10px;">
 
         pregunta = st.text_input(
             "Pregunta:", placeholder="¿Cómo reporto basura?",
-            key="agente_input", label_visibility="collapsed")
+            key="agente_input", label_visibility="collapsed",
+            max_chars=MAX_LARGO_MENSAJE_BOT)
 
         col_send, col_clear = st.columns([3, 1])
         with col_send:
@@ -2865,7 +3112,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
 
         if enviar and pregunta.strip():
             st.session_state.agente_msgs.append(
-                {"role": "user", "content": pregunta.strip()})
+                {"role": "user", "content": pregunta.strip()[:MAX_LARGO_MENSAJE_BOT]})
             with st.spinner("🤖 EcoBot está pensando..."):
                 respuesta = llamar_ecobot(st.session_state.agente_msgs)
             st.session_state.agente_msgs.append(
@@ -2997,9 +3244,9 @@ font-size:14px;text-align:center;margin-bottom:10px;">
 
     if st.session_state.validado:
         if not st.session_state.fuera:
-            badge(f"✅ <b>Dentro de la Comuna 2</b> — {st.session_state.direccion[:80]}", "ok")
+            badge(f"✅ <b>Dentro de la Comuna 2</b> — {esc(st.session_state.direccion[:80])}", "ok")
         else:
-            badge(f"🛑 Fuera de la Comuna 2 — {st.session_state.direccion[:70]}<br>"
+            badge(f"🛑 Fuera de la Comuna 2 — {esc(st.session_state.direccion[:70])}<br>"
                   f"<span style='font-weight:normal;font-size:12px'>"
                   f"Puedes usar el analizador de materiales, pero no publicar reportes.</span>", "err")
         if st.button("🔄 Cambiar dirección", key="cambiar_dir"):
@@ -3048,7 +3295,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
         col_pin = "blue" if not st.session_state.fuera else "gray"
         folium.Marker(
             location=[_lat_home, _lon_home],
-            popup=f"🏠 {st.session_state.direccion}",
+            popup=f"🏠 {esc(st.session_state.direccion)}",
             tooltip="🏠 Tu dirección verificada",
             icon=folium.Icon(color=col_pin, icon="home", prefix="fa")
         ).add_to(mapa)
@@ -3056,7 +3303,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
     if _clat_ss and not _mismo_punto((_clat_ss, _clon_ss), (_lat_home, _lon_home)):
         folium.Marker(
             location=[_clat_ss, _clon_ss],
-            popup=f"📌 {st.session_state.get('click_dir','Punto seleccionado')}",
+            popup=f"📌 {esc(st.session_state.get('click_dir','Punto seleccionado'))}",
             tooltip="📌 Punto seleccionado",
             icon=folium.Icon(color="red", icon="map-marker", prefix="fa")
         ).add_to(mapa)
@@ -3098,29 +3345,29 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         f'style="width:180px;border-radius:6px;margin-top:6px;">'
                         if foto_src_popup else "")
             obs_txt = rep.get("Observaciones", "")
-            obs_html = f"📝 {obs_txt[:80]}<br>" if obs_txt else ""
+            obs_html = f"📝 {esc(obs_txt[:80])}<br>" if obs_txt else ""
             audio_b64 = rep.get("NotaVozB64", "")
             audio_html = (f'<br><audio controls style="width:180px;margin-top:4px;">'
-                          f'<source src="data:audio/wav;base64,{audio_b64}"></audio>'
+                          f'<source src="data:audio/wav;base64,{solo_b64(audio_b64)}"></audio>'
                           if audio_b64 else "")
             galeria_extra_html = galeria_html(rep.get("FotosExtraB64", ""), ancho_px=60)
             popup_html = (
                 f"<div style='font-family:sans-serif;min-width:190px;'>"
-                f"<b style='color:{col}'>{niv}</b><br>"
-                f"<b>{rep['Código']}</b><br>"
-                f"📍 {rep['Sector']}<br>"
-                f"📌 {rep.get('Referencia','')[:40]}<br>"
+                f"<b style='color:{col}'>{esc(niv)}</b><br>"
+                f"<b>{esc(rep['Código'])}</b><br>"
+                f"📍 {esc(rep['Sector'])}<br>"
+                f"📌 {esc(rep.get('Referencia','')[:40])}<br>"
                 f"{obs_html}"
-                f"♻️ {rep['Objetos']} obj | ⚖️ {rep['Peso (Kg)']} kg<br>"
-                f"🕐 {rep.get('Fecha','')}<br>"
-                f"🔖 {rep.get('Estado','')}"
+                f"♻️ {esc(rep['Objetos'])} obj | ⚖️ {esc(rep['Peso (Kg)'])} kg<br>"
+                f"🕐 {esc(rep.get('Fecha',''))}<br>"
+                f"🔖 {esc(rep.get('Estado',''))}"
                 f"{img_html}{audio_html}{galeria_extra_html}</div>"
             )
             folium.CircleMarker(
                 location=[rep["Lat"], rep["Lon"]], radius=12,
                 color=col, fill=True, fill_color=col, fill_opacity=0.85,
                 popup=folium.Popup(popup_html, max_width=220),
-                tooltip=f"{rep['Código']} — {niv}"
+                tooltip=f"{esc(rep['Código'])} — {esc(niv)}"
             ).add_to(mapa)
 
     mapa_data = st_folium(mapa, width="100%", height=340,
@@ -3154,7 +3401,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
         st.markdown(
             f'<div style="background:rgba(16,185,129,0.08);border:1px solid {color_card};'
             f'border-radius:10px;padding:12px 16px;margin-bottom:10px;">'
-            f'<span style="color:{color_card};font-weight:bold;font-size:14px;">📌 {cdir}</span><br>'
+            f'<span style="color:{color_card};font-weight:bold;font-size:14px;">📌 {esc(cdir)}</span><br>'
             f'<span style="color:#9ca3af;font-size:12px;">{estado_txt} · {clat:.5f}, {clon:.5f}</span>'
             f'</div>',
             unsafe_allow_html=True)
@@ -3199,7 +3446,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
             badge("⚠️ Selecciona un punto dentro de la Comuna 2 en el mapa.", "warn")
         else:
             plat = clat; plon = clon; pdir = cdir
-            badge(f"📌 {pdir}", "ok")
+            badge(f"📌 {esc(pdir)}", "ok")
 
             r1, r2 = st.columns(2)
             with r1:
@@ -3213,14 +3460,14 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                     st.caption(f"📍 Detectado automáticamente: {_barrio_sugerido} · puedes cambiarlo si no es correcto")
             with r2:
                 r_ref = st.text_input("Referencia (edita si quieres):",
-                                      value=pdir, key="r_ref")
+                                      value=pdir, key="r_ref", max_chars=200)
                 r_codigo = campo_codigo_residente("r_codigo_residente")
 
             r_obs = st.text_area(
                 "📝 Observaciones por texto (opcional):",
                 placeholder="Describe lo que ves en la foto: hace cuánto está ahí, "
                             "si bloquea el paso, olores, riesgos, etc.",
-                key="r_obs", height=80,
+                key="r_obs", height=80, max_chars=MAX_LARGO_TEXTO_LIBRE,
             )
             r_audio = st.audio_input("🎙️ O deja solo una nota de voz:", key="r_audio")
             if r_audio:
@@ -3235,6 +3482,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
 
             img = None
             r_imgs_extra_pil = []
+            r_imgs = filtrar_fotos_validas(r_imgs)
             if r_imgs:
                 if len(r_imgs) > 3:
                     st.warning("⚠️ Solo se usarán las primeras 3 fotos que subiste.")
@@ -3442,9 +3690,9 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         metricas(residuos_f, peso_f, nivel_f)
 
                     st.session_state.cache = {
-                        "Código":        f"REP-{len(st.session_state.reportes)+200}",
+                        "Código":        generar_codigo("REP", 200),
                         "Sector":        r_barrio,
-                        "Referencia":    r_ref,
+                        "Referencia":    limpiar_texto_libre(r_ref, 200),
                         "Objetos":       residuos_f,
                         "Peso (Kg)":     peso_f,
                         "Predominante":  tipo_f,
@@ -3454,7 +3702,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         "Estado": "🔴 Pendiente",
                         "FotoB64": img_a_b64(img_foto_final),
                         "FotoClasificadaB64": img_a_b64(ca["res_plot"], max_px=350),
-                        "Observaciones": r_obs.strip(),
+                        "Observaciones": limpiar_texto_libre(r_obs),
                         "NotaVozB64": audio_a_b64(r_audio),
                         "FotosExtraB64": fotos_extra_a_json(r_imgs_extra_pil),
                         "CodigoResidente": r_codigo,
@@ -3493,6 +3741,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                     if st.button("🚀 PUBLICAR EN EL MAPA", type="primary",
                                  use_container_width=True, key="r_publicar",
                                  disabled=not ok_publicar_r):
+                        r["Código"] = generar_codigo("REP", 200)  # por si otra sesión tomó este número
                         with st.spinner("Guardando copia permanente de las fotos..."):
                             url_o, _ = subir_foto_evidencia_github(
                                 st.session_state.get("cache_foto_bytes", b""),
@@ -3543,7 +3792,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
             badge("⚠️ Selecciona un punto dentro de la Comuna 2 en el mapa.", "warn")
         else:
             plat = clat; plon = clon; pdir = cdir
-            badge(f"🚨 {pdir}", "err")
+            badge(f"🚨 {esc(pdir)}", "err")
 
             cr1, cr2 = st.columns(2)
             with cr1:
@@ -3556,14 +3805,14 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                 if _barrio_sugerido_cr:
                     st.caption(f"📍 Detectado automáticamente: {_barrio_sugerido_cr} · puedes cambiarlo si no es correcto")
             with cr2:
-                cr_ref = st.text_input("Referencia:", value=pdir, key="cr_ref")
+                cr_ref = st.text_input("Referencia:", value=pdir, key="cr_ref", max_chars=200)
                 cr_codigo = campo_codigo_residente("cr_codigo_residente")
 
             cr_obs = st.text_area(
                 "📝 Observaciones por texto (opcional):",
                 placeholder="Describe la acumulación: hace cuánto está ahí, si genera "
                             "olores, si bloquea el paso, riesgos para la salud, etc.",
-                key="cr_obs", height=80,
+                key="cr_obs", height=80, max_chars=MAX_LARGO_TEXTO_LIBRE,
             )
             cr_audio = st.audio_input("🎙️ O deja solo una nota de voz:", key="cr_audio")
             if cr_audio:
@@ -3578,6 +3827,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
 
             img2 = None
             cr_imgs_extra_pil = []
+            cr_imgs = filtrar_fotos_validas(cr_imgs)
             if cr_imgs:
                 if len(cr_imgs) > 3:
                     st.warning("⚠️ Solo se usarán las primeras 3 fotos que subiste.")
@@ -3813,9 +4063,9 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                                      type="primary", use_container_width=True,
                                      key="cr_registrar", disabled=not ok_publicar_cr):
                             nuevo = {
-                                "Código":        f"CRIT-{len(st.session_state.reportes)+500}",
+                                "Código":        generar_codigo("CRIT", 500),
                                 "Sector":        cr_barrio,
-                                "Referencia":    cr_ref,
+                                "Referencia":    limpiar_texto_libre(cr_ref, 200),
                                 "Objetos":       total_f,
                                 "Peso (Kg)":     round(peso_f, 2),
                                 "Predominante":  tipo_f or "Mixto",
@@ -3826,7 +4076,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                                 "Estado":        "🔴 Pendiente",
                                 "FotoB64": st.session_state.get("cache_foto_b64", ""),
                                 "FotoClasificadaB64": st.session_state.get("cache_foto_clasificada_b64", ""),
-                                "Observaciones": cr_obs.strip(),
+                                "Observaciones": limpiar_texto_libre(cr_obs),
                                 "NotaVozB64": audio_a_b64(cr_audio),
                                 "FotosExtraB64": st.session_state.get("cache_fotos_extra_b64", ""),
                                 "CodigoResidente": cr_codigo,
@@ -3918,10 +4168,31 @@ font-size:14px;text-align:center;margin-bottom:10px;">
             placeholder="Escribe el mismo código/teléfono que usaste al reportar"
         )
 
-        if busq_codigo.strip():
+        # Freno al "barrido": como el código/teléfono no es una contraseña,
+        # alguien podría probar números uno tras otro para ver reportes
+        # ajenos. Se cuentan las búsquedas DISTINTAS por sesión y, pasado el
+        # límite, se bloquean un rato (no frena a un atacante decidido que
+        # abra sesiones nuevas, pero sí al curioso y a los scripts simples).
+        _busq_limpia = busq_codigo.strip()
+        _ahora_b = time.time()
+        _marcas_b = [t for t in st.session_state.get("hist_busq_marcas", [])
+                     if _ahora_b - t < 600]
+        if (_busq_limpia
+                and _busq_limpia != st.session_state.get("mi_codigo_residente", "")
+                and _busq_limpia != st.session_state.get("_hist_ultima_busq")):
+            _marcas_b.append(_ahora_b)
+        st.session_state._hist_ultima_busq = _busq_limpia
+        st.session_state.hist_busq_marcas = _marcas_b
+        _busq_bloqueada = len(_marcas_b) > 10
+
+        if _busq_bloqueada:
+            st.error("⏳ Hiciste demasiadas búsquedas distintas seguidas. Espera unos "
+                     "minutos para volver a buscar por código/teléfono.")
+            reportes_mostrar = mis_reportes_actuales
+        elif _busq_limpia:
             reportes_mostrar = [
                 r for r in st.session_state.reportes
-                if r.get("CodigoResidente", "").strip().lower() == busq_codigo.strip().lower()
+                if r.get("CodigoResidente", "").strip().lower() == _busq_limpia.lower()
             ]
         else:
             reportes_mostrar = mis_reportes_actuales
@@ -4187,7 +4458,7 @@ elif menu == "📊 Comuna en Cifras":
 # ====================================================================
 elif menu == "🛡️ Panel Admin":
 
-    if not st.session_state.get("admin_ok"):
+    if not admin_sesion_vigente():
         st.markdown("")
         col_login = st.columns([1, 2, 1])[1]
         with col_login:
@@ -4204,11 +4475,12 @@ EcoCom2 Circular IA · ITM Medellín</p>
                                       placeholder="Ingresa tu contraseña")
             if st.button("🔐 Iniciar sesión", type="primary",
                          use_container_width=True, key="login_btn"):
-                if pwd_input == "ecocom2admin2026":
+                ok_adm2, msg_adm2 = verificar_credenciales_admin(pwd_input)
+                if ok_adm2:
                     st.session_state.admin_ok = True
                     st.rerun()
                 else:
-                    st.error("❌ Contraseña incorrecta")
+                    st.error(msg_adm2)
         st.stop()
 
     st.markdown("""
@@ -4222,7 +4494,7 @@ margin-bottom:8px;">
 </div>""", unsafe_allow_html=True)
 
     accion = st.session_state.pop("adm_accion_pendiente", None)
-    if accion:
+    if accion and admin_sesion_vigente():
         cod_obj = accion["codigo"]
         tipo_acc = accion["tipo"]
         if tipo_acc == "estado":
@@ -4241,7 +4513,7 @@ margin-bottom:8px;">
             st.session_state.reportes = [
                 r for r in st.session_state.reportes if r["Código"] != cod_obj
             ]
-            guardar_reportes_disco(st.session_state.reportes)
+            guardar_reportes_disco(st.session_state.reportes, eliminados=[cod_obj])
         elif tipo_acc == "en_proceso":
             for r in st.session_state.reportes:
                 if r["Código"] == cod_obj:
@@ -4449,27 +4721,27 @@ padding:10px 16px;margin-top:12px;font-size:14px;">
                                   f'style="width:160px;border-radius:4px;margin-top:4px;">'
                                   if foto_src_adm else "")
                     obs_txt_adm = rep.get("Observaciones", "")
-                    obs_html_adm = f"📝 {obs_txt_adm[:100]}<br>" if obs_txt_adm else ""
+                    obs_html_adm = f"📝 {esc(obs_txt_adm[:100])}<br>" if obs_txt_adm else ""
                     audio_b64_adm = rep.get("NotaVozB64", "")
                     audio_html_adm = (f'<br><audio controls style="width:160px;margin-top:4px;">'
-                                      f'<source src="data:audio/wav;base64,{audio_b64_adm}"></audio>'
+                                      f'<source src="data:audio/wav;base64,{solo_b64(audio_b64_adm)}"></audio>'
                                       if audio_b64_adm else "")
                     galeria_adm_html = galeria_html(rep.get("FotosExtraB64", ""), ancho_px=55)
                     popup_adm = (
                         f"<div style='font-family:sans-serif;min-width:190px;'>"
-                        f"<b style='color:{col}'>{niv}</b><br>"
-                        f"<b>{rep['Código']}</b><br>"
-                        f"📍 {rep.get('Sector','')} · {rep.get('Referencia','')[:35]}<br>"
+                        f"<b style='color:{col}'>{esc(niv)}</b><br>"
+                        f"<b>{esc(rep['Código'])}</b><br>"
+                        f"📍 {esc(rep.get('Sector',''))} · {esc(rep.get('Referencia','')[:35])}<br>"
                         f"{obs_html_adm}"
-                        f"♻️ {rep.get('Objetos',0)} obj | ⚖️ {rep.get('Peso (Kg)',0)} kg<br>"
-                        f"🕐 {rep.get('Fecha','')} | 🔖 {est}"
+                        f"♻️ {esc(rep.get('Objetos',0))} obj | ⚖️ {esc(rep.get('Peso (Kg)',0))} kg<br>"
+                        f"🕐 {esc(rep.get('Fecha',''))} | 🔖 {esc(est)}"
                         f"{img_html}{audio_html_adm}{galeria_adm_html}</div>"
                     )
                     folium.CircleMarker(
                         location=[rep["Lat"], rep["Lon"]], radius=13,
                         color=col, fill=True, fill_color=col, fill_opacity=0.85,
                         popup=folium.Popup(popup_adm, max_width=220),
-                        tooltip=f"{rep['Código']} | {est}"
+                        tooltip=f"{esc(rep['Código'])} | {esc(est)}"
                     ).add_to(mapa_adm)
                     total_mostrados += 1
 
@@ -4590,7 +4862,7 @@ padding:10px 16px;margin-top:12px;font-size:14px;">
                         st.markdown(
                             f'<div style="background:rgba(74,222,128,0.08);border-left:3px solid #4ade80;'
                             f'border-radius:6px;padding:8px 12px;margin:8px 0;font-size:13px;">'
-                            f'📝 <b>Observaciones del ciudadano:</b><br>{obs_rep}</div>',
+                            f'📝 <b>Observaciones del ciudadano:</b><br>{esc(obs_rep)}</div>',
                             unsafe_allow_html=True)
 
                     audio_rep = rep.get("NotaVozB64", "")
@@ -4758,7 +5030,7 @@ padding:10px 16px;margin-top:12px;font-size:14px;">
             for i, r in enumerate(ruta_actual):
                 folium.Marker(
                     location=[r["Lat"], r["Lon"]],
-                    popup=f"{i+1}. {r['Código']} — {r.get('Sector','')}",
+                    popup=f"{i+1}. {esc(r['Código'])} — {esc(r.get('Sector',''))}",
                     icon=folium.DivIcon(html=(
                         f'<div style="background:#16a34a;color:white;border-radius:50%;'
                         f'width:26px;height:26px;text-align:center;line-height:26px;'
@@ -4834,11 +5106,13 @@ padding:10px 16px;margin-top:12px;font-size:14px;">
         if st.button("🗑️ ELIMINAR todos los ✅ Resueltos del mapa",
                      use_container_width=True, key="adm_limpiar_resueltos"):
             antes = len(st.session_state.reportes)
+            _cods_resueltos = [r["Código"] for r in st.session_state.reportes
+                               if "Resuelto" in r.get("Estado","")]
             st.session_state.reportes = [
                 r for r in st.session_state.reportes
                 if "Resuelto" not in r.get("Estado","")
             ]
-            guardar_reportes_disco(st.session_state.reportes)
+            guardar_reportes_disco(st.session_state.reportes, eliminados=_cods_resueltos)
             eliminados = antes - len(st.session_state.reportes)
             st.success(f"✅ {eliminados} reporte(s) resuelto(s) eliminados del mapa.")
             st.rerun()
@@ -4852,7 +5126,7 @@ padding:10px 16px;margin-top:12px;font-size:14px;">
                          use_container_width=True, key="adm_borrar_todo"):
                 if confirm == "CONFIRMAR":
                     st.session_state.reportes = []
-                    guardar_reportes_disco([])
+                    guardar_reportes_disco([], borrar_todo=True)
                     st.success("✅ Todos los reportes eliminados.")
                     st.rerun()
                 else:
