@@ -27,6 +27,7 @@ import hmac            # SEGURIDAD — comparación de contraseña en tiempo con
 import html as _html   # SEGURIDAD — escapar texto de usuarios antes de pintarlo como HTML
 import logging         # SEGURIDAD — dejar rastro de errores en vez de tragárselos en silencio
 import threading       # SEGURIDAD — evitar escrituras simultáneas a la base de datos
+from contextlib import contextmanager
 
 logging.basicConfig(level=logging.INFO)
 _log = logging.getLogger("ecocom2")
@@ -56,6 +57,8 @@ def esc(valor) -> str:
 def limpiar_texto_libre(txt: str, max_len: int = MAX_LARGO_TEXTO_LIBRE) -> str:
     """Quita caracteres de control y recorta el largo de un texto libre."""
     txt = "".join(ch for ch in (txt or "") if ch == "\n" or ch >= " ")
+    # Sin enlaces: el mapa es público y alguien podría pegar un link de phishing/spam
+    txt = re.sub(r"(https?://|www\.)\S+", "[enlace eliminado]", txt, flags=re.IGNORECASE)
     return txt.strip()[:max_len]
 
 
@@ -2707,6 +2710,437 @@ def nav_tabs(seccion_actual):
                 st.rerun()
 
 # ====================================================================
+# ECOBOT VISIBLE — botón flotante con el logo, y acciones automáticas
+# (crear/prellenar reportes hablando, analizar fotos, confirmar por
+# código y avisar horarios de recolección)
+# ====================================================================
+LOGO_PATH = Path(__file__).resolve().parent / "logo.png"
+
+
+@st.cache_data(show_spinner=False)
+def _logo_b64() -> str:
+    try:
+        return base64.b64encode(LOGO_PATH.read_bytes()).decode("utf-8")
+    except Exception:
+        return ""
+
+
+def avatar_ecobot():
+    """Avatar del bot: el logo de EcoCom2 si existe logo.png, si no ♻️."""
+    return str(LOGO_PATH) if LOGO_PATH.exists() else "♻️"
+
+
+def inyectar_css_ecobot():
+    """Convierte el panel del bot en un botón FLOTANTE (abajo a la derecha,
+    siempre visible, con el logo y una animación suave) en vez de un
+    desplegable escondido en la barra lateral."""
+    logo = _logo_b64()
+    fondo = f"url(data:image/png;base64,{logo})" if logo else "none"
+    st.markdown(f"""<style>
+.st-key-ecobot_flotante {{
+    position: fixed; bottom: 18px; right: 18px; z-index: 999990; width: auto !important;
+}}
+.st-key-ecobot_flotante button {{
+    background: #16a34a !important; border: 3px solid #ffffff !important;
+    border-radius: 999px !important; padding: 6px 18px 6px 8px !important;
+    box-shadow: 0 6px 18px rgba(22,163,74,.55) !important;
+    animation: ecobotPulso 2.4s infinite;
+}}
+.st-key-ecobot_flotante button::before {{
+    content: ""; display: inline-block; width: 40px; height: 40px; margin-right: 8px;
+    border-radius: 50%; vertical-align: middle;
+    background: #ffffff {fondo} center/cover no-repeat;
+}}
+.st-key-ecobot_flotante button p {{ color: #ffffff !important; font-weight: 800 !important; }}
+@keyframes ecobotPulso {{
+    0%   {{ box-shadow: 0 0 0 0 rgba(22,163,74,.55); }}
+    70%  {{ box-shadow: 0 0 0 14px rgba(22,163,74,0); }}
+    100% {{ box-shadow: 0 0 0 0 rgba(22,163,74,0); }}
+}}
+div[data-testid="stPopoverBody"] {{
+    width: min(430px, 92vw) !important; max-height: 78vh; overflow-y: auto;
+    background: #f0fdf4 !important; border: 2px solid #4ade80 !important;
+}}
+div[data-testid="stPopoverBody"] [data-testid="stMarkdownContainer"] p,
+div[data-testid="stPopoverBody"] label {{ color: #14532d !important; }}
+div[data-testid="stPopoverBody"] button[kind="primary"] p {{ color: #ffffff !important; }}
+</style>""", unsafe_allow_html=True)
+
+
+@contextmanager
+def _ecobot_panel():
+    inyectar_css_ecobot()
+    with st.container(key="ecobot_flotante"):
+        with st.popover("EcoBot"):
+            yield
+
+
+# ---------- Horarios de recolección (calcula si HOY pasa el camión) ----------
+_DIAS_ES = {"lunes": 0, "martes": 1, "miercoles": 2, "jueves": 3,
+            "viernes": 4, "sabado": 5, "domingo": 6}
+
+
+def _hoy_colombia():
+    """Fecha/hora en Colombia (UTC-5) aunque el servidor esté en otra zona."""
+    from datetime import timedelta as _td
+    return datetime.utcnow() - _td(hours=5)
+
+
+def mensaje_horario(barrio: str) -> str:
+    info = HORARIOS_RECOLECCION.get(barrio)
+    if not info:
+        return ""
+    dias_n = _normalizar_txt(info["dias"])
+    nums = [n for d, n in _DIAS_ES.items() if d in dias_n]
+    pasa_hoy = _hoy_colombia().weekday() in nums
+    if pasa_hoy:
+        msg = f"🚛 ¡HOY pasa el camión en **{barrio}**! Horario: {info['horario']}"
+    else:
+        msg = f"📅 En **{barrio}** el camión pasa **{info['dias']}**, de {info['horario']}"
+    if info.get("nota"):
+        msg += f" — ⚠️ {info['nota']}"
+    return msg
+
+
+# ---------- Entender lenguaje natural ----------
+_ALIAS_BARRIOS = {
+    "moscu": "Moscú No. 1", "playon": "Playón de los Comuneros",
+    "socorro": "Villa del Socorro", "niza": "Villa Niza",
+    "pablo 6": "Pablo VI", "frontera": "La Frontera", "francia": "La Francia",
+}
+
+_RESIDUOS_BOT = [
+    (["escombro", "rcd", "cascajo", "demolicion", "obra"],
+     "Escombros / residuos de construcción", True),
+    (["colchon", "sofa", "mueble", "nevera", "lavadora", "electrodomestico", "voluminoso"],
+     "Voluminosos (colchones, muebles, electrodomésticos)", True),
+    (["llanta"], "Llantas", True),
+    (["bolsa", "basura", "costal", "saco"], "Bolsas de basura", False),
+    (["organico", "comida", "poda", "vegetacion", "ramas", "hojas"],
+     "Residuos orgánicos / poda", False),
+    (["botella", "carton", "plastico", "vidrio", "lata", "papel", "reciclable"],
+     "Materiales reciclables", False),
+]
+_PALABRAS_URGENTE = ["urgente", "critico", "bloquea", "bloqueado", "olor", "plaga",
+                     "rata", "montana", "montaña", "grande", "mucho"]
+
+
+def detectar_barrio_en_texto(texto: str):
+    n = _normalizar_txt(texto)
+    for b in BARRIOS:
+        if _normalizar_txt(b) in n:
+            return b
+    for alias, b in _ALIAS_BARRIOS.items():
+        if alias in n:
+            return b
+    return None
+
+
+def _detectar_tipo_residuo(n: str):
+    for palabras, etiqueta, critico in _RESIDUOS_BOT:
+        if any(p in n for p in palabras):
+            return etiqueta, critico
+    return None, False
+
+
+def limpiar_prefill_bot():
+    for k in ("prefill_obs", "prefill_barrio"):
+        st.session_state.pop(k, None)
+
+
+def _estado_reporte_texto(rep: dict) -> str:
+    txt = (f"🔎 **{rep.get('Código')}** · {rep.get('Sector','')}\n"
+           f"- Estado: {rep.get('Estado','')}\n"
+           f"- Clasificación: {rep.get('Clasificación','')}\n"
+           f"- Fecha: {rep.get('Fecha','')}\n"
+           f"- 👍 Confirmaciones: {rep.get('Confirmaciones', 0) or 0}")
+    if "Resuelto" in rep.get("Estado", "") and rep.get("FechaResuelto"):
+        txt += f"\n- ✅ Resuelto el {rep['FechaResuelto']}"
+    return txt
+
+
+def router_ecobot(texto: str):
+    """Entiende lo que la persona pide en lenguaje natural y ACTÚA (sin
+    gastar una llamada a Gemini). Devuelve la respuesta, o None si no es
+    algo que sepa resolver localmente (entonces se usa FAQ / Gemini)."""
+    n = _normalizar_txt(texto)
+
+    # 1) Código de reporte: consultar estado o confirmar
+    m = re.search(r"\b(rep|crit)[-_ ]?(\d{2,5})\b", n)
+    if m:
+        cod = f"{m.group(1).upper()}-{m.group(2)}"
+        rep = next((r for r in st.session_state.reportes
+                    if str(r.get("Código", "")).upper() == cod), None)
+        if not rep:
+            return (f"🔎 No encontré ningún reporte con el código **{cod}**. "
+                    f"Revisa que esté bien escrito (ejemplo: REP-205).")
+        if any(p in n for p in ["confirmo", "confirmar", "sigue ahi", "todavia esta", "sigue alli"]):
+            if "Resuelto" in rep.get("Estado", ""):
+                return f"✅ El reporte **{cod}** ya figura como resuelto, no necesita confirmación."
+            conf = st.session_state.setdefault("confirmados_sesion", set())
+            if cod in conf:
+                return f"👍 Ya habías confirmado **{cod}** en esta sesión. ¡Gracias!"
+            rep["Confirmaciones"] = (rep.get("Confirmaciones", 0) or 0) + 1
+            conf.add(cod)
+            guardar_reportes_disco(st.session_state.reportes)
+            return (f"👍 ¡Confirmación registrada para **{cod}** ({rep.get('Sector','')})! "
+                    f"Ahora tiene {rep['Confirmaciones']} confirmaciones y la administración "
+                    f"lo prioriza más.")
+        return _estado_reporte_texto(rep)
+
+    # 2) Horarios de recolección
+    if any(p in n for p in ["horario", "cuando pasa", "que dia pasa", "a que hora pasa",
+                            "pasa el camion", "pasa la basura", "dias de recoleccion",
+                            "frecuencia de recoleccion"]):
+        barrio = detectar_barrio_en_texto(texto) or st.session_state.get("click_barrio")
+        if barrio:
+            return mensaje_horario(barrio)
+        return ("📅 Dime tu barrio y te digo cuándo pasa el camión. En general: "
+                "**La Rosa y Moscú No. 1** → lunes y jueves, 7–9 p.m.; "
+                "**los demás barrios** → miércoles y sábado, 3–11 p.m.")
+
+    # 3) Quiere reportar algo: entiende barrio + tipo y prellena el formulario
+    es_pregunta_datos = (
+        any(p in n for p in ["cuantos", "cuantas", "estado de", "resumen", "total de"])
+        # preguntas tipo "¿Cómo reporto...?" las responde la FAQ con el paso a paso
+        or bool(re.match(r"^(como|que|para que|cual|cuales|cuanto|donde|por que)\b", n))
+    )
+    intencion = bool(re.search(
+        r"\b(hay|tengo|vi|encontre|reportar|reporto|denunciar|acumulado|acumulada|"
+        r"dejaron|botaron|tiraron)\b", n))
+    barrio = detectar_barrio_en_texto(texto)
+    etiqueta, critico_tipo = _detectar_tipo_residuo(n)
+    if intencion and (etiqueta or barrio) and not es_pregunta_datos:
+        critico = critico_tipo or any(p in n for p in _PALABRAS_URGENTE)
+        for k in ("r_obs", "cr_obs", "r_barrio", "cr_barrio"):
+            st.session_state.pop(k, None)      # para que el formulario tome el prellenado
+        st.session_state.prefill_obs = limpiar_texto_libre(texto, 300)
+        if barrio:
+            st.session_state.prefill_barrio = barrio
+            st.session_state.click_barrio = barrio
+        st.session_state.seccion = "critico" if critico else "residuo"
+
+        partes = ["✅ ¡Entendido! Ya preparé tu reporte:"]
+        partes.append(f"- 📍 Barrio: **{barrio}**" if barrio else "- 📍 Barrio: elígelo en el formulario")
+        partes.append(f"- 🗑️ Tipo: **{etiqueta or 'Residuos'}**")
+        partes.append("- 🚨 Lo marqué como **punto crítico**" if critico else "- 📸 Lo dejé como reporte de residuo")
+        if not es_residente():
+            partes.append("\n👉 Falta verificar tu dirección: usa el botón **📍 Usar mi ubicación (GPS)**.")
+        elif st.session_state.get("click_lat") is None:
+            partes.append("\n👉 Ahora toca el **punto exacto** del residuo en el mapa.")
+        else:
+            partes.append("\n👉 Solo sube la foto en el formulario (o mándamela aquí abajo 📷).")
+        if barrio:
+            partes.append("\n" + mensaje_horario(barrio))
+        return "\n".join(partes)
+
+    return None
+
+
+# ---------- Foto en el chat: analizar y publicar sin formularios ----------
+def analizar_foto_para_bot(img):
+    """Misma tubería que el formulario (difuminar personas → Gemini o YOLO →
+    clasificación), pero devuelve todo en un diccionario para que el bot lo
+    muestre y pida confirmación. OJO: las cajas se dibujan sobre la imagen
+    YA difuminada, nunca sobre la original."""
+    res = analizar(img)
+    img_blur, hubo_personas = difuminar_personas(img, res)
+    motor, nota = "yolo", ""
+    if verificar_gemini_key():
+        det, error_g, es_valido, motivo = analizar_con_gemini(img_blur)
+        if error_g:
+            nota = "Gemini no respondió; usé la IA local."
+            tabla, residuos, peso, tipo, nivel, total = procesar(res)
+            img_det = dibujar_detecciones_filtradas(img_blur, res)
+        elif es_valido is False:
+            return {"valido": False, "motivo": motivo}
+        else:
+            motor = "gemini"
+            tabla, residuos, peso, tipo, nivel, total = procesar_gemini(det)
+            img_det = dibujar_detecciones_gemini(img_blur, det)
+    else:
+        tabla, residuos, peso, tipo, nivel, total = procesar(res)
+        img_det = dibujar_detecciones_filtradas(img_blur, res)
+    return {
+        "valido": True, "motivo": "", "tabla": tabla, "residuos": residuos,
+        "peso": peso, "tipo": tipo, "nivel": nivel, "total": total,
+        "ia_detecto": bool(tabla), "img_blur": img_blur, "img_det": img_det,
+        "hubo_personas": hubo_personas, "motor": motor, "nota": nota,
+        "phash": calcular_phash(img_blur),
+    }
+
+
+def publicar_desde_chat(an: dict, barrio: str, obs: str):
+    """Publica el reporte que el bot analizó, con TODAS las protecciones del
+    formulario: residente verificado, punto dentro de la Comuna 2, límite
+    diario, foto reciclada y duplicados. Devuelve (ok, mensaje)."""
+    clat, clon = st.session_state.get("click_lat"), st.session_state.get("click_lon")
+    if (not es_residente() or clat is None
+            or not POLIGONO_COMUNA2.contains(Point(clon, clat))):
+        return False, "📍 Verifica tu dirección y toca un punto dentro de la Comuna 2 en el mapa."
+    cod_res = st.session_state.get("mi_codigo_residente", "")
+    if not verificar_limite_reportes(cod_res):
+        return False, "🚫 Llegaste al límite de reportes de hoy."
+    rec = buscar_foto_reciclada(clat, clon, an.get("phash", ""))
+    if rec:
+        return False, (f"🚫 Esa foto ya se usó en **{rec[0]['Código']}**, a {rec[1]} m de aquí. "
+                       f"Toma una foto nueva de ESTE punto.")
+    dup = buscar_posible_duplicado(clat, clon, an.get("phash", ""))
+    if dup:
+        return False, (f"⚠️ Ya existe **{dup[0]['Código']}** a {dup[1]} m con una foto muy parecida. "
+                       f"Si el residuo sigue ahí, escríbeme: *confirmo {dup[0]['Código']}*.")
+
+    critico = "🔴" in an["nivel"]
+    codigo = generar_codigo("CRIT" if critico else "REP", 500 if critico else 200)
+    buf_o, buf_c = BytesIO(), BytesIO()
+    an["img_blur"].convert("RGB").save(buf_o, format="JPEG", quality=82)
+    an["img_det"].convert("RGB").save(buf_c, format="JPEG", quality=82)
+    nuevo = {
+        "Código": codigo, "Sector": barrio,
+        "Referencia": limpiar_texto_libre(st.session_state.get("click_dir", ""), 200),
+        "Objetos": an["total"] if critico else an["residuos"],
+        "Peso (Kg)": round(an["peso"], 2), "Predominante": an["tipo"] or "Mixto",
+        "Clasificación": an["nivel"], "Lat": clat, "Lon": clon,
+        "Fecha": datetime.now().strftime("%Y-%m-%d %H:%M"), "Estado": "🔴 Pendiente",
+        "FotoB64": img_a_b64(an["img_blur"]),
+        "FotoClasificadaB64": img_a_b64(an["img_det"], max_px=350),
+        "Observaciones": limpiar_texto_libre(obs), "NotaVozB64": "", "FotosExtraB64": "",
+        "CodigoResidente": cod_res, "PHash": an.get("phash", ""), "Confirmaciones": 0,
+    }
+    url_o, _ = subir_foto_evidencia_github(buf_o.getvalue(), f"{codigo}.jpg",
+                                           carpeta="evidencias_reportes")
+    if url_o:
+        nuevo["FotoURL"] = url_o
+    url_c, _ = subir_foto_evidencia_github(buf_c.getvalue(), f"{codigo}.jpg",
+                                           carpeta="evidencias_clasificadas")
+    if url_c:
+        nuevo["FotoClasificadaURL"] = url_c
+    st.session_state.reportes.append(nuevo)
+    st.session_state.mis_codigos.append(codigo)
+    st.session_state.mis_estados_vistos[codigo] = nuevo["Estado"]
+    st.session_state.reportes_hoy_sesion = st.session_state.get("reportes_hoy_sesion", 0) + 1
+    guardar_reportes_disco(st.session_state.reportes)
+    limpiar_prefill_bot()
+    return True, (f"🎉 ¡Listo! Publiqué tu reporte **{codigo}** en **{barrio}** "
+                  f"({an['nivel']}). Puedes seguirlo en 👤 Mi Historial.\n\n"
+                  + mensaje_horario(barrio))
+
+
+def renderizar_foto_ecobot():
+    st.markdown("**📷 Mándame una foto y yo la analizo**")
+    clat, clon = st.session_state.get("click_lat"), st.session_state.get("click_lon")
+    punto_ok = (es_residente() and clat is not None
+                and POLIGONO_COMUNA2.contains(Point(clon, clat)))
+    if not punto_ok:
+        st.caption("Para publicar desde aquí primero verifica tu dirección (📍 GPS) y "
+                   "toca el punto exacto del residuo en el mapa. Luego vuelve y mándame la foto.")
+        return
+
+    n_up = st.session_state.get("bot_foto_n", 0)
+    foto = st.file_uploader("Foto del residuo", type=["jpg", "jpeg", "png"],
+                            key=f"bot_foto_{n_up}", label_visibility="collapsed")
+
+    def _terminar():
+        st.session_state.bot_analisis = None
+        st.session_state.bot_hash = None
+        st.session_state.bot_foto_n = n_up + 1
+
+    if foto is None:
+        st.session_state.bot_analisis = None
+        return
+    ok, motivo = validar_foto_subida(foto)
+    if not ok:
+        st.error(f"🚫 La foto se descartó: {motivo}.")
+        return
+    img = _abrir_img_subida(foto)
+    h = _hash_imagen(img)
+    if h != st.session_state.get("bot_hash"):
+        if not ecobot_cupo_disponible():
+            st.warning("⏳ Muchas consultas seguidas. Espera un rato e inténtalo de nuevo.")
+            return
+        with st.spinner("🤖 Analizando tu foto..."):
+            st.session_state.bot_analisis = analizar_foto_para_bot(img)
+        st.session_state.bot_hash = h
+
+    an = st.session_state.get("bot_analisis")
+    if not an:
+        return
+    if not an["valido"]:
+        st.error("🚫 Esta foto no parece mostrar residuos reales. "
+                 f"{esc(an.get('motivo', ''))} Sube otra donde se vea la acumulación.")
+        return
+    if an.get("hubo_personas"):
+        st.info("🙈 Había personas en la foto y las difuminé para proteger su privacidad.")
+    st.image(an["img_det"], use_container_width=True)
+    if not an["ia_detecto"]:
+        st.warning("No logré identificar objetos en esta foto. Usa el formulario para "
+                   "clasificarla manualmente.")
+        if st.button("📸 Ir al formulario", key="bot_ir_form", use_container_width=True):
+            st.session_state.seccion = "residuo"
+            _terminar()
+            st.rerun()
+        return
+    st.markdown(f"**{an['nivel']}** · {an['residuos']} reciclables · {an['peso']} kg")
+    if an.get("nota"):
+        st.caption(an["nota"])
+
+    sug = (st.session_state.get("prefill_barrio") or st.session_state.get("click_barrio"))
+    barrio_sel = st.selectbox("Barrio:", BARRIOS,
+                              index=BARRIOS.index(sug) if sug in BARRIOS else 0,
+                              key="bot_barrio")
+    st.caption(mensaje_horario(barrio_sel))
+    obs_sel = st.text_area("📝 Observaciones (opcional):",
+                           value=st.session_state.get("prefill_obs", ""),
+                           key="bot_obs", height=70, max_chars=MAX_LARGO_TEXTO_LIBRE)
+    cb1, cb2 = st.columns(2)
+    with cb1:
+        if st.button("✅ Publicar", type="primary", key="bot_publicar", use_container_width=True):
+            ok_p, msg_p = publicar_desde_chat(an, barrio_sel, obs_sel)
+            st.session_state.agente_msgs.append({"role": "assistant", "content": msg_p})
+            if ok_p:
+                _terminar()
+            st.rerun()
+    with cb2:
+        if st.button("❌ Descartar", key="bot_descartar", use_container_width=True):
+            _terminar()
+            st.rerun()
+
+
+def alertas_automaticas(reportes: list) -> list:
+    """Revisión automática para la administración: marca lo que requiere
+    atención sin que nadie tenga que buscarlo a mano."""
+    alertas = []
+    activos = [r for r in reportes if "Resuelto" not in r.get("Estado", "")]
+    sospechosos = [r["Código"] for r in activos if (r.get("ReportesFalsos") or 0) >= 3]
+    if sospechosos:
+        alertas.append(("err", f"🚩 {len(sospechosos)} reporte(s) marcados como 'no es basura' "
+                               f"por 3+ vecinos — revisa la foto: {', '.join(sospechosos[:8])}"))
+    ahora = datetime.now()
+    viejos, recientes = [], 0
+    for r in activos:
+        try:
+            f = datetime.strptime(r.get("Fecha", ""), "%Y-%m-%d %H:%M")
+        except Exception:
+            continue
+        horas = (ahora - f).total_seconds() / 3600
+        if "crítico" in r.get("Clasificación", "").lower() and horas > 48 \
+                and "Pendiente" in r.get("Estado", ""):
+            viejos.append(r["Código"])
+        if horas <= 1:
+            recientes += 1
+    if viejos:
+        alertas.append(("err", f"⏰ {len(viejos)} punto(s) crítico(s) llevan más de 48 h "
+                               f"sin atención: {', '.join(viejos[:8])}"))
+    if recientes >= 10:
+        alertas.append(("warn", f"📈 Pico inusual: {recientes} reportes en la última hora. "
+                                f"Revisa que no sea spam."))
+    if not _github_config()[0]:
+        alertas.append(("warn", "💾 El respaldo en GitHub no está configurado: si el servidor "
+                                "se reinicia se pierden los reportes."))
+    return alertas
+
+
+# ====================================================================
 # 7. BARRA LATERAL
 # ====================================================================
 try:
@@ -2816,7 +3250,10 @@ if menu == "🏠 Inicio y Mapa":
     if "agente_msgs" not in st.session_state:
         st.session_state.agente_msgs = [
             {"role": "assistant",
-             "content": "¡Hola! 👋 Soy EcoBot, tu asistente de EcoCom2.\n\n¿En qué te ayudo hoy?"}
+             "content": "¡Hola! 👋 Soy EcoBot, el asistente de EcoCom2.\n\n"
+                        "Puedes escribirme cosas como *\"hay escombros en La Frontera\"* y preparo "
+                        "el reporte por ti, mandarme una **foto 📷**, o decirme un código "
+                        "(*confirmo REP-205*). También te digo cuándo pasa el camión. ¿Qué necesitas?"}
         ]
     if "agente_pendiente" not in st.session_state:
         st.session_state.agente_pendiente = False
@@ -2939,6 +3376,9 @@ if menu == "🏠 Inicio y Mapa":
 
     def llamar_ecobot(mensajes_historial: list) -> str:
         ultimo_mensaje = mensajes_historial[-1]["content"] if mensajes_historial else ""
+        respuesta_local = router_ecobot(ultimo_mensaje)   # actúa sin gastar Gemini
+        if respuesta_local:
+            return respuesta_local
         respuesta_faq = _responder_faq_ecobot(ultimo_mensaje)
         if respuesta_faq:
             return respuesta_faq
@@ -3038,14 +3478,18 @@ Redirige preguntas no relacionadas al tema de residuos."""
         st.session_state.agente_msgs.append({"role": "assistant", "content": respuesta})
         st.rerun()
 
-    with st.sidebar.expander("🤖 Asistente EcoCom2", expanded=False):
-        st.markdown("""
-<div class="eco-chat-header-gradient" style="background:linear-gradient(135deg,#4ade80,#16a34a);
-border-radius:10px;padding:10px 14px;font-weight:700;
-font-size:14px;text-align:center;margin-bottom:10px;">
-🤖 Hola, soy EcoBot<br>
-<span style="font-weight:400;font-size:12px">Te ayudo a reportar residuos</span>
-</div>""", unsafe_allow_html=True)
+    with _ecobot_panel():
+        _logo_hdr = _logo_b64()
+        _img_hdr = (f'<img src="data:image/png;base64,{_logo_hdr}" style="width:46px;height:46px;'
+                    f'border-radius:50%;background:#fff;margin-right:10px;vertical-align:middle;">'
+                    if _logo_hdr else "🤖 ")
+        st.markdown(
+            f'<div style="background:linear-gradient(135deg,#16a34a,#15803d);color:#ffffff;'
+            f'border-radius:12px;padding:10px 14px;font-weight:800;font-size:15px;'
+            f'margin-bottom:10px;display:flex;align-items:center;">{_img_hdr}'
+            f'<div>Hola, soy EcoBot<br><span style="font-weight:400;font-size:12px">'
+            f'Reporto, analizo fotos y te aviso cuándo pasa el camión</span></div></div>',
+            unsafe_allow_html=True)
 
         st.caption("¿Ya sabes qué quieres hacer? Toca directo:")
         cta1, cta2 = st.columns(2)
@@ -3069,22 +3513,13 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                                 "el mapa y sube tu foto para continuar."})
                 st.rerun()
 
-        for msg in st.session_state.agente_msgs[-6:]:
-            contenido_html = esc(msg["content"]).replace("\n", "<br>")
+        for msg in st.session_state.agente_msgs[-8:]:
             if msg["role"] == "assistant":
-                st.markdown(
-                    f'<div class="ecobot-bubble-bot" style="border:1px solid #bbf7d0;'
-                    f'border-radius:10px;padding:10px;font-size:13px;'
-                    f'margin-bottom:6px;">'
-                    f'🤖 {contenido_html}</div>',
-                    unsafe_allow_html=True)
+                with st.chat_message("assistant", avatar=avatar_ecobot()):
+                    st.markdown(msg["content"].replace("\n", "  \n"))
             else:
-                st.markdown(
-                    f'<div class="ecobot-bubble-user" style="border-radius:10px;'
-                    f'padding:8px 10px;font-size:13px;'
-                    f'text-align:right;margin-bottom:6px;">'
-                    f'👤 {contenido_html}</div>',
-                    unsafe_allow_html=True)
+                with st.chat_message("user"):
+                    st.markdown(msg["content"].replace("\n", "  \n"))
 
         ultimo_usuario = next(
             (m["content"] for m in reversed(st.session_state.agente_msgs) if m["role"] == "user"),
@@ -3119,8 +3554,9 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                 {"role": "assistant", "content": respuesta})
             st.rerun()
 
-        st.markdown("<p style='font-size:11px;color:#6b7280;margin:8px 0 4px 0;'>Preguntas rápidas:</p>",
-                    unsafe_allow_html=True)
+        st.markdown("---")
+        renderizar_foto_ecobot()
+        st.markdown("---")
         preguntas_rapidas = [
             "¿Cómo reporto basura?",
             "¿Qué significa 🔴 rojo?",
@@ -3133,11 +3569,12 @@ font-size:14px;text-align:center;margin-bottom:10px;">
             "Veo un reporte falso, ¿qué hago?",
             "¿Cuántos reportes puedo hacer?",
         ]
-        for idx_pq, pq in enumerate(preguntas_rapidas):
-            if st.button(pq, key=f"pq_{idx_pq}", use_container_width=True):
-                st.session_state.agente_msgs.append({"role": "user", "content": pq})
-                st.session_state.agente_pendiente = True
-                st.rerun()
+        with st.expander("💡 Preguntas rápidas"):
+            for idx_pq, pq in enumerate(preguntas_rapidas):
+                if st.button(pq, key=f"pq_{idx_pq}", use_container_width=True):
+                    st.session_state.agente_msgs.append({"role": "user", "content": pq})
+                    st.session_state.agente_pendiente = True
+                    st.rerun()
 
     dir_auto = st.session_state.get("click_dir") or st.session_state.get("direccion") or ""
 
@@ -3458,6 +3895,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                 )
                 if _barrio_sugerido:
                     st.caption(f"📍 Detectado automáticamente: {_barrio_sugerido} · puedes cambiarlo si no es correcto")
+                st.caption(mensaje_horario(r_barrio))
             with r2:
                 r_ref = st.text_input("Referencia (edita si quieres):",
                                       value=pdir, key="r_ref", max_chars=200)
@@ -3468,6 +3906,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                 placeholder="Describe lo que ves en la foto: hace cuánto está ahí, "
                             "si bloquea el paso, olores, riesgos, etc.",
                 key="r_obs", height=80, max_chars=MAX_LARGO_TEXTO_LIBRE,
+                value=st.session_state.get("prefill_obs", ""),
             )
             r_audio = st.audio_input("🎙️ O deja solo una nota de voz:", key="r_audio")
             if r_audio:
@@ -3569,7 +4008,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                                 st.error(f"⚠️ No se pudo usar Gemini: {error_g} "
                                          f"Se usó YOLO local en su lugar.")
                                 tabla, residuos, peso, tipo, nivel, _ = procesar(res)
-                                img_detecciones = dibujar_detecciones_filtradas(img, res)
+                                img_detecciones = dibujar_detecciones_filtradas(img_blur, res)
                             elif es_valido_g is False:
                                 reporte_invalido = True
                                 motivo_invalido = motivo_g
@@ -3580,7 +4019,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                                 img_detecciones = dibujar_detecciones_gemini(img_blur, detecciones_g)
                         else:
                             tabla, residuos, peso, tipo, nivel, _ = procesar(res)
-                            img_detecciones = dibujar_detecciones_filtradas(img, res)
+                            img_detecciones = dibujar_detecciones_filtradas(img_blur, res)
 
                     if reporte_invalido:
                         st.error(
@@ -3762,6 +4201,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                         st.session_state.cache_analisis_r = None
                         st.session_state.cache_foto_bytes = None
                         st.session_state.cache_foto_clasif_bytes = None
+                        limpiar_prefill_bot()
                         st.session_state.seccion = "historial"
                         for k in ["click_lat","click_lon","click_dir","click_barrio"]:
                             st.session_state.pop(k, None)
@@ -3813,6 +4253,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                 placeholder="Describe la acumulación: hace cuánto está ahí, si genera "
                             "olores, si bloquea el paso, riesgos para la salud, etc.",
                 key="cr_obs", height=80, max_chars=MAX_LARGO_TEXTO_LIBRE,
+                value=st.session_state.get("prefill_obs", ""),
             )
             cr_audio = st.audio_input("🎙️ O deja solo una nota de voz:", key="cr_audio")
             if cr_audio:
@@ -3913,7 +4354,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                                 st.error(f"⚠️ No se pudo usar Gemini: {error_g2} "
                                          f"Se usó YOLO local en su lugar.")
                                 tabla2, res2_r, peso2, tipo2, nivel2, total2 = procesar(res2)
-                                img2_detecciones = dibujar_detecciones_filtradas(img2, res2)
+                                img2_detecciones = dibujar_detecciones_filtradas(img2_blur, res2)
                             elif es_valido_g2 is False:
                                 reporte_invalido_cr = True
                                 motivo_invalido_cr = motivo_g2
@@ -3924,7 +4365,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                                 img2_detecciones = dibujar_detecciones_gemini(img2_blur, detecciones_g2)
                         else:
                             tabla2, res2_r, peso2, tipo2, nivel2, total2 = procesar(res2)
-                            img2_detecciones = dibujar_detecciones_filtradas(img2, res2)
+                            img2_detecciones = dibujar_detecciones_filtradas(img2_blur, res2)
 
                     if reporte_invalido_cr:
                         st.error(
@@ -4105,6 +4546,7 @@ font-size:14px;text-align:center;margin-bottom:10px;">
                             st.session_state.cache_img_blur = None
                             st.session_state.cache_foto_bytes_cr = None
                             st.session_state.cache_foto_clasif_bytes_cr = None
+                            limpiar_prefill_bot()
                             st.session_state.seccion = "historial"
                             for k in ["click_lat","click_lon","click_dir","click_barrio"]:
                                 st.session_state.pop(k, None)
@@ -4535,6 +4977,12 @@ margin-bottom:8px;">
     ])
 
     with tab_dash:
+        st.markdown("#### 🚨 Alertas automáticas")
+        _alertas_adm = alertas_automaticas(reportes)
+        if not _alertas_adm:
+            st.success("✅ Sin alertas: nada requiere atención inmediata.")
+        for _nivel_a, _msg_a in _alertas_adm:
+            (st.error if _nivel_a == "err" else st.warning)(_msg_a)
         st.markdown("#### ⚙️ Estado del sistema")
         est1, est2, est3, est4 = st.columns(4)
         with est1:
