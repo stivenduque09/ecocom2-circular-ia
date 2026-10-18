@@ -2144,7 +2144,14 @@ MODELOS_GEMINI_RESPALDO = [
 ]
 
 
-def _llamar_gemini_con_respaldo(payload, timeout=30, reintentos_por_modelo=2):
+@st.cache_resource
+def _estado_modelos_gemini() -> dict:
+    """Memoria compartida por todas las sesiones: qué modelos están caídos
+    o sin cupo y hasta cuándo conviene saltárselos."""
+    return {}
+
+
+def _llamar_gemini_con_respaldo(payload, timeout=30, reintentos_por_modelo=1):
     """Prueba varios modelos de Gemini en orden hasta que uno responda.
     503/429 (saturado o sin cupo) o 404 (modelo inexistente en tu cuenta)
     -> pasa al siguiente. Devuelve (respuesta_json, modelo_usado, error)."""
@@ -2156,7 +2163,13 @@ def _llamar_gemini_con_respaldo(payload, timeout=30, reintentos_por_modelo=2):
     headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
     ultimo_error = "error desconocido"
 
-    for nombre_modelo in MODELOS_GEMINI_RESPALDO:
+    # RAPIDEZ: si un modelo acaba de fallar (sin cupo, saturado o inexistente)
+    # se omite un rato, en vez de perder segundos intentándolo en cada mensaje.
+    _caidos = _estado_modelos_gemini()
+    _ahora = time.time()
+    _candidatos = [m for m in MODELOS_GEMINI_RESPALDO if _caidos.get(m, 0) <= _ahora] \
+        or list(MODELOS_GEMINI_RESPALDO)
+    for nombre_modelo in _candidatos:
         url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
                f"{nombre_modelo}:generateContent")
         resp = None
@@ -2182,6 +2195,9 @@ def _llamar_gemini_con_respaldo(payload, timeout=30, reintentos_por_modelo=2):
         except Exception:
             detalle = ""
         ultimo_error = f"{nombre_modelo} respondió {resp.status_code}: {detalle or 'error desconocido'}"
+        _pausa = {404: 3600, 429: 60, 503: 20}.get(resp.status_code, 0)
+        if _pausa:
+            _caidos[nombre_modelo] = time.time() + _pausa
 
         if resp.status_code not in (503, 429, 404):
             break  # 401/400: error real, no sirve probar otro modelo
@@ -2996,6 +3012,7 @@ def router_ecobot(texto: str):
             rep["Confirmaciones"] = (rep.get("Confirmaciones", 0) or 0) + 1
             conf.add(cod)
             guardar_reportes_disco(st.session_state.reportes)
+            st.session_state.bot_accion_global = True   # el mapa debe refrescarse
             return (f"¡Confirmación registrada para **{cod}** ({rep.get('Sector','')})! "
                     f"Ahora tiene {rep['Confirmaciones']} confirmaciones y la administración "
                     f"lo prioriza más.")
@@ -3033,6 +3050,7 @@ def router_ecobot(texto: str):
             st.session_state.click_barrio = barrio
         st.session_state.seccion = "critico" if critico else "residuo"
         st.session_state.ir_a_inicio = True
+        st.session_state.bot_accion_global = True   # hay que cambiar de página
 
         partes = ["¡Entendido! Ya preparé tu reporte:"]
         partes.append(f"- Barrio: **{barrio}**" if barrio else "- Barrio: elígelo en el formulario")
@@ -3802,9 +3820,9 @@ if menu != "Panel Admin":
         SISTEMA_AGENTE = """Eres EcoBot, el asistente amigable de EcoCom2 Circular IA,
 una app para reportar residuos en la Comuna 2 - Santa Cruz de Medellín, Colombia.
 
-Responde en español, de forma CLARA y COMPLETA pero breve (máximo 4
-oraciones). Usa emojis. Sé accesible para niños, adultos y personas
-mayores. NUNCA respondas con una frase vaga como "¡Es muy fácil!" sin
+Responde en español, de forma CLARA y COMPLETA pero breve (máximo 3
+oraciones). NO uses emojis ni símbolos decorativos. Sé accesible para niños,
+adultos y personas mayores, con un tono cercano y profesional. NUNCA respondas con una frase vaga como "¡Es muy fácil!" sin
 explicar el cómo — siempre da el paso concreto que la persona necesita.
 
 Tienes herramientas para consultar datos REALES: el estado de un reporte
@@ -3855,7 +3873,7 @@ Redirige preguntas no relacionadas al tema de residuos."""
             # Hasta 3 rondas de "pregunta → ejecuta función → responde"
             # antes de rendirnos y pedirle a la persona que reformule.
             for _ in range(3):
-                data, _modelo_usado, error = _llamar_gemini_con_respaldo(payload, timeout=20)
+                data, _modelo_usado, error = _llamar_gemini_con_respaldo(payload, timeout=15)
                 if error:
                     return ("No pude conectarme ahora. "
                             "Pasos: 1 Verifica dirección 2 Toca el mapa "
@@ -3887,156 +3905,170 @@ Redirige preguntas no relacionadas al tema de residuos."""
                     "Pasos: 1 Verifica dirección 2 Toca el mapa "
                     "3 Sube foto 4 Publica.")
 
-    if st.session_state.agente_pendiente:
-        st.session_state.agente_pendiente = False
-        with st.spinner("EcoBot está pensando..."):
-            respuesta = llamar_ecobot(st.session_state.agente_msgs)
-        st.session_state.agente_msgs.append({"role": "assistant", "content": respuesta})
-        if st.session_state.get("bot_voz_salida"):
-            st.session_state.bot_hablar = respuesta
-        st.rerun()
-
-    with _ecobot_panel():
-        _logo_hdr = _logo_b64()
-        _img_hdr = (f'<img src="data:image/png;base64,{_logo_hdr}" style="width:46px;height:46px;'
-                    f'border-radius:50%;background:#fff;margin-right:10px;vertical-align:middle;">'
-                    if _logo_hdr else "")
-        st.markdown(
-            f'<div style="background:linear-gradient(135deg,#16a34a,#15803d);color:#ffffff;'
-            f'border-radius:12px;padding:10px 14px;font-weight:800;font-size:15px;'
-            f'margin-bottom:10px;display:flex;align-items:center;">{_img_hdr}'
-            f'<div>Hola, soy EcoBot<br><span style="font-weight:400;font-size:12px">'
-            f'Escríbeme, háblame o mándame una foto</span></div></div>',
-            unsafe_allow_html=True)
-
-        st.caption("¿Ya sabes qué quieres hacer? Toca directo:")
-        cta1, cta2 = st.columns(2)
-        with cta1:
-            if st.button("Reportar residuo", key="ecobot_cta_residuo",
-                         use_container_width=True, type="primary"):
-                st.session_state.seccion = "residuo"
-                st.session_state.ir_a_inicio = True
-                st.session_state.agente_msgs.append(
-                    {"role": "assistant",
-                     "content": "¡Listo! Te llevé a Reportar Residuo. Ahora solo toca "
-                                "el punto exacto en el mapa y sube tu foto — yo te espero "
-                                "aquí si tienes dudas en el camino."})
+    # RAPIDEZ: el panel es un "fragmento": al chatear solo se vuelve a dibujar
+    # el panel, no toda la página (mapa, formularios, etc.). Antes cada mensaje
+    # recargaba todo dos veces.
+    @st.fragment
+    def _panel_ecobot_fragment():
+        def _refrescar_bot():
+            """Refresco liviano del panel; completo solo si el bot cambió la página."""
+            if st.session_state.pop("bot_accion_global", False):
                 st.rerun()
-        with cta2:
-            if st.button("Punto crítico", key="ecobot_cta_critico",
-                         use_container_width=True, type="primary"):
-                st.session_state.seccion = "critico"
-                st.session_state.ir_a_inicio = True
-                st.session_state.agente_msgs.append(
-                    {"role": "assistant",
-                     "content": "¡Perfecto! Te llevé a Punto Crítico. Toca el punto en "
-                                "el mapa y sube tu foto para continuar."})
-                st.rerun()
+            st.rerun(scope="fragment")
 
-        for msg in st.session_state.agente_msgs[-8:]:
-            if msg["role"] == "assistant":
-                with st.chat_message("assistant", avatar=avatar_ecobot()):
-                    st.markdown(msg["content"].replace("\n", "  \n"))
-            else:
-                with st.chat_message("user"):
-                    st.markdown(msg["content"].replace("\n", "  \n"))
-
-        ultimo_usuario = next(
-            (m["content"] for m in reversed(st.session_state.agente_msgs) if m["role"] == "user"),
-            "")
-        if _detectar_intencion_reportar(ultimo_usuario):
-            if st.button("Sí, llévame a reportar ahora", key="ecobot_ir_reportar",
-                         type="primary", use_container_width=True):
-                st.session_state.seccion = "residuo"
-                st.session_state.ir_a_inicio = True
-                st.rerun()
-
-        # Formulario con clear_on_submit: la caja se vacía sola al enviar y
-        # también se puede enviar con la tecla Enter.
-        with st.form("form_agente", clear_on_submit=True, border=False):
-            col_in, col_send = st.columns([4, 2])
-            with col_in:
-                pregunta = st.text_input(
-                    "Pregunta:", placeholder="Escribe tu mensaje",
-                    key="agente_input", label_visibility="collapsed",
-                    max_chars=MAX_LARGO_MENSAJE_BOT)
-            with col_send:
-                enviar = st.form_submit_button("Enviar", type="primary",
-                                               use_container_width=True)
-        if st.button("Limpiar conversación", key="agente_limpiar", use_container_width=True):
-            st.session_state.agente_msgs = [st.session_state.agente_msgs[0]]
-            st.rerun()
-
-        if enviar and pregunta.strip():
-            st.session_state.agente_msgs.append(
-                {"role": "user", "content": pregunta.strip()[:MAX_LARGO_MENSAJE_BOT]})
+        if st.session_state.agente_pendiente:
+            st.session_state.agente_pendiente = False
             with st.spinner("EcoBot está pensando..."):
                 respuesta = llamar_ecobot(st.session_state.agente_msgs)
-            st.session_state.agente_msgs.append(
-                {"role": "assistant", "content": respuesta})
-            st.rerun()
+            st.session_state.agente_msgs.append({"role": "assistant", "content": respuesta})
+            if st.session_state.get("bot_voz_salida"):
+                st.session_state.bot_hablar = respuesta
+            if st.session_state.pop("bot_accion_global", False):
+                st.rerun()          # el bot cambió algo de la página: recarga completa
 
-        # ---- Entrada por voz ----
-        if verificar_gemini_key():
-            _n_aud = st.session_state.get("bot_audio_n", 0)
-            st.caption("Prefieres hablar: toca el micrófono, di tu mensaje y detén la grabación.")
-            audio_bot = st.audio_input("Hablar con EcoBot", key=f"agente_audio_{_n_aud}",
-                                       label_visibility="collapsed")
-            st.toggle("Leer las respuestas en voz alta", key="bot_voz_salida")
-            if audio_bot is not None:
-                _datos_aud = audio_bot.getvalue()
-                _h_aud = hashlib.md5(_datos_aud).hexdigest()
-                if _h_aud != st.session_state.get("bot_audio_hash"):
-                    st.session_state.bot_audio_hash = _h_aud
-                    if not ecobot_cupo_disponible():
-                        st.session_state.agente_msgs.append({"role": "assistant", "content":
-                            "Has enviado muchos mensajes seguidos. Espera un rato e inténtalo de nuevo."})
-                    else:
-                        with st.spinner("Escuchando tu mensaje..."):
-                            _texto_aud, _err_aud = transcribir_audio_gemini(
-                                _datos_aud, getattr(audio_bot, "type", "audio/wav"))
-                        if _err_aud or not _texto_aud:
+        with _ecobot_panel():
+            _logo_hdr = _logo_b64()
+            _img_hdr = (f'<img src="data:image/png;base64,{_logo_hdr}" style="width:46px;height:46px;'
+                        f'border-radius:50%;background:#fff;margin-right:10px;vertical-align:middle;">'
+                        if _logo_hdr else "")
+            st.markdown(
+                f'<div style="background:linear-gradient(135deg,#16a34a,#15803d);color:#ffffff;'
+                f'border-radius:12px;padding:10px 14px;font-weight:800;font-size:15px;'
+                f'margin-bottom:10px;display:flex;align-items:center;">{_img_hdr}'
+                f'<div>Hola, soy EcoBot<br><span style="font-weight:400;font-size:12px">'
+                f'Escríbeme, háblame o mándame una foto</span></div></div>',
+                unsafe_allow_html=True)
+
+            st.caption("¿Ya sabes qué quieres hacer? Toca directo:")
+            cta1, cta2 = st.columns(2)
+            with cta1:
+                if st.button("Reportar residuo", key="ecobot_cta_residuo",
+                             use_container_width=True, type="primary"):
+                    st.session_state.seccion = "residuo"
+                    st.session_state.ir_a_inicio = True
+                    st.session_state.agente_msgs.append(
+                        {"role": "assistant",
+                         "content": "¡Listo! Te llevé a Reportar Residuo. Ahora solo toca "
+                                    "el punto exacto en el mapa y sube tu foto — yo te espero "
+                                    "aquí si tienes dudas en el camino."})
+                    st.rerun()
+            with cta2:
+                if st.button("Punto crítico", key="ecobot_cta_critico",
+                             use_container_width=True, type="primary"):
+                    st.session_state.seccion = "critico"
+                    st.session_state.ir_a_inicio = True
+                    st.session_state.agente_msgs.append(
+                        {"role": "assistant",
+                         "content": "¡Perfecto! Te llevé a Punto Crítico. Toca el punto en "
+                                    "el mapa y sube tu foto para continuar."})
+                    st.rerun()
+
+            for msg in st.session_state.agente_msgs[-8:]:
+                if msg["role"] == "assistant":
+                    with st.chat_message("assistant", avatar=avatar_ecobot()):
+                        st.markdown(msg["content"].replace("\n", "  \n"))
+                else:
+                    with st.chat_message("user"):
+                        st.markdown(msg["content"].replace("\n", "  \n"))
+
+            ultimo_usuario = next(
+                (m["content"] for m in reversed(st.session_state.agente_msgs) if m["role"] == "user"),
+                "")
+            if _detectar_intencion_reportar(ultimo_usuario):
+                if st.button("Sí, llévame a reportar ahora", key="ecobot_ir_reportar",
+                             type="primary", use_container_width=True):
+                    st.session_state.seccion = "residuo"
+                    st.session_state.ir_a_inicio = True
+                    st.rerun()
+
+            # Formulario con clear_on_submit: la caja se vacía sola al enviar y
+            # también se puede enviar con la tecla Enter.
+            with st.form("form_agente", clear_on_submit=True, border=False):
+                col_in, col_send = st.columns([4, 2])
+                with col_in:
+                    pregunta = st.text_input(
+                        "Pregunta:", placeholder="Escribe tu mensaje",
+                        key="agente_input", label_visibility="collapsed",
+                        max_chars=MAX_LARGO_MENSAJE_BOT)
+                with col_send:
+                    enviar = st.form_submit_button("Enviar", type="primary",
+                                                   use_container_width=True)
+            if st.button("Limpiar conversación", key="agente_limpiar", use_container_width=True):
+                st.session_state.agente_msgs = [st.session_state.agente_msgs[0]]
+                _refrescar_bot()
+
+            if enviar and pregunta.strip():
+                st.session_state.agente_msgs.append(
+                    {"role": "user", "content": pregunta.strip()[:MAX_LARGO_MENSAJE_BOT]})
+                with st.spinner("EcoBot está pensando..."):
+                    respuesta = llamar_ecobot(st.session_state.agente_msgs)
+                st.session_state.agente_msgs.append(
+                    {"role": "assistant", "content": respuesta})
+                _refrescar_bot()
+
+            # ---- Entrada por voz ----
+            if verificar_gemini_key():
+                _n_aud = st.session_state.get("bot_audio_n", 0)
+                st.caption("Prefieres hablar: toca el micrófono, di tu mensaje y detén la grabación.")
+                audio_bot = st.audio_input("Hablar con EcoBot", key=f"agente_audio_{_n_aud}",
+                                           label_visibility="collapsed")
+                st.toggle("Leer las respuestas en voz alta", key="bot_voz_salida")
+                if audio_bot is not None:
+                    _datos_aud = audio_bot.getvalue()
+                    _h_aud = hashlib.md5(_datos_aud).hexdigest()
+                    if _h_aud != st.session_state.get("bot_audio_hash"):
+                        st.session_state.bot_audio_hash = _h_aud
+                        if not ecobot_cupo_disponible():
                             st.session_state.agente_msgs.append({"role": "assistant", "content":
-                                f"{_err_aud or 'No logré entender el audio.'} Puedes intentarlo "
-                                f"de nuevo o escribirme tu mensaje."})
+                                "Has enviado muchos mensajes seguidos. Espera un rato e inténtalo de nuevo."})
                         else:
-                            st.session_state.agente_msgs.append(
-                                {"role": "user", "content": _texto_aud})
-                            with st.spinner("EcoBot está pensando..."):
-                                _resp_aud = llamar_ecobot(st.session_state.agente_msgs)
-                            st.session_state.agente_msgs.append(
-                                {"role": "assistant", "content": _resp_aud})
-                            if st.session_state.get("bot_voz_salida"):
-                                st.session_state.bot_hablar = _resp_aud
-                    st.session_state.bot_audio_n = _n_aud + 1   # limpia la grabadora
-                    st.rerun()
-            _por_hablar = st.session_state.pop("bot_hablar", None)
-            if _por_hablar:
-                reproducir_respuesta(_por_hablar)
-        else:
-            st.caption("La entrada por voz necesita la clave de Gemini configurada.")
+                            with st.spinner("Escuchando tu mensaje..."):
+                                _texto_aud, _err_aud = transcribir_audio_gemini(
+                                    _datos_aud, getattr(audio_bot, "type", "audio/wav"))
+                            if _err_aud or not _texto_aud:
+                                st.session_state.agente_msgs.append({"role": "assistant", "content":
+                                    f"{_err_aud or 'No logré entender el audio.'} Puedes intentarlo "
+                                    f"de nuevo o escribirme tu mensaje."})
+                            else:
+                                st.session_state.agente_msgs.append(
+                                    {"role": "user", "content": _texto_aud})
+                                with st.spinner("EcoBot está pensando..."):
+                                    _resp_aud = llamar_ecobot(st.session_state.agente_msgs)
+                                st.session_state.agente_msgs.append(
+                                    {"role": "assistant", "content": _resp_aud})
+                                if st.session_state.get("bot_voz_salida"):
+                                    st.session_state.bot_hablar = _resp_aud
+                        st.session_state.bot_audio_n = _n_aud + 1   # limpia la grabadora
+                        _refrescar_bot()
+                _por_hablar = st.session_state.pop("bot_hablar", None)
+                if _por_hablar:
+                    reproducir_respuesta(_por_hablar)
+            else:
+                st.caption("La entrada por voz necesita la clave de Gemini configurada.")
 
-        st.markdown("---")
-        renderizar_foto_ecobot()
-        st.markdown("---")
-        preguntas_rapidas = [
-            "¿Cómo reporto basura?",
-            "¿Qué significa rojo?",
-            "¿Qué significa amarillo?",
-            "¿Qué significa verde?",
-            "¿Cómo verifico mi dirección?",
-            "¿Para qué sirve la IA?",
-            "¿Cómo sé si ya se resolvió?",
-            "¿Cómo confirmo que sigue ahí?",
-            "Veo un reporte falso, ¿qué hago?",
-            "¿Cuántos reportes puedo hacer?",
-        ]
-        with st.expander("Preguntas rápidas"):
-            for idx_pq, pq in enumerate(preguntas_rapidas):
-                if st.button(pq, key=f"pq_{idx_pq}", use_container_width=True):
-                    st.session_state.agente_msgs.append({"role": "user", "content": pq})
-                    st.session_state.agente_pendiente = True
-                    st.rerun()
+            st.markdown("---")
+            renderizar_foto_ecobot()
+            st.markdown("---")
+            preguntas_rapidas = [
+                "¿Cómo reporto basura?",
+                "¿Qué significa rojo?",
+                "¿Qué significa amarillo?",
+                "¿Qué significa verde?",
+                "¿Cómo verifico mi dirección?",
+                "¿Para qué sirve la IA?",
+                "¿Cómo sé si ya se resolvió?",
+                "¿Cómo confirmo que sigue ahí?",
+                "Veo un reporte falso, ¿qué hago?",
+                "¿Cuántos reportes puedo hacer?",
+            ]
+            with st.expander("Preguntas rápidas"):
+                for idx_pq, pq in enumerate(preguntas_rapidas):
+                    if st.button(pq, key=f"pq_{idx_pq}", use_container_width=True):
+                        st.session_state.agente_msgs.append({"role": "user", "content": pq})
+                        st.session_state.agente_pendiente = True
+                        _refrescar_bot()
+
+    _panel_ecobot_fragment()
 
 
 # ====================================================================
