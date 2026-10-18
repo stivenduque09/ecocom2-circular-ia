@@ -1224,10 +1224,10 @@ def _responder_faq_ecobot(pregunta: str):
     si encuentra coincidencia, la devuelve de inmediato (sin gastar una
     llamada a la IA, y sin arriesgarse a una respuesta corta o vaga). Si
     no hay coincidencia, devuelve None para que se use Gemini."""
-    texto_n = _normalizar_txt(pregunta)
-    for palabras_clave, respuesta in _FAQ_ECOBOT:
-        if any(_normalizar_txt(p) in texto_n for p in palabras_clave):
-            return respuesta
+    for texto_n in (_normalizar_txt(pregunta), _preparar_texto_bot(pregunta)):
+        for palabras_clave, respuesta in _FAQ_ECOBOT:
+            if any(_normalizar_txt(p) in texto_n for p in palabras_clave):
+                return respuesta
     return None
 
 
@@ -2928,6 +2928,8 @@ def revocar_datos_ubicacion():
     st.session_state._habeas_cookie_borrar = True
     st.session_state.pop("chk_habeas", None)
     st.session_state.pop("modo_demo", None)
+    st.session_state.barrio_recordado = ""          # también olvida el barrio recordado
+    st.session_state._barrio_cookie_borrar = True
     for k in _CLAVES_UBICACION:
         st.session_state.pop(k, None)
 
@@ -2981,6 +2983,11 @@ def vaciar_cookies_habeas():
         _escribir_cookie("ecocom2_habeas", "1", 31536000)
     if st.session_state.pop("_habeas_cookie_borrar", False):
         _escribir_cookie("ecocom2_habeas", "", 0)
+    _slug = st.session_state.pop("_barrio_cookie_escribir", None)
+    if _slug:
+        _escribir_cookie("ecocom2_barrio", _slug, 31536000)
+    if st.session_state.pop("_barrio_cookie_borrar", False):
+        _escribir_cookie("ecocom2_barrio", "", 0)
 
 
 def mostrar_horarios_recoleccion(con_cierre: bool = True):
@@ -3186,11 +3193,41 @@ def barrio_desde_direccion(direccion: str):
     return detectar_barrio_en_texto(t)
 
 
-def barrio_para_horario():
-    """Barrio sobre el que hay que mostrar el horario: el punto tocado en el
-    mapa, o el barrio detectado al verificar la dirección."""
-    for b in (st.session_state.get("click_barrio"), st.session_state.get("barrio_usuario"),
-              st.session_state.get("prefill_barrio")):
+def _slug_barrio(b: str) -> str:
+    return re.sub(r"[^a-z0-9]+", "_", _normalizar_txt(b)).strip("_")
+
+
+def barrio_recordado():
+    """Barrio que la persona pidió recordar (cookie de su navegador, 1 año)."""
+    b = st.session_state.get("barrio_recordado")
+    if b is None:                      # primera vez en esta sesión: leer la cookie
+        b = ""
+        try:
+            slug = st.context.cookies.get("ecocom2_barrio", "")
+            b = next((x for x in HORARIOS_RECOLECCION if _slug_barrio(x) == slug), "")
+        except Exception:
+            pass
+        st.session_state.barrio_recordado = b
+    return b or None
+
+
+def recordar_barrio(barrio: str):
+    """Guarda el barrio solo si la persona lo pide (por chat o eligiéndolo)."""
+    if barrio not in HORARIOS_RECOLECCION:
+        return
+    st.session_state.barrio_recordado = barrio
+    st.session_state.barrio_usuario = barrio
+    st.session_state._barrio_cookie_escribir = _slug_barrio(barrio)
+
+
+def barrio_para_horario(preferir_propio: bool = False):
+    """Barrio sobre el que hay que mostrar el horario. En pantalla: el punto
+    tocado en el mapa, o el barrio detectado/recordado. Con preferir_propio
+    (lo usa EcoBot): primero el barrio de la persona y después el punto del mapa."""
+    click = st.session_state.get("click_barrio")
+    propio = (st.session_state.get("barrio_usuario"), barrio_recordado())
+    orden = (propio + (click,)) if preferir_propio else ((click,) + propio)
+    for b in orden + (st.session_state.get("prefill_barrio"),):
         if b in HORARIOS_RECOLECCION:
             return b
     return None
@@ -3198,41 +3235,145 @@ def barrio_para_horario():
 
 # ---------- Entender lenguaje natural ----------
 _ALIAS_BARRIOS = {
-    "moscu": "Moscú No. 1", "playon": "Playón de los Comuneros",
-    "socorro": "Villa del Socorro", "niza": "Villa Niza",
-    "pablo 6": "Pablo VI", "frontera": "La Frontera", "francia": "La Francia",
+    "moscu": "Moscú No. 1", "moscu 1": "Moscú No. 1", "moscu n1": "Moscú No. 1",
+    "moscu numero 1": "Moscú No. 1", "playon": "Playón de los Comuneros",
+    "el playon": "Playón de los Comuneros", "comuneros": "Playón de los Comuneros",
+    "socorro": "Villa del Socorro", "villa socorro": "Villa del Socorro",
+    "niza": "Villa Niza", "pablo 6": "Pablo VI", "pablo sexto": "Pablo VI",
+    "frontera": "La Frontera", "francia": "La Francia", "isla": "La Isla",
 }
 
 _RESIDUOS_BOT = [
-    (["escombro", "rcd", "cascajo", "demolicion", "obra"],
+    (["escombro", "rcd", "cascajo", "demolicion", "obra", "cemento", "ladrillo", "arena",
+      "bloque", "teja", "concreto", "mamposteria", "material de construccion"],
      "Escombros / residuos de construcción", True),
-    (["colchon", "sofa", "mueble", "nevera", "lavadora", "electrodomestico", "voluminoso"],
+    (["colchon", "sofa", "sillon", "mueble", "nevera", "lavadora", "electrodomestico",
+      "voluminoso", "estufa", "televisor", "tv", "computador", "closet", "armario",
+      "inodoro", "puerta", "ventana"],
      "Voluminosos (colchones, muebles, electrodomésticos)", True),
-    (["llanta"], "Llantas", True),
-    (["bolsa", "basura", "costal", "saco"], "Bolsas de basura", False),
-    (["organico", "comida", "poda", "vegetacion", "ramas", "hojas"],
+    (["llanta", "neumatico"], "Llantas", True),
+    (["bolsa", "basura", "costal", "saco", "basurero", "mugre", "porqueria", "cochinada",
+      "desecho", "desperdicio", "bulto", "regada", "regado"],
+     "Bolsas de basura", False),
+    (["organico", "comida", "poda", "vegetacion", "ramas", "hojas", "pasto", "guadua",
+      "tronco", "arbol", "fruta", "verdura", "cascara", "sobras"],
      "Residuos orgánicos / poda", False),
-    (["botella", "carton", "plastico", "vidrio", "lata", "papel", "reciclable"],
+    (["botella", "carton", "plastico", "vidrio", "lata", "papel", "periodico", "reciclable",
+      "tarro", "caja"],
      "Materiales reciclables", False),
 ]
-_PALABRAS_URGENTE = ["urgente", "critico", "bloquea", "bloqueado", "olor", "plaga",
-                     "rata", "montana", "montaña", "grande", "mucho"]
+_PALABRAS_URGENTE = ["urgente", "critico", "bloquea", "bloqueado", "bloqueando", "olor",
+                     "huele feo", "maluco", "plaga", "rata", "mosca", "montana", "montaña",
+                     "grande", "mucho", "mucha", "desbordad", "peligro", "semanas",
+                     "hace dias", "tapando"]
+
+# Verbos y frases con los que la gente cuenta que hay residuos
+_REGEX_REPORTE = (
+    r"\b(hay|tengo|vi|veo|encontre|encuentro|reportar|reporto|reportarlo|denunciar|acumulado|"
+    r"acumulada|acumulan|acumulacion|dejaron|botaron|tiraron|tiran|arrojaron|regaron|regada|"
+    r"regado|amontonado|amontonada|desbordado|desbordada|rebosando|lleno|llena|tirada|"
+    r"tirado|abandonado|abandonada|sacaron|dejan|botan|queman|huele feo|mal olor|maluco)\b")
+_REGEX_NEGACION_REPORTE = (
+    r"\b(no hay|ya no hay|sin basura|nada de basura|ya recogieron|ya la recogieron|"
+    r"ya se llevaron|ya limpiaron)\b")
+
+# Abreviaturas y escritura "de chat" -> palabra completa
+_ABREVIATURAS_BOT = {
+    "q": "que", "k": "que", "ke": "que", "xq": "porque", "pq": "porque", "porq": "porque",
+    "tmb": "tambien", "tbn": "tambien", "xfa": "por favor", "pfa": "por favor",
+    "plis": "por favor", "d": "de", "x": "por", "bn": "bien", "dnd": "donde",
+    "cdo": "cuando", "cra": "carrera", "kra": "carrera", "cll": "calle", "grax": "gracias",
+    "gracia": "gracias", "ola": "hola", "buenas": "buenas",
+}
+# Frases de la calle -> palabra que el bot sí entiende
+_FRASES_BOT = [
+    ("carro de la basura", "camion"), ("carro de basura", "camion"),
+    ("camion de la basura", "camion"), ("camion de basura", "camion"),
+    ("carro recolector", "camion"), ("el recolector", "camion"), ("la volqueta", "camion"),
+    ("el compactador", "camion"), ("sacar la basura", "sacar basura"),
+    ("se rego", "regada"), ("se desbordo", "desbordada"),
+]
+_VOCAB_BASE_BOT = [
+    "basura", "basuras", "camion", "horario", "horarios", "reporte", "reportes", "reportar",
+    "recoleccion", "recogieron", "recogen", "recoge", "resuelto", "resolvieron", "limpiaron",
+    "atendieron", "escombros", "colchon", "llantas", "denunciar", "acumulada", "acumulado",
+    "dejaron", "botaron", "tiraron", "gracias", "hola", "buenas", "barrio", "carrera", "calle",
+    "pasa", "pasan", "paso", "todavia", "sigue", "confirmo", "confirmar", "urgente",
+    "critico", "plaga", "ratas", "olor", "cuando", "reciclar", "reciclaje", "bolsas",
+    "organico", "orgánico", "vidrio", "plastico", "carton", "papel", "residuos", "regada",
+    "desbordada", "comuna", "direccion", "ubicacion", "foto", "mapa", "estado", "seguimiento",
+]
 
 
-def detectar_barrio_en_texto(texto: str):
+def _vocab_bot() -> set:
+    voc = set(_VOCAB_BASE_BOT)
+    for palabras, _e, _c in _RESIDUOS_BOT:
+        voc.update(_normalizar_txt(p) for p in palabras)
+    for alias in _ALIAS_BARRIOS:
+        voc.update(alias.split())
+    for bb in BARRIOS:
+        voc.update(w for w in _normalizar_txt(bb).split() if len(w) >= 5)
+    return {v for v in voc if len(v) >= 4}
+
+
+def _preparar_texto_bot(texto: str) -> str:
+    """Deja el mensaje en una forma fácil de entender: sin tildes ni signos,
+    sin letras repetidas ('holaaaa'), con abreviaturas completas ('xq' ->
+    'porque'), frases de la calle traducidas ('el carro de la basura' ->
+    'camion') y errores de tipeo corregidos ('escomros' -> 'escombros')."""
+    n = _normalizar_txt(texto)
+    n = re.sub(r"[^\w\s-]", " ", n)
+    n = re.sub(r"([a-z])\1{2,}", r"\1", n)          # holaaaa -> hola
+    for frase, canon in _FRASES_BOT:
+        n = n.replace(_normalizar_txt(frase), canon)
+    voc = _vocab_bot()
+    salida = []
+    for tok in n.split():
+        tok = _ABREVIATURAS_BOT.get(tok, tok)
+        if (len(tok) >= 5 and tok not in voc and not any(c.isdigit() for c in tok)
+                and tok.isalpha()):
+            cerca = [v for v in difflib.get_close_matches(tok, voc, n=1, cutoff=0.85)
+                     if v[0] == tok[0]]
+            if cerca:
+                tok = cerca[0]
+        salida.append(tok)
+    return re.sub(r"\s+", " ", " ".join(salida)).strip()
+
+
+def detectar_barrio_en_texto(texto: str, difuso: bool = False):
+    """Barrio mencionado en un texto. Con difuso=True también acepta errores de
+    escritura ('andalusia', 'la frontea', 'santacruz'); se usa solo en el chat,
+    no con direcciones, para no confundir números ni calles con un barrio."""
     n = _normalizar_txt(texto)
     for b in BARRIOS:
         if _normalizar_txt(b) in n:
             return b
     for alias, b in _ALIAS_BARRIOS.items():
-        if alias in n:
+        if re.search(r"\b" + re.escape(alias) + r"\b", n):
             return b
-    return None
+    if not difuso:
+        return None
+    n2 = re.sub(r"([a-z])\1{2,}", r"\1", re.sub(r"[^\w\s]", " ", n))
+    toks = n2.split()
+    nombres = {_normalizar_txt(b): b for b in BARRIOS}
+    nombres.update({a: b for a, b in _ALIAS_BARRIOS.items()})
+    mejor, mejor_r = None, 0.0
+    for k in (3, 2, 1):
+        for i in range(len(toks) - k + 1):
+            ventana = " ".join(toks[i:i + k])
+            for nombre, b in nombres.items():
+                for v, nm in ((ventana, nombre), (ventana.replace(" ", ""), nombre.replace(" ", ""))):
+                    if len(v) < 6 or v[0] != nm[0]:
+                        continue
+                    r = difflib.SequenceMatcher(None, v, nm).ratio()
+                    if r >= 0.88 and r > mejor_r:
+                        mejor, mejor_r = b, r
+    return mejor
 
 
 def _detectar_tipo_residuo(n: str):
     for palabras, etiqueta, critico in _RESIDUOS_BOT:
-        if any(p in n for p in palabras):
+        if any(re.search(r"\b" + re.escape(p), n) for p in palabras):
             return etiqueta, critico
     return None, False
 
@@ -3269,11 +3410,183 @@ def _estado_reporte_texto(rep: dict) -> str:
     return txt
 
 
+def mis_reportes_bot() -> list:
+    """Reportes de esta persona: los de la sesión y los que recupera con su
+    código o teléfono. El más reciente primero."""
+    mis = set(st.session_state.get("mis_codigos", []))
+    cod_res = st.session_state.get("mi_codigo_residente", "")
+    out = [r for r in st.session_state.reportes
+           if r.get("Código") in mis
+           or (cod_res and coincide_residente(r.get("CodigoResidente"), cod_res))]
+    out.sort(key=lambda r: str(r.get("Fecha", "")), reverse=True)
+    return out
+
+
+def _horas_desde(fecha_txt):
+    try:
+        d = datetime.strptime(str(fecha_txt)[:16], "%Y-%m-%d %H:%M")
+        return (datetime.now() - d).total_seconds() / 3600
+    except Exception:
+        return None
+
+
+def _hace_texto(horas: float) -> str:
+    if horas < 1:
+        return "hace menos de 1 hora"
+    if horas < 24:
+        return f"hace {int(horas)} h"
+    d = int(horas // 24)
+    return "hace 1 día" if d == 1 else f"hace {d} días"
+
+
+def _con_punto(txt: str) -> str:
+    """Termina en punto sin duplicarlo ('p.m.' ya lo trae)."""
+    return txt if txt.endswith(".") else txt + "."
+
+
+def _fmt_hora(h: float) -> str:
+    hh, mm = int(h), int(round((h - int(h)) * 60))
+    return f"{hh % 12 or 12}:{mm:02d} {'p.m.' if hh >= 12 else 'a.m.'}"
+
+
+def _franja_horas(barrio: str):
+    """(hora_inicio, hora_fin) del recorrido, en horas decimales de 24 h."""
+    info = HORARIOS_RECOLECCION.get(barrio)
+    if not info:
+        return None
+    horas = []
+    for h, m, ap in re.findall(r"(\d{1,2}):(\d{2})\s*([ap])\.?\s*m", info["horario"].lower()):
+        horas.append(int(h) % 12 + (12 if ap == "p" else 0) + int(m) / 60)
+    return (horas[0], horas[1]) if len(horas) >= 2 else None
+
+
+def confirmar_reporte_bot(cod: str):
+    """Suma una confirmación ('sigue ahí') a un reporte. Devuelve (ok, mensaje)."""
+    rep = next((r for r in st.session_state.reportes
+                if str(r.get("Código", "")).upper() == cod), None)
+    if not rep:
+        return False, (f"No encontré ningún reporte con el código **{cod}**. "
+                       f"Revisa que esté bien escrito (ejemplo: REP-205).")
+    if "Resuelto" in rep.get("Estado", ""):
+        return False, f"El reporte **{cod}** ya figura como resuelto, no necesita confirmación."
+    conf = st.session_state.setdefault("confirmados_sesion", set())
+    if cod in conf:
+        return False, f"Ya habías confirmado **{cod}** en esta sesión. ¡Gracias!"
+    rep["Confirmaciones"] = (rep.get("Confirmaciones", 0) or 0) + 1
+    conf.add(cod)
+    guardar_reportes_disco(st.session_state.reportes)
+    st.session_state.bot_accion_global = True   # el mapa debe refrescarse
+    return True, (f"¡Confirmación registrada para **{cod}** ({rep.get('Sector','')})! "
+                  f"Ahora tiene {rep['Confirmaciones']} confirmaciones y la administración "
+                  f"lo prioriza más.")
+
+
+def _resumen_mis_reportes() -> str:
+    mis = mis_reportes_bot()
+    if not mis:
+        return ("Todavía no veo reportes tuyos en esta sesión. Si ya habías reportado antes, "
+                "escribe tu código o teléfono en el formulario o en Mi Historial y los recupero.")
+    lineas = []
+    for r in mis[:5]:
+        est = r.get("Estado", "")
+        h = _horas_desde(r.get("Fecha"))
+        cuando = f" ({_hace_texto(h)})" if h is not None else ""
+        if "Resuelto" in est:
+            nota = "ya lo resolvieron"
+        elif "proceso" in est.lower():
+            nota = "ya lo están atendiendo"
+        else:
+            nota = "sigue pendiente"
+        lineas.append(f"- **{r.get('Código')}** · {r.get('Sector','')}{cuando}: {nota}")
+    extra = f"\n(Te muestro los 5 más recientes de {len(mis)}.)" if len(mis) > 5 else ""
+    return ("Así van tus reportes:\n" + "\n".join(lineas) + extra +
+            "\n\nEn **Tus reportes**, arriba en este chat, puedes confirmar con un toque que "
+            "sigue ahí o compartir los que ya se resolvieron.")
+
+
+def _preparar_reporte_bot(texto, barrio, etiqueta, critico, intro="¡Entendido! Ya preparé tu reporte:"):
+    """Deja listo el formulario con lo que la persona contó y devuelve el
+    mensaje con los pasos que faltan."""
+    for k in ("r_obs", "cr_obs", "r_barrio", "cr_barrio"):
+        st.session_state.pop(k, None)      # para que el formulario tome el prellenado
+    st.session_state.prefill_obs = limpiar_texto_libre(texto, 300)
+    if barrio:
+        st.session_state.prefill_barrio = barrio
+        st.session_state.click_barrio = barrio
+    st.session_state.seccion = "critico" if critico else "residuo"
+    st.session_state.ir_a_inicio = True
+    st.session_state.bot_accion_global = True   # hay que cambiar de página
+
+    partes = [intro]
+    partes.append(f"- Barrio: **{barrio}**" if barrio else "- Barrio: elígelo en el formulario")
+    partes.append(f"- Tipo: **{etiqueta or 'Residuos'}**")
+    partes.append("- Lo marqué como **punto crítico**" if critico else "- Lo dejé como reporte de residuo")
+    if not es_residente():
+        partes.append("\n Falta verificar tu dirección: acepta el uso de tus datos de ubicación y usa el botón **Usar mi ubicación (GPS)**.")
+    elif st.session_state.get("click_lat") is None:
+        partes.append("\n Ahora toca el **punto exacto** del residuo en el mapa.")
+    else:
+        partes.append("\n Solo sube la foto en el formulario (o mándamela aquí abajo).")
+    if barrio and etiqueta == "Bolsas de basura" and not critico and camion_pasa_hoy(barrio):
+        info_h = HORARIOS_RECOLECCION[barrio]
+        partes.append(
+            f"\n**Ojo:** hoy pasa el camión en {barrio} ({info_h['horario']}). "
+            f"Si son bolsas domiciliarias, sácalas poco antes de esa hora y quizá "
+            f"ni necesites reportar. Si llevan días ahí, sigue con el reporte.")
+    return "\n".join(partes)
+
+
+def _es_pregunta_horario(n: str) -> bool:
+    if re.search(r"\bhorarios?\b", n):
+        return True
+    if (re.search(r"\b(cuando|que dia|que dias|a que hora|cada cuanto|hasta que hora|desde que hora)\b", n)
+            and re.search(r"\b(camion|basura|recole\w*|recog\w*|pasa|pasan|sacar|saco)\b", n)):
+        return True
+    return bool(re.search(r"\b(pasa|pasan|viene|vienen|llega|llegan)\b.{0,12}\bcamion\b", n)
+                or re.search(r"\b(hay camion|hoy pasa|pasa hoy|manana pasa|pasa manana)\b", n))
+
+
+def _estado_camion_hoy(barrio: str, reclamo: bool = False):
+    """Dice, según la hora de ahora, en qué punto del recorrido de hoy va el
+    camión en el barrio. Devuelve (texto, franja_terminada)."""
+    info = HORARIOS_RECOLECCION[barrio]
+    if dias_para_proximo_paso(barrio) != 0:
+        return f"Hoy no le toca a **{barrio}**. " + mensaje_horario(barrio), False
+    franja = _franja_horas(barrio)
+    if not franja:
+        return mensaje_horario(barrio), False
+    ahora = _hoy_colombia()
+    h_ahora = ahora.hour + ahora.minute / 60
+    if h_ahora < franja[0]:
+        return (f"Todavía no es la hora: hoy el camión pasa por **{barrio}** de "
+                f"{_con_punto(info['horario'])} Saca tus bolsas poco antes."), False
+    if h_ahora < franja[1]:
+        txt = (f"Hoy sí le toca a **{barrio}** y está dentro de su franja "
+               f"({info['horario']}). Puede pasar hasta las {_con_punto(_fmt_hora(franja[1]))}")
+        if reclamo:
+            txt += " Si no pasa, avísame y lo reportamos."
+        return txt, False
+    return f"La franja de hoy en **{barrio}** ya terminó ({info['horario']}).", True
+
+
 def router_ecobot(texto: str):
     """Entiende lo que la persona pide en lenguaje natural y ACTÚA (sin
-    gastar una llamada a Gemini). Devuelve la respuesta, o None si no es
-    algo que sepa resolver localmente (entonces se usa FAQ / Gemini)."""
-    n = _normalizar_txt(texto)
+    gastar una llamada a Gemini). Tolera errores de escritura, abreviaturas y
+    frases de la calle ('el carro de la basura', 'xq no pasó'). Devuelve la
+    respuesta, o None si no es algo que sepa resolver localmente (entonces se
+    usa FAQ / Gemini)."""
+    n = _preparar_texto_bot(texto)
+    cuenta_algo = bool(re.search(_REGEX_REPORTE, n))
+
+    # 0) Saludos y agradecimientos: se contestan sin gastar IA
+    if len(n.split()) <= 5 and not cuenta_algo:
+        if re.match(r"^(hola|buenas|buen dia|buenos dias|buenas tardes|buenas noches|hey|saludos|"
+                    r"epa|quiubo|que mas|holi)\b", n):
+            return ("¡Hola! Cuéntame qué necesitas: puedo preparar un reporte, decirte cómo van "
+                    "tus reportes o cuándo pasa el camión.")
+        if re.match(r"^((muchas |mil )?gracias|chao|adios|hasta luego|listo gracias|ok gracias|"
+                    r"vale gracias|perfecto gracias)\b", n):
+            return "¡Con gusto! Aquí estoy cuando me necesites."
 
     # 1) Código de reporte: consultar estado o confirmar
     m = re.search(r"\b(rep|crit)[-_ ]?(\d{2,5})\b", n)
@@ -3285,72 +3598,84 @@ def router_ecobot(texto: str):
             return (f"No encontré ningún reporte con el código **{cod}**. "
                     f"Revisa que esté bien escrito (ejemplo: REP-205).")
         if any(p in n for p in ["confirmo", "confirmar", "sigue ahi", "todavia esta", "sigue alli"]):
-            if "Resuelto" in rep.get("Estado", ""):
-                return f"El reporte **{cod}** ya figura como resuelto, no necesita confirmación."
-            conf = st.session_state.setdefault("confirmados_sesion", set())
-            if cod in conf:
-                return f"Ya habías confirmado **{cod}** en esta sesión. ¡Gracias!"
-            rep["Confirmaciones"] = (rep.get("Confirmaciones", 0) or 0) + 1
-            conf.add(cod)
-            guardar_reportes_disco(st.session_state.reportes)
-            st.session_state.bot_accion_global = True   # el mapa debe refrescarse
-            return (f"¡Confirmación registrada para **{cod}** ({rep.get('Sector','')})! "
-                    f"Ahora tiene {rep['Confirmaciones']} confirmaciones y la administración "
-                    f"lo prioriza más.")
+            return confirmar_reporte_bot(cod)[1]
         return _estado_reporte_texto(rep)
 
-    # 2) Horarios de recolección
-    if any(p in n for p in ["horario", "cuando pasa", "que dia pasa", "a que hora pasa",
-                            "pasa el camion", "pasa la basura", "dias de recoleccion",
-                            "frecuencia de recoleccion"]):
-        barrio = detectar_barrio_en_texto(texto) or st.session_state.get("click_barrio")
+    # 2) "El camión no pasó" / "¿ya pasó el camión?": mira si de verdad ya le tocaba
+    no_paso = bool(re.search(r"\b(no|nunca|todavia no|aun no|ni)\b.{0,40}\b(paso|pasa|pasado|pasaron|vino|"
+                             r"viene|recogio|recogieron|recoge|recogen|llego|llegado)\b", n)
+                   and any(w in n for w in ("camion", "basura", "recole")))
+    ya_paso = bool(re.search(r"\bya (paso|vino|llego|pasaron)\b", n) and "camion" in n)
+    if no_paso or ya_paso:
+        barrio = detectar_barrio_en_texto(texto, difuso=True) or barrio_para_horario(True)
+        if not barrio:
+            return ("Cuéntame en qué barrio estás (por ejemplo: *vivo en La Rosa*) y te digo "
+                    "si ya le tocaba pasar al camión.")
+        if re.search(r"\b(vivo en|vivo por|soy de|resido en|vivimos en)\b", n):
+            recordar_barrio(barrio)                  # lo dijo de paso: también lo recuerda
+            st.session_state.bot_accion_global = True
+        txt, terminada = _estado_camion_hoy(barrio, reclamo=no_paso)
+        if no_paso and terminada:
+            return _preparar_reporte_bot(
+                "El camión no pasó en la franja de hoy", barrio, "Bolsas de basura", False,
+                intro=f"La franja de hoy en {barrio} ya terminó y dices que no recogieron. "
+                      f"Ya preparé un reporte:")
+        return txt
+
+    # 3) "Vivo en X": recuerda el barrio (solo si lo pide) y avisa del camión
+    if re.search(r"\b(vivo en|vivo por|soy de|mi barrio es|resido en|vivimos en)\b", n) and not cuenta_algo:
+        b = detectar_barrio_en_texto(texto, difuso=True)
+        if b:
+            recordar_barrio(b)
+            st.session_state.bot_accion_global = True    # para guardar la cookie
+            return (f"Listo, recordaré que vives en **{b}**. {mensaje_horario(b)} "
+                    f"Te aviso aquí cuando el camión pase hoy o mañana.")
+
+    # 4) "¿Cómo van mis reportes?" / "¿ya recogieron?"
+    if (re.search(r"\b(mis reportes|mi reporte|mis reclamos|mis denuncias|seguimiento|estado de mis|"
+                  r"como van mis|como va mi|como esta mi|como estan mis|"
+                  r"que (paso|ha pasado) con (mi|mis)|reportes que (hice|he hecho|envie|mande|puse))\b", n)
+            or re.search(r"\bya (lo |la |los |las )?(recogieron|resolvieron|limpiaron|atendieron|"
+                         r"vinieron|arreglaron|llevaron|solucionaron)\b", n)):
+        return _resumen_mis_reportes()
+    if re.search(r"\b(sigue ahi|sigue alli|todavia esta|aun esta|sigue sin recoger|"
+                 r"siguen sin recoger|no han recogido)\b", n):
+        pend = [r for r in mis_reportes_bot() if "Resuelto" not in r.get("Estado", "")]
+        if pend:
+            return (f"Tienes {len(pend)} reporte(s) sin resolver. En **Tus reportes**, arriba en "
+                    f"este chat, toca **Sigue ahí** en el que corresponda y la administración lo "
+                    f"prioriza más.")
+        return ("Para confirmar que un reporte sigue ahí, escríbeme su código (por ejemplo: "
+                "*confirmo REP-205*) o toca el punto en el mapa.")
+
+    # 5) Horarios de recolección
+    if _es_pregunta_horario(n):
+        barrio = detectar_barrio_en_texto(texto, difuso=True) or barrio_para_horario(True)
         if barrio:
             return mensaje_horario(barrio)
-        return ("Dime tu barrio y te digo cuándo pasa el camión. En general: "
-                "**La Rosa y Moscú No. 1** → lunes y jueves, 7–9 p.m.; "
+        return ("Dime tu barrio y te digo cuándo pasa el camión (por ejemplo: *vivo en La Rosa*). "
+                "En general: **La Rosa y Moscú No. 1** → lunes y jueves, 7–9 p.m.; "
                 "**los demás barrios** → miércoles y sábado, 3–11 p.m.")
 
-    # 3) Quiere reportar algo: entiende barrio + tipo y prellena el formulario
+    # 6) Quiere reportar algo: entiende barrio + tipo y prellena el formulario
+    n_inicio = n
+    for _ in range(3):   # quita muletillas del principio: "ay", "oiga", "parce", "hola"...
+        n_inicio = re.sub(r"^(ay|oiga|oye|mire|parce|parcero|veci|vecino|hola|buenas|"
+                          r"buenos dias|buenas tardes|buenas noches|disculpe|una pregunta)\s+", "", n_inicio)
     es_pregunta_datos = (
         any(p in n for p in ["cuantos", "cuantas", "estado de", "resumen", "total de"])
         # preguntas tipo "¿Cómo reporto...?" las responde la FAQ con el paso a paso
-        or bool(re.match(r"^(como|que|para que|cual|cuales|cuanto|donde|por que)\b", n))
+        or bool(re.match(r"^(como|que|para que|cual|cuales|cuanto|donde|por que)\b", n_inicio))
     )
-    intencion = bool(re.search(
-        r"\b(hay|tengo|vi|encontre|reportar|reporto|denunciar|acumulado|acumulada|"
-        r"dejaron|botaron|tiraron)\b", n))
-    barrio = detectar_barrio_en_texto(texto)
+    if (re.search(_REGEX_NEGACION_REPORTE, n) and "camion" not in n
+            and not es_pregunta_datos):
+        return "¡Qué bueno que ya quedó limpio! Gracias por avisar."
+    intencion = cuenta_algo and not re.search(_REGEX_NEGACION_REPORTE, n)
+    barrio = detectar_barrio_en_texto(texto, difuso=True)
     etiqueta, critico_tipo = _detectar_tipo_residuo(n)
     if intencion and (etiqueta or barrio) and not es_pregunta_datos:
         critico = critico_tipo or any(p in n for p in _PALABRAS_URGENTE)
-        for k in ("r_obs", "cr_obs", "r_barrio", "cr_barrio"):
-            st.session_state.pop(k, None)      # para que el formulario tome el prellenado
-        st.session_state.prefill_obs = limpiar_texto_libre(texto, 300)
-        if barrio:
-            st.session_state.prefill_barrio = barrio
-            st.session_state.click_barrio = barrio
-        st.session_state.seccion = "critico" if critico else "residuo"
-        st.session_state.ir_a_inicio = True
-        st.session_state.bot_accion_global = True   # hay que cambiar de página
-
-        partes = ["¡Entendido! Ya preparé tu reporte:"]
-        partes.append(f"- Barrio: **{barrio}**" if barrio else "- Barrio: elígelo en el formulario")
-        partes.append(f"- Tipo: **{etiqueta or 'Residuos'}**")
-        partes.append("- Lo marqué como **punto crítico**" if critico else "- Lo dejé como reporte de residuo")
-        if not es_residente():
-            partes.append("\n Falta verificar tu dirección: acepta el uso de tus datos de ubicación y usa el botón **Usar mi ubicación (GPS)**.")
-        elif st.session_state.get("click_lat") is None:
-            partes.append("\n Ahora toca el **punto exacto** del residuo en el mapa.")
-        else:
-            partes.append("\n Solo sube la foto en el formulario (o mándamela aquí abajo).")
-        if barrio:
-            if etiqueta == "Bolsas de basura" and not critico and camion_pasa_hoy(barrio):
-                info_h = HORARIOS_RECOLECCION[barrio]
-                partes.append(
-                    f"\n**Ojo:** hoy pasa el camión en {barrio} ({info_h['horario']}). "
-                    f"Si son bolsas domiciliarias, sácalas poco antes de esa hora y quizá "
-                    f"ni necesites reportar. Si llevan días ahí, sigue con el reporte.")
-        return "\n".join(partes)
+        return _preparar_reporte_bot(texto, barrio, etiqueta, critico)
 
     return None
 
@@ -3730,6 +4055,88 @@ def reproducir_respuesta(texto: str):
     hablar_en_voz_alta(texto)
 
 
+def bloque_avisos_bot(refrescar):
+    """Lo que EcoBot cuenta por iniciativa propia al abrir el chat: si hoy o
+    mañana pasa el camión por tu barrio, novedades de tus reportes, y tus
+    reportes con acciones de un toque. Todo local: no gasta IA."""
+    from urllib.parse import quote
+    # --- 1) Aviso del camión (solo si pasa hoy o mañana) ---
+    b = barrio_para_horario(True)
+    if b:
+        info = HORARIOS_RECOLECCION[b]
+        delta = dias_para_proximo_paso(b)
+        franja = _franja_horas(b)
+        ahora = _hoy_colombia()
+        if delta == 0 and (not franja or ahora.hour + ahora.minute / 60 < franja[1]):
+            st.success(f"Aviso del camión: hoy pasa por **{b}**, de {_con_punto(info['horario'])} "
+                       f"Saca tus bolsas poco antes.")
+        elif delta == 1:
+            st.info(f"Aviso del camión: mañana pasa por **{b}**, de {_con_punto(info['horario'])}")
+
+    # --- 2) Recordar mi barrio, con un toque ---
+    cand = st.session_state.get("barrio_usuario")
+    if cand in HORARIOS_RECOLECCION and cand != barrio_recordado():
+        if st.button(f"Recordar {cand} como mi barrio", key="bot_recordar_barrio",
+                     use_container_width=True,
+                     help="Guarda solo el nombre del barrio en tu navegador para avisarte del camión."):
+            recordar_barrio(cand)
+            st.session_state.agente_msgs.append({"role": "assistant", "content":
+                f"Listo, recordaré que vives en **{cand}**. Te aviso cuando el camión pase hoy o mañana."})
+            st.session_state.bot_accion_global = True      # para guardar la cookie
+            refrescar()
+
+    mis = mis_reportes_bot()
+    if not mis:
+        return
+
+    # --- 3) Novedades: reportes que cambiaron de estado ---
+    vistos = st.session_state.setdefault("bot_avisos_vistos", set())
+    novedades = []
+    for r in mis:
+        est = r.get("Estado", "")
+        clave = f"{r.get('Código')}:{est}"
+        if clave in vistos:
+            continue
+        if "Resuelto" in est:
+            novedades.append(("ok", r, clave))
+        elif "proceso" in est.lower():
+            novedades.append(("info", r, clave))
+    for tipo, r, clave in novedades[:3]:
+        if tipo == "ok":
+            st.success(f"Tu reporte **{r.get('Código')}** ({r.get('Sector','')}) ya fue resuelto. "
+                       f"Gracias por reportarlo.")
+        else:
+            st.info(f"Tu reporte **{r.get('Código')}** ({r.get('Sector','')}) ya lo están atendiendo.")
+        if st.button("Entendido", key=f"bot_visto_{clave}"):
+            vistos.add(clave)
+            refrescar()
+
+    # --- 4) Tus reportes, con acciones de un toque ---
+    pendientes = [r for r in mis if "Resuelto" not in r.get("Estado", "")]
+    with st.expander(f"Tus reportes ({len(mis)}) — {len(pendientes)} sin resolver",
+                     expanded=bool(novedades)):
+        conf = st.session_state.get("confirmados_sesion", set())
+        for r in mis[:5]:
+            cod, est = r.get("Código"), r.get("Estado", "")
+            h = _horas_desde(r.get("Fecha"))
+            cuando = f" · {_hace_texto(h)}" if h is not None else ""
+            st.markdown(f"**{cod}** · {r.get('Sector','')}{cuando}  \n{est}")
+            if "Resuelto" in est:
+                txt = (f"Mi reporte {cod} en {r.get('Sector','')} (Comuna 2) ya fue resuelto "
+                       f"gracias a EcoCom2 Circular IA.")
+                st.link_button("Compartir en WhatsApp", f"https://wa.me/?text={quote(txt)}",
+                               use_container_width=True)
+            elif cod in conf:
+                st.caption("Ya confirmaste que sigue ahí. ¡Gracias!")
+            elif h is not None and h < 24:
+                st.caption("Podrás confirmar que sigue ahí pasadas 24 horas del reporte.")
+            elif st.button("Sigue ahí", key=f"bot_sigue_{cod}", use_container_width=True,
+                           help="Avisa a la administración que el residuo continúa."):
+                ok, msg = confirmar_reporte_bot(cod)
+                st.session_state.agente_msgs.append({"role": "assistant", "content": msg})
+                refrescar()
+
+
 def renderizar_foto_ecobot():
     st.markdown("**Mándame una foto y yo la analizo**")
     _aviso = st.session_state.get("bot_aviso")
@@ -4031,7 +4438,8 @@ if menu != "Panel Admin":
              "content": "¡Hola! Soy EcoBot, el asistente de EcoCom2.\n\n"
                         "Puedes escribirme cosas como *\"hay escombros en La Frontera\"* y preparo "
                         "el reporte por ti, grabarme un **audio**, mandarme una **foto**, o decirme un código "
-                        "(*confirmo REP-205*). También te digo cuándo pasa el camión. ¿Qué necesitas?"}
+                        "(*confirmo REP-205*). También te cuento *cómo van mis reportes* y cuándo "
+                        "pasa el camión. ¿Qué necesitas?"}
         ]
     if "agente_pendiente" not in st.session_state:
         st.session_state.agente_pendiente = False
@@ -4283,6 +4691,8 @@ pregunta no es de residuos, redirige con amabilidad."""
                 f'Escríbeme, háblame o mándame una foto</span></div></div>',
                 unsafe_allow_html=True)
 
+            bloque_avisos_bot(_refrescar_bot)
+
             for msg in st.session_state.agente_msgs[-8:]:
                 if msg["role"] == "assistant":
                     with st.chat_message("assistant", avatar=avatar_ecobot()):
@@ -4370,6 +4780,8 @@ pregunta no es de residuos, redirige con amabilidad."""
             renderizar_foto_ecobot()
             st.markdown("---")
             preguntas_rapidas = [
+                "¿Cómo van mis reportes?",
+                "¿Cuándo pasa el camión?",
                 "¿Cómo reporto basura?",
                 "¿Qué significa rojo?",
                 "¿Qué significa amarillo?",
@@ -4429,7 +4841,7 @@ if menu == "Inicio y Mapa":
                               index=_opciones_b.index(_b_hor) if _b_hor else 0,
                               key=f"barrio_horario_sel_{_b_hor}")
         if _sel_b != "(elige tu barrio)" and _sel_b != _b_hor:
-            st.session_state.barrio_usuario = _sel_b
+            recordar_barrio(_sel_b)
             st.session_state.click_barrio = _sel_b
             st.rerun()
         mostrar_horarios_recoleccion(con_cierre=False)
@@ -6623,6 +7035,9 @@ EcoCom2 Circular IA informa lo siguiente sobre los datos que recoge:
   reporte. Para convertir coordenadas en dirección se consulta el servicio público
   Nominatim (OpenStreetMap). Puedes retirar tu autorización en cualquier momento desde
   "Más opciones" en el menú; al hacerlo se borra tu ubicación de esa sesión.
+- El nombre de tu barrio, **solo si le pides a EcoBot que lo recuerde** (o lo eliges en el
+  horario del camión): se guarda únicamente en una cookie de tu navegador para avisarte cuándo
+  pasa el camión. "Revocar autorización de datos" también la borra.
 - Ubicación aproximada del punto reportado (coordenadas del mapa o la dirección que escribas).
 - Código o teléfono, **solo si tú decides escribirlo** — es opcional.
 - Observaciones de texto o notas de voz que agregues voluntariamente.
