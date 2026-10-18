@@ -1,6 +1,6 @@
 import streamlit as st
 from ultralytics import YOLO, YOLOE
-from PIL import Image, ImageFilter
+from PIL import Image, ImageFilter, ImageOps
 import tempfile
 from collections import Counter
 import folium
@@ -39,6 +39,7 @@ MAX_INTENTOS_ADMIN = 5
 BLOQUEO_ADMIN_SEGUNDOS = 300          # 5 min de bloqueo tras demasiados intentos
 MAX_BYTES_FOTO = 8 * 1024 * 1024      # 8 MB por foto
 MAX_PIXELES_FOTO = 40_000_000         # evita "bombas de descompresión"
+MAX_LADO_FOTO = 1600                  # lado mayor al que se reducen las fotos para analizarlas
 MAX_LARGO_MENSAJE_BOT = 500           # caracteres por mensaje a EcoBot
 MAX_MENSAJES_BOT_HORA = 30            # mensajes a EcoBot por sesión y hora
 MAX_LARGO_TEXTO_LIBRE = 600           # observaciones / referencia
@@ -2019,8 +2020,56 @@ def filtrar_fotos_validas(lista_archivos):
     return validas
 
 
+@st.cache_data(show_spinner=False, max_entries=12, ttl=900)
+def _optimizar_foto_bytes(datos: bytes) -> bytes:
+    """Reduce una foto de cámara (que puede pesar varios MB y tener 12-50
+    megapíxeles) a un JPEG de máx. MAX_LADO_FOTO px por lado antes de analizarla.
+    Así YOLO, Gemini y la pantalla trabajan con una imagen liviana y el
+    servidor no se queda sin memoria. Endereza la foto según el EXIF, conserva
+    la fecha de captura (para detectar fotos viejas) y borra el GPS del
+    fotógrafo. Si algo falla, devuelve la foto original sin tocar."""
+    try:
+        im = Image.open(BytesIO(datos))
+        formato = im.format
+        if formato == "JPEG":
+            try:
+                im.draft("RGB", (MAX_LADO_FOTO * 2, MAX_LADO_FOTO * 2))  # decodifica ya reducida
+            except Exception:
+                pass
+        if formato == "JPEG" and len(datos) <= 400 * 1024 and max(im.size) <= MAX_LADO_FOTO:
+            return datos   # ya es liviana: no se recomprime
+        im = ImageOps.exif_transpose(im)
+        exif_bytes = b""
+        try:
+            ex = im.getexif()
+            if 0x8825 in ex:          # GPS del fotógrafo: no hace falta y es privado
+                del ex[0x8825]
+            exif_bytes = ex.tobytes()
+        except Exception:
+            exif_bytes = b""
+        if im.mode in ("RGBA", "LA") or (im.mode == "P" and "transparency" in im.info):
+            im = im.convert("RGBA")
+            fondo = Image.new("RGB", im.size, (255, 255, 255))
+            fondo.paste(im, mask=im.split()[-1])
+            im = fondo
+        else:
+            im = im.convert("RGB")
+        im.thumbnail((MAX_LADO_FOTO, MAX_LADO_FOTO), Image.LANCZOS)
+        buf = BytesIO()
+        kwargs = {"format": "JPEG", "quality": 85, "optimize": True}
+        if exif_bytes:
+            kwargs["exif"] = exif_bytes
+        im.save(buf, **kwargs)
+        out = buf.getvalue()
+        return out if len(out) < len(datos) or formato != "JPEG" else datos
+    except Exception as e:
+        _log.warning("No se pudo optimizar la foto: %s", e)
+        return datos
+
+
 def _abrir_img_subida(uploaded_file) -> Image.Image:
-    return Image.open(BytesIO(uploaded_file.getvalue()))
+    """Abre la foto subida ya optimizada (ver _optimizar_foto_bytes)."""
+    return Image.open(BytesIO(_optimizar_foto_bytes(uploaded_file.getvalue())))
 
 
 def _hash_imagen(img_pil) -> str:
@@ -2678,6 +2727,62 @@ border-radius:12px;padding:10px;">
 </div>'''
 
 
+def explicar_deteccion_ia(tabla, nivel, peso=None, motor="yolo"):
+    """Arma, en palabras simples, QUÉ detectó la IA y POR QUÉ dio esa prioridad.
+    Devuelve (frase_principal, detalle). Los porcentajes son sobre la cantidad
+    de objetos detectados (no sobre el peso)."""
+    from collections import Counter as _C
+    grupos, recicl, total = _C(), 0, 0
+    for fila in tabla or []:
+        cant = int(fila.get("Cant.", 1) or 1)
+        etiqueta = (fila.get("Material") if fila.get("Reciclable") == "Sí"
+                    else fila.get("Objeto")) or "otros"
+        grupos[str(etiqueta).strip().lower()] += cant
+        total += cant
+        if fila.get("Reciclable") == "Sí":
+            recicl += cant
+    if not total:
+        return "", ""
+    orden = grupos.most_common()
+    principales, resto = orden[:3], sum(c for _, c in orden[3:])
+    if resto:
+        principales.append(("otros", resto))
+    pcts = [round(c * 100 / total) for _, c in principales]
+    pcts[0] += 100 - sum(pcts)          # que siempre sumen 100
+    partes = [f"{p}% {n}" for p, (n, _) in zip(pcts, principales) if p > 0]
+    prioridad = {"rojo": "Alta", "amarillo": "Media", "verde": "Baja"}[semaforo(nivel)]
+    frase = f"IA detectó: {', '.join(partes)} — Prioridad {prioridad}"
+
+    n = str(nivel or "").lower()
+    if "gran acumulación" in n:
+        razon = "hay una gran cantidad de residuos acumulados"
+    elif "sin valorización" in n:
+        razon = "casi nada de lo que se ve se puede reciclar"
+    elif "gran volumen" in n:
+        razon = "el material sirve, pero hay mucho volumen"
+    elif "alta valorización" in n:
+        razon = "la mayoría es material reciclable"
+    elif "puntual" in n:
+        razon = "son pocos objetos"
+    else:
+        razon = "hay una mezcla de materiales reciclables y no reciclables"
+    motor_txt = "Gemini (IA de Google)" if motor == "gemini" else "YOLO (IA local)"
+    peso_txt = f" Peso estimado: {peso} kg." if peso not in (None, "") else ""
+    detalle = (f"Prioridad {prioridad.lower()} porque {razon}. Se identificaron {total} objetos "
+               f"({recicl} reciclables).{peso_txt} Los porcentajes son sobre la cantidad de "
+               f"objetos, no sobre el peso. Motor: {motor_txt}. Es una estimación automática: "
+               f"si no coincide con lo que ves, anótalo en las observaciones.")
+    return frase, detalle
+
+
+def mostrar_explicacion_ia(tabla, nivel, peso=None, motor="yolo"):
+    frase, detalle = explicar_deteccion_ia(tabla, nivel, peso, motor)
+    if not frase:
+        return
+    {"rojo": st.error, "amarillo": st.warning, "verde": st.success}[semaforo(nivel)](f"**{frase}**")
+    st.caption(detalle)
+
+
 def metricas(residuos, peso, nivel):
     c1, c2, c3 = st.columns(3)
     color = {"verde": "#4ade80", "amarillo": "#fbbf24", "rojo": "#f87171"}[semaforo(nivel)]
@@ -2782,15 +2887,90 @@ def mostrar_tutorial():
     st.markdown("---")
 
 
-def _guardar_cookie_tutorial():
-    """Recuerda en el navegador (1 año) que la persona ya vio el tutorial,
-    para no mostrárselo en cada visita. Si el navegador bloquea la cookie, el
-    tutorial solo se oculta durante la sesión actual."""
+def _escribir_cookie(nombre: str, valor: str, segundos: int):
+    """Escribe (o borra, con segundos=0) una cookie en el navegador. Si el
+    navegador la bloquea, la preferencia solo dura la sesión actual."""
     import streamlit.components.v1 as components
     components.html(
-        "<script>var c='ecocom2_tutorial=1; max-age=31536000; path=/; SameSite=Lax';"
+        f"<script>var c='{nombre}={valor}; max-age={int(segundos)}; path=/; SameSite=Lax';"
         "try{document.cookie=c;}catch(e){}"
         "try{window.parent.document.cookie=c;}catch(e){}</script>", height=0)
+
+
+def _guardar_cookie_tutorial():
+    """Recuerda en el navegador (1 año) que la persona ya vio el tutorial."""
+    _escribir_cookie("ecocom2_tutorial", "1", 31536000)
+
+
+def datos_ubicacion_aceptados() -> bool:
+    """True si la persona aceptó el tratamiento de sus datos de ubicación
+    (Ley 1581 de 2012). Se recuerda en una cookie de 1 año para no preguntar
+    en cada visita; puede revocarse en cualquier momento."""
+    if st.session_state.get("acepta_datos_ubicacion") is None:
+        try:
+            st.session_state.acepta_datos_ubicacion = (
+                st.context.cookies.get("ecocom2_habeas") == "1")
+        except Exception:
+            st.session_state.acepta_datos_ubicacion = False
+    return bool(st.session_state.acepta_datos_ubicacion)
+
+
+_CLAVES_UBICACION = ["validado", "lat", "lon", "fuera", "direccion", "barrio_usuario",
+                     "click_lat", "click_lon", "click_dir", "click_barrio",
+                     "punto_lat", "punto_lon", "cache",
+                     "gps_lat", "gps_lon", "gps_procesado", "gps_solicitado",
+                     "dir_candidatos"]
+
+
+def revocar_datos_ubicacion():
+    """Retira la autorización: borra la ubicación de esta sesión y la cookie."""
+    st.session_state.acepta_datos_ubicacion = False
+    st.session_state._habeas_cookie_borrar = True
+    st.session_state.pop("chk_habeas", None)
+    st.session_state.pop("modo_demo", None)
+    for k in _CLAVES_UBICACION:
+        st.session_state.pop(k, None)
+
+
+# --- Modo demostración: residencia simulada para que evaluadores prueben sin GPS ---
+DEMO_LAT, DEMO_LON = 6.2985, -75.5570
+DEMO_DIRECCION = "Calle 102 # 49-22, Santa Cruz, Medellín"
+
+
+def demo_habilitado() -> bool:
+    """El botón de demostración solo aparece si la URL trae ?demo=1 o si en
+    Secrets hay MODO_DEMO = "true". Así un vecino cualquiera no puede simular
+    una residencia y saltarse la validación de ubicación."""
+    try:
+        if str(st.query_params.get("demo", "")) == "1":
+            return True
+    except Exception:
+        pass
+    try:
+        return str(st.secrets.get("MODO_DEMO", "")).strip().lower() in ("1", "true", "si", "sí")
+    except Exception:
+        return False
+
+
+def activar_modo_demo():
+    """Deja la sesión como residente verificado en Santa Cruz. No escribe la
+    cookie de autorización: la aceptación de datos vale solo en esta sesión."""
+    set_ubicacion(DEMO_LAT, DEMO_LON, DEMO_DIRECCION)
+    st.session_state.click_lat = DEMO_LAT
+    st.session_state.click_lon = DEMO_LON
+    st.session_state.click_dir = DEMO_DIRECCION
+    st.session_state.click_barrio = "Santa Cruz"
+    st.session_state.gps_solicitado = False
+    st.session_state.acepta_datos_ubicacion = True
+    st.session_state.modo_demo = True
+
+
+def vaciar_cookies_habeas():
+    """Escribe/borra la cookie de autorización cuando hay un cambio pendiente."""
+    if st.session_state.pop("_habeas_cookie_escribir", False):
+        _escribir_cookie("ecocom2_habeas", "1", 31536000)
+    if st.session_state.pop("_habeas_cookie_borrar", False):
+        _escribir_cookie("ecocom2_habeas", "", 0)
 
 
 def mostrar_horarios_recoleccion(con_cierre: bool = True):
@@ -3148,7 +3328,7 @@ def router_ecobot(texto: str):
         partes.append(f"- Tipo: **{etiqueta or 'Residuos'}**")
         partes.append("- Lo marqué como **punto crítico**" if critico else "- Lo dejé como reporte de residuo")
         if not es_residente():
-            partes.append("\n Falta verificar tu dirección: usa el botón **Usar mi ubicación (GPS)**.")
+            partes.append("\n Falta verificar tu dirección: acepta el uso de tus datos de ubicación y usa el botón **Usar mi ubicación (GPS)**.")
         elif st.session_state.get("click_lat") is None:
             partes.append("\n Ahora toca el **punto exacto** del residuo en el mapa.")
         else:
@@ -3601,7 +3781,7 @@ def renderizar_foto_ecobot():
             _terminar()
             st.rerun()
         return
-    st.markdown(f"**{an['nivel']}** · {an['residuos']} reciclables · {an['peso']} kg")
+    mostrar_explicacion_ia(an["tabla"], an["nivel"], an["peso"], an.get("motor", "yolo"))
     if an.get("nota"):
         st.caption(an["nota"])
 
@@ -3715,6 +3895,23 @@ try:
 except Exception:
     st.sidebar.markdown("## EcoCom2")
 
+if demo_habilitado():
+    if st.session_state.get("modo_demo") and st.session_state.validado:
+        st.sidebar.info("Modo demostración: ubicación simulada en Santa Cruz.")
+        if st.sidebar.button("Salir del modo demostración", key="salir_demo",
+                             use_container_width=True):
+            st.session_state.pop("modo_demo", None)
+            st.session_state.pop("acepta_datos_ubicacion", None)
+            for k in _CLAVES_UBICACION:
+                st.session_state.pop(k, None)
+            st.rerun()
+    elif st.sidebar.button("Probar con residencia simulada (Santa Cruz)", key="activar_demo",
+                           type="primary", use_container_width=True,
+                           help="Simula una residencia verificada en Calle 102 # 49-22, Santa Cruz."):
+        activar_modo_demo()
+        st.session_state.menu_extra = None
+        st.rerun()
+
 if st.session_state.validado:
     if not st.session_state.fuera:
         st.sidebar.markdown(
@@ -3752,6 +3949,12 @@ with st.sidebar.expander("Más opciones"):
         st.session_state.tutorial_paso = 0
         st.session_state.menu_extra = None
         st.rerun()
+    if datos_ubicacion_aceptados() and st.button(
+            "Revocar autorización de datos", use_container_width=True, key="revocar_habeas",
+            help="Retira tu autorización y borra tu ubicación de esta sesión."):
+        revocar_datos_ubicacion()
+        st.session_state.menu_extra = None
+        st.rerun()
     # El acceso al panel de administración solo existe para quien ya inició sesión
     if es_admin and st.button("Panel Admin", use_container_width=True, key="ir_admin"):
         st.session_state.menu_extra = "Panel Admin"
@@ -3761,6 +3964,7 @@ with st.sidebar.expander("Más opciones"):
         st.session_state.menu_extra = None
         st.rerun()
 
+vaciar_cookies_habeas()
 menu = st.session_state.get("menu_extra") or menu_elegido
 if menu == "Reportar y Ver Mapa":
     menu = "Inicio y Mapa"  # nombre interno sin cambiar el resto de la lógica
@@ -4222,8 +4426,25 @@ if menu == "Inicio y Mapa":
 
     dir_auto = st.session_state.get("click_dir") or st.session_state.get("direccion") or ""
 
+    _acepta = datos_ubicacion_aceptados()
+    if not _acepta:
+        with st.container(border=True):
+            st.markdown("**Antes de verificar tu ubicación**")
+            st.caption(
+                "EcoCom2 usa tu ubicación (GPS o la dirección que escribas) solo para comprobar "
+                "que estás en la Comuna 2 y ubicar tu reporte en el mapa. Para mostrar la "
+                "dirección se consulta el servicio público OpenStreetMap (Nominatim). Puedes "
+                "retirar tu autorización cuando quieras desde el menú, en \"Más opciones\". "
+                "Detalles y derechos: Información, Aviso de Tratamiento de Datos Personales "
+                "(Ley 1581 de 2012).")
+            if st.checkbox("Acepto el tratamiento de mis datos de ubicación únicamente para "
+                           "fines de validación comunitaria.", key="chk_habeas"):
+                st.session_state.acepta_datos_ubicacion = True
+                st.session_state._habeas_cookie_escribir = True
+                st.rerun()
+
     if st.button("Usar mi ubicación (GPS)", key="btn_gps",
-                 type="primary", use_container_width=True):
+                 type="primary", use_container_width=True, disabled=not _acepta):
         st.session_state.gps_solicitado = True
 
     with st.expander("¿No tienes GPS o prefieres escribir tu dirección?"):
@@ -4243,7 +4464,9 @@ if menu == "Inicio y Mapa":
             st.caption("También puedes tocar directamente el mapa de abajo.")
 
         if verificar_clicked:
-            if dir_inp.strip():
+            if not _acepta:
+                st.warning("Marca primero la casilla de autorización de datos de ubicación.")
+            elif dir_inp.strip():
                 with st.spinner("Buscando..."):
                     candidatos = geocodificar(dir_inp.strip())
                 if len(candidatos) == 1:
@@ -4331,10 +4554,7 @@ if menu == "Inicio y Mapa":
                   f"<span style='font-weight:normal;font-size:12px'>"
                   f"Puedes usar el analizador de materiales, pero no publicar reportes.</span>", "err")
         if st.button("Cambiar dirección", key="cambiar_dir"):
-            for k in ["validado","lat","lon","fuera","direccion",
-                      "click_lat","click_lon","click_dir","click_barrio",
-                      "punto_lat","punto_lon","cache",
-                      "gps_lat","gps_lon","gps_procesado","gps_solicitado"]:
+            for k in _CLAVES_UBICACION:
                 st.session_state.pop(k, None)
             st.rerun()
 
@@ -4454,7 +4674,10 @@ if menu == "Inicio y Mapa":
     mapa_data = st_folium(mapa, width="100%", height=340,
                           returned_objects=["last_clicked"])
 
-    if mapa_data and mapa_data.get("last_clicked"):
+    if mapa_data and mapa_data.get("last_clicked") and not datos_ubicacion_aceptados():
+        st.warning("Para usar el mapa y reportar, primero marca la casilla de autorización "
+                   "de datos de ubicación, arriba en esta pantalla.")
+    elif mapa_data and mapa_data.get("last_clicked"):
         clk = mapa_data["last_clicked"]
         lat_clk = round(clk["lat"], 7)
         lon_clk = round(clk["lng"], 7)
@@ -4561,7 +4784,9 @@ if menu == "Inicio y Mapa":
                 type=["jpg","jpeg","png"], key="r_imgs",
                 accept_multiple_files=True)
             st.caption("Evita incluir personas en la foto. Si aparecen, las "
-                       "difuminamos automáticamente antes de publicar.")
+                       "difuminamos automáticamente antes de publicar. "
+                       "Las fotos se reducen de tamaño automáticamente; si tienes pocos "
+                       "datos, toma la foto en resolución media desde los ajustes de tu cámara.")
 
             img = None
             r_imgs_extra_pil = []
@@ -4703,6 +4928,7 @@ if menu == "Inicio y Mapa":
                         st.image(ca["res_plot"], use_container_width=True)
 
                     if ca["tabla"]:
+                        mostrar_explicacion_ia(ca["tabla"], ca["nivel"], ca["peso"], ca.get("motor", "yolo"))
                         df_t = pd.DataFrame(ca["tabla"])
                         df_si = df_t[df_t["Reciclable"] == "Sí"]
                         df_no = df_t[df_t["Reciclable"] == "No"]
@@ -4908,7 +5134,9 @@ if menu == "Inicio y Mapa":
                 type=["jpg","jpeg","png"], key="cr_imgs",
                 accept_multiple_files=True)
             st.caption("Evita incluir personas en la foto. Si aparecen, las "
-                       "difuminamos automáticamente antes de publicar.")
+                       "difuminamos automáticamente antes de publicar. "
+                       "Las fotos se reducen de tamaño automáticamente; si tienes pocos "
+                       "datos, toma la foto en resolución media desde los ajustes de tu cámara.")
 
             img2 = None
             cr_imgs_extra_pil = []
@@ -5048,6 +5276,8 @@ if menu == "Inicio y Mapa":
                             st.image(img2_detecciones, use_container_width=True)
 
                         if tabla2:
+                            mostrar_explicacion_ia(tabla2, nivel2, peso2,
+                                                   "gemini" if (usar_gemini_cr and not error_g2) else "yolo")
                             df_si2 = pd.DataFrame(tabla2)
                             df_si2 = df_si2[df_si2["Reciclable"] == "Sí"]
                             if not df_si2.empty:
@@ -6014,7 +6244,7 @@ padding:10px 16px;margin-top:12px;font-size:14px;">
                             foto_resuelta_url_nueva = ""
                             if foto_resuelta_up is not None:
                                 with st.spinner("Guardando foto de evidencia..."):
-                                    img_resuelta = Image.open(BytesIO(foto_resuelta_up.getvalue())).convert("RGB")
+                                    img_resuelta = _abrir_img_subida(foto_resuelta_up).convert("RGB")
                                     foto_resuelta_b64_nueva = img_a_b64(img_resuelta, max_px=350)
                                     buf_evidencia = BytesIO()
                                     img_resuelta.save(buf_evidencia, format="JPEG", quality=80)
@@ -6378,6 +6608,11 @@ EcoCom2 Circular IA informa lo siguiente sobre los datos que recoge:
 - Fotos que subes al reportar un residuo (pueden mostrar el sitio, objetos y, si no
   tienes cuidado, personas — por eso difuminamos automáticamente cualquier rostro/persona
   que la IA detecte antes de publicar la foto).
+- Tu ubicación GPS o la dirección que escribas, **solo si aceptas** la casilla de autorización
+  en la pantalla inicial. Se usa únicamente para validar que estás en la Comuna 2 y ubicar tu
+  reporte. Para convertir coordenadas en dirección se consulta el servicio público
+  Nominatim (OpenStreetMap). Puedes retirar tu autorización en cualquier momento desde
+  "Más opciones" en el menú; al hacerlo se borra tu ubicación de esa sesión.
 - Ubicación aproximada del punto reportado (coordenadas del mapa o la dirección que escribas).
 - Código o teléfono, **solo si tú decides escribirlo** — es opcional.
 - Observaciones de texto o notas de voz que agregues voluntariamente.
