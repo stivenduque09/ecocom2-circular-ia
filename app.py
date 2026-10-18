@@ -2937,19 +2937,29 @@ DEMO_LAT, DEMO_LON = 6.2985, -75.5570
 DEMO_DIRECCION = "Calle 102 # 49-22, Santa Cruz, Medellín"
 
 
+# Pon esto en False cuando terminen las pruebas de los evaluadores: el botón
+# desaparece para todos (o, sin tocar el código, MODO_DEMO = "false" en Secrets).
+MOSTRAR_DEMO_SIEMPRE = True
+
+
 def demo_habilitado() -> bool:
-    """El botón de demostración solo aparece si la URL trae ?demo=1 o si en
-    Secrets hay MODO_DEMO = "true". Así un vecino cualquiera no puede simular
-    una residencia y saltarse la validación de ubicación."""
+    """Si el botón de demostración se muestra en la barra lateral. Con
+    MOSTRAR_DEMO_SIEMPRE = True lo ve todo el mundo; con False solo aparece
+    con ?demo=1, con sesión de administrador o con MODO_DEMO = "true"."""
+    try:
+        valor = str(st.secrets.get("MODO_DEMO", "")).strip().lower()
+    except Exception:
+        valor = ""
+    if valor in ("0", "false", "no"):      # apagado explícito desde Secrets
+        return False
+    if MOSTRAR_DEMO_SIEMPRE or valor in ("1", "true", "si", "sí"):
+        return True
     try:
         if str(st.query_params.get("demo", "")) == "1":
             return True
     except Exception:
         pass
-    try:
-        return str(st.secrets.get("MODO_DEMO", "")).strip().lower() in ("1", "true", "si", "sí")
-    except Exception:
-        return False
+    return admin_sesion_vigente()
 
 
 def activar_modo_demo():
