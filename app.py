@@ -1978,6 +1978,8 @@ def set_ubicacion(lat, lon, direccion=""):
     st.session_state.validado = True
     st.session_state.fuera = not POLIGONO_COMUNA2.contains(Point(lon, lat))
     st.session_state.direccion = direccion
+    # Al verificar, se identifica el barrio para avisar el horario del camión
+    st.session_state.barrio_usuario = barrio_desde_direccion(direccion)
 
 
 Image.MAX_IMAGE_PIXELS = MAX_PIXELES_FOTO  # Pillow avisa/rechaza imágenes gigantes
@@ -2754,11 +2756,7 @@ def mostrar_tutorial():
         f'letter-spacing:6px;margin-bottom:10px;">{puntos}</div>',
         unsafe_allow_html=True)
 
-    tb0, tb1, tb2, tb3 = st.columns([1, 1, 1, 1])
-    with tb0:
-        if st.button("Horarios", use_container_width=True, key="tut_horarios"):
-            st.session_state.mostrar_horarios = True
-            st.rerun()
+    tb1, tb2, tb3 = st.columns([1, 1, 1])
     with tb1:
         if paso > 0:
             if st.button("Anterior", use_container_width=True, key="tut_prev"):
@@ -2795,7 +2793,7 @@ def _guardar_cookie_tutorial():
         "try{window.parent.document.cookie=c;}catch(e){}</script>", height=0)
 
 
-def mostrar_horarios_recoleccion():
+def mostrar_horarios_recoleccion(con_cierre: bool = True):
     """Panel con los horarios oficiales de recolección de los 11 barrios de
     la Comuna 2, con un botón para cerrarlo — mismo patrón que el tutorial."""
     st.markdown(
@@ -2827,10 +2825,11 @@ def mostrar_horarios_recoleccion():
         'ajustando barrio por barrio.</p></div>',
         unsafe_allow_html=True)
 
-    if st.button("Cerrar horarios", key="cerrar_horarios", use_container_width=True):
-        st.session_state.mostrar_horarios = False
-        st.rerun()
-    st.markdown("---")
+    if con_cierre:
+        if st.button("Cerrar horarios", key="cerrar_horarios", use_container_width=True):
+            st.session_state.mostrar_horarios = False
+            st.rerun()
+        st.markdown("---")
 
 
 def nav_tabs(seccion_actual, puede_reportar=True):
@@ -2949,18 +2948,62 @@ def camion_pasa_hoy(barrio: str) -> bool:
     return _hoy_colombia().weekday() in nums
 
 
+_NOMBRES_DIAS = ["lunes", "martes", "miércoles", "jueves", "viernes", "sábado", "domingo"]
+
+
+def dias_para_proximo_paso(barrio: str):
+    """Cuántos días faltan para el próximo recorrido (0 = hoy). None si no hay datos."""
+    info = HORARIOS_RECOLECCION.get(barrio)
+    if not info:
+        return None
+    dias_n = _normalizar_txt(info["dias"])
+    nums = [n for d, n in _DIAS_ES.items() if d in dias_n]
+    if not nums:
+        return None
+    hoy = _hoy_colombia().weekday()
+    return next((d for d in range(8) if (hoy + d) % 7 in nums), None)
+
+
 def mensaje_horario(barrio: str) -> str:
+    """Horario del camión en el barrio, diciendo si pasa hoy o cuándo es el próximo."""
     info = HORARIOS_RECOLECCION.get(barrio)
     if not info:
         return ""
-    pasa_hoy = camion_pasa_hoy(barrio)
-    if pasa_hoy:
-        msg = f"¡HOY pasa el camión en **{barrio}**! Horario: {info['horario']}"
+
+    def _frase(txt):   # termina en punto sin duplicarlo ("p.m." ya lo trae)
+        return txt if txt.endswith(".") else txt + "."
+
+    delta = dias_para_proximo_paso(barrio)
+    if delta == 0:
+        msg = f"Hoy pasa el camión por **{barrio}**, de {info['horario']}"
     else:
-        msg = f"En **{barrio}** el camión pasa **{info['dias']}**, de {info['horario']}"
+        msg = (f"En **{barrio}** el camión pasa **{info['dias'].lower()}**, "
+               f"de {info['horario']}")
+        if delta is not None:
+            dia = (_hoy_colombia().weekday() + delta) % 7
+            cuando = "mañana" if delta == 1 else f"el {_NOMBRES_DIAS[dia]}"
+            msg = _frase(msg) + f" El próximo recorrido es {cuando}"
     if info.get("nota"):
-        msg += f" — {info['nota']}"
-    return msg
+        msg = _frase(msg) + f" Nota: {info['nota']}"
+    return _frase(msg)
+
+
+def barrio_desde_direccion(direccion: str):
+    """Barrio a partir del texto de una dirección. Ignora 'Comuna 2 - Santa Cruz',
+    que es el nombre de la comuna y no el barrio, para no dar un horario equivocado."""
+    t = re.sub(r"comuna\s*2\s*[-–,]?\s*santa\s*cruz", " ", direccion or "", flags=re.IGNORECASE)
+    t = re.sub(r"comuna\s*2", " ", t, flags=re.IGNORECASE)
+    return detectar_barrio_en_texto(t)
+
+
+def barrio_para_horario():
+    """Barrio sobre el que hay que mostrar el horario: el punto tocado en el
+    mapa, o el barrio detectado al verificar la dirección."""
+    for b in (st.session_state.get("click_barrio"), st.session_state.get("barrio_usuario"),
+              st.session_state.get("prefill_barrio")):
+        if b in HORARIOS_RECOLECCION:
+            return b
+    return None
 
 
 # ---------- Entender lenguaje natural ----------
@@ -3111,7 +3154,6 @@ def router_ecobot(texto: str):
         else:
             partes.append("\n Solo sube la foto en el formulario (o mándamela aquí abajo).")
         if barrio:
-            partes.append("\n" + mensaje_horario(barrio))
             if etiqueta == "Bolsas de basura" and not critico and camion_pasa_hoy(barrio):
                 info_h = HORARIOS_RECOLECCION[barrio]
                 partes.append(
@@ -3230,8 +3272,7 @@ def _publicar_reporte_bot(an, barrio, obs, clat, clon, cod_res):
     reiniciar_flujo_reporte()
     return True, (f"¡Listo! Publiqué tu reporte **{codigo}** en **{barrio}** "
                   f"({an['nivel']}). Ya lo ves en el mapa y en Mi Historial. "
-                  f"Para el siguiente reporte, toca de nuevo el punto exacto en el mapa.\n\n"
-                  + mensaje_horario(barrio))
+                  f"Para el siguiente reporte, toca de nuevo el punto exacto en el mapa.")
 
 
 # ---------- Voz: hablarle al bot ----------
@@ -3568,7 +3609,6 @@ def renderizar_foto_ecobot():
     barrio_sel = st.selectbox("Barrio:", BARRIOS,
                               index=BARRIOS.index(sug) if sug in BARRIOS else 0,
                               key="bot_barrio")
-    st.caption(mensaje_horario(barrio_sel))
     obs_sel = st.text_area("Observaciones (opcional):",
                            value=st.session_state.get("prefill_obs", ""),
                            key="bot_obs", height=70, max_chars=MAX_LARGO_TEXTO_LIBRE)
@@ -3706,10 +3746,6 @@ es_admin = admin_sesion_vigente()
 with st.sidebar.expander("Más opciones"):
     if st.button("Comuna en Cifras", use_container_width=True, key="ir_cifras"):
         st.session_state.menu_extra = "Comuna en Cifras"
-        st.rerun()
-    if st.button("Horarios de recolección", use_container_width=True, key="ver_horarios_recoleccion"):
-        st.session_state.mostrar_horarios = True
-        st.session_state.menu_extra = None
         st.rerun()
     if st.button("Ver tutorial de nuevo", use_container_width=True, key="ver_tutorial_de_nuevo"):
         st.session_state.tutorial_visto = False
@@ -4166,18 +4202,23 @@ if menu == "Inicio y Mapa":
     if not st.session_state.get("tutorial_visto", False):
         mostrar_tutorial()
 
-    if st.session_state.get("mostrar_horarios", False):
-        mostrar_horarios_recoleccion()
-
-    # Cartel automático: si ya sabemos el barrio de la persona, le decimos de
-    # una vez si HOY pasa el camión (sin que tenga que preguntar).
-    _barrio_cartel = (st.session_state.get("click_barrio")
-                      or st.session_state.get("prefill_barrio"))
-    if _barrio_cartel in HORARIOS_RECOLECCION:
-        if camion_pasa_hoy(_barrio_cartel):
-            st.success(mensaje_horario(_barrio_cartel))
-        else:
-            st.info(mensaje_horario(_barrio_cartel))
+    # --- Horario del camión: UN solo lugar, justo después de verificar la dirección ---
+    _b_hor = barrio_para_horario()
+    if _b_hor:
+        (st.success if dias_para_proximo_paso(_b_hor) == 0 else st.info)(mensaje_horario(_b_hor))
+        st.caption("Horario oficial por barrio (Emvarias). En calles angostas o de difícil "
+                   "acceso la franja puede ajustarse.")
+    with st.expander("No es mi barrio / ver horarios de todos los barrios" if _b_hor
+                     else "Horarios de recolección por barrio"):
+        _opciones_b = ["(elige tu barrio)"] + list(HORARIOS_RECOLECCION.keys())
+        _sel_b = st.selectbox("Mi barrio:", _opciones_b,
+                              index=_opciones_b.index(_b_hor) if _b_hor else 0,
+                              key=f"barrio_horario_sel_{_b_hor}")
+        if _sel_b != "(elige tu barrio)" and _sel_b != _b_hor:
+            st.session_state.barrio_usuario = _sel_b
+            st.session_state.click_barrio = _sel_b
+            st.rerun()
+        mostrar_horarios_recoleccion(con_cierre=False)
 
     dir_auto = st.session_state.get("click_dir") or st.session_state.get("direccion") or ""
 
@@ -4497,7 +4538,8 @@ if menu == "Inicio y Mapa":
                 )
                 if _barrio_sugerido:
                     st.caption(f"Detectado automáticamente: {_barrio_sugerido} · puedes cambiarlo si no es correcto")
-                st.caption(mensaje_horario(r_barrio))
+                if r_barrio != barrio_para_horario():   # si es el mismo, ya se mostró arriba
+                    st.caption(mensaje_horario(r_barrio))
             with r2:
                 r_ref = st.text_input("Referencia (edita si quieres):",
                                       value=pdir, key="r_ref", max_chars=200)
