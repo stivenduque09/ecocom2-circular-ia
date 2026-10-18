@@ -3087,6 +3087,8 @@ def analizar_foto_para_bot(img):
         "ia_detecto": bool(tabla), "img_blur": img_blur, "img_det": img_det,
         "hubo_personas": hubo_personas, "motor": motor, "nota": nota,
         "phash": calcular_phash(img_blur),
+        "id": __import__("uuid").uuid4().hex,
+        "publicado": False,
     }
 
 
@@ -3094,6 +3096,15 @@ def publicar_desde_chat(an: dict, barrio: str, obs: str):
     """Publica el reporte que el bot analizó, con TODAS las protecciones del
     formulario: residente verificado, punto dentro de la Comuna 2, límite
     diario, foto reciclada y duplicados. Devuelve (ok, mensaje)."""
+    # ANTI DOBLE PUBLICACIÓN: cada análisis solo se puede publicar una vez,
+    # aunque la persona toque "Publicar" dos veces seguidas.
+    if an.get("publicado"):
+        return False, "Este reporte ya se publicó. Para hacer otro, mándame una foto nueva."
+    _ph = an.get("phash", "")
+    _mis = st.session_state.get("mis_codigos", [])
+    if _ph and any(r.get("PHash") == _ph and r.get("Código") in _mis
+                   for r in st.session_state.reportes):
+        return False, "Ya publicaste esta misma foto. Para otro reporte, toma una foto nueva."
     clat, clon = st.session_state.get("click_lat"), st.session_state.get("click_lon")
     if (not es_residente() or clat is None
             or not POLIGONO_COMUNA2.contains(Point(clon, clat))):
@@ -3110,6 +3121,16 @@ def publicar_desde_chat(an: dict, barrio: str, obs: str):
         return False, (f"Ya existe **{dup[0]['Código']}** a {dup[1]} m con una foto muy parecida. "
                        f"Si el residuo sigue ahí, escríbeme: *confirmo {dup[0]['Código']}*.")
 
+    an["publicado"] = True   # se marca ANTES de subir las fotos (lo lento)
+    try:
+        return _publicar_reporte_bot(an, barrio, obs, clat, clon, cod_res)
+    except Exception as e:
+        an["publicado"] = False
+        _log.error("Falló la publicación desde el bot: %s", e)
+        return False, "No se pudo publicar el reporte. Inténtalo de nuevo en un momento."
+
+
+def _publicar_reporte_bot(an, barrio, obs, clat, clon, cod_res):
     critico = semaforo(an["nivel"]) == "rojo"
     codigo = generar_codigo("CRIT" if critico else "REP", 500 if critico else 200)
     buf_o, buf_c = BytesIO(), BytesIO()
@@ -3182,21 +3203,201 @@ def transcribir_audio_gemini(audio_bytes: bytes, mime: str = "audio/wav"):
     return limpiar_texto_libre(texto, MAX_LARGO_MENSAJE_BOT), None
 
 
+# ---------- Voz de EcoBot: voz natural de Gemini + respaldo del navegador ----------
+# Modelos de voz de Gemini, del más nuevo al más antiguo. Los 3.8 usan el esquema
+# nuevo (speech_metadata + voiceConfig.voice); el 3.1 usa el esquema anterior.
+MODELOS_TTS = [
+    ("gemini-3.8-flash-lite-tts", "nuevo"),
+    ("gemini-3.8-flash-tts", "nuevo"),
+    ("gemini-3.1-flash-tts-preview", "anterior"),
+]
+VOZ_RESPALDO_GEMINI = "Sulafat"      # voz 'cálida' del catálogo de Gemini
+MAX_VOCES_HORA = 20                  # respuestas con voz natural por sesión y hora
+
+
+def texto_para_voz(texto: str) -> str:
+    """Prepara el texto para que se escuche natural: sin símbolos de
+    formato, sin enlaces y deletreando los códigos (REP-207 -> R E P 207)."""
+    t = texto or ""
+    t = re.sub(r"https?://\S+", "", t)
+    t = re.sub(r"\b(REP|CRIT)-(\d+)\b", lambda m: " ".join(m.group(1)) + " " + m.group(2), t)
+    t = re.sub(r"(?m)^\s*-\s+", "", t)
+    t = re.sub(r"[*_`#>]", "", t)
+    t = t.replace("–", " a ").replace("—", ", ").replace("→", " ")
+    t = re.sub(r"\s*\n+\s*", ". ", t)
+    t = re.sub(r"\.\s*\.", ".", t)
+    t = re.sub(r"[ \t]{2,}", " ", t)
+    return t.strip()[:600]
+
+
+def _pcm_a_wav(pcm: bytes, rate: int = 24000) -> bytes:
+    import io
+    import wave
+    buf = io.BytesIO()
+    with wave.open(buf, "wb") as w:
+        w.setnchannels(1)
+        w.setsampwidth(2)
+        w.setframerate(rate)
+        w.writeframes(pcm)
+    return buf.getvalue()
+
+
+@st.cache_data(show_spinner=False, ttl=86400)
+def _voz_colombiana() -> str:
+    """Busca en la Biblioteca de Voces de Gemini una voz femenina con acento
+    colombiano. Si no hay o falla, devuelve '' y se usa la voz de respaldo."""
+    try:
+        import requests
+        api_key = _gemini_config()
+        if not api_key:
+            return ""
+        r = requests.get(
+            "https://generativelanguage.googleapis.com/v1beta/voices",
+            headers={"x-goog-api-key": api_key},
+            params={"language_code": "es-CO", "gender": "female", "type": "prebuilt",
+                    "page_size": 20}, timeout=15)
+        if r.status_code != 200:
+            return ""
+        voces = r.json().get("voices", [])
+        for v in voces:   # prefiere una descrita como cálida/amable
+            desc = (str(v.get("description", "")) + str(v.get("persona", ""))).lower()
+            if any(k in desc for k in ("warm", "friendly", "cálid", "amable")) and v.get("id"):
+                return v["id"]
+        return voces[0].get("id", "") if voces else ""
+    except Exception:
+        return ""
+
+
+@st.cache_data(show_spinner=False, max_entries=60, ttl=3600)
+def _sintetizar_cache(texto: str, voz_config: str) -> bytes:
+    """Convierte texto en audio WAV con voz natural. Lanza RuntimeError si
+    ningún modelo responde (los errores no se guardan en caché)."""
+    import requests
+    api_key = _gemini_config()
+    if not api_key:
+        raise RuntimeError("Falta GEMINI_API_KEY")
+    headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
+    estilo = "warm, friendly and natural, like a helpful neighbor speaking Colombian Spanish"
+    voces = [v for v in (voz_config, _voz_colombiana(), VOZ_RESPALDO_GEMINI) if v]
+    ultimo = "sin respuesta"
+    for modelo, esquema in MODELOS_TTS:
+        for voz in dict.fromkeys(voces):          # sin repetir
+            if esquema == "nuevo":
+                payload = {
+                    "contents": [{"role": "user", "parts": [
+                        {"text": texto, "speech_metadata": {"style": estilo}}]}],
+                    "generationConfig": {"responseModalities": ["AUDIO"],
+                                         "speechConfig": {"voiceConfig": {"voice": voz}}},
+                }
+            else:
+                payload = {
+                    "contents": [{"parts": [{"text": "Dilo con voz cálida, amable y natural, "
+                                                     "con acento colombiano: " + texto}]}],
+                    "generationConfig": {"responseModalities": ["AUDIO"], "speechConfig": {
+                        "voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voz}}}},
+                }
+            url = (f"https://generativelanguage.googleapis.com/v1beta/models/"
+                   f"{modelo}:generateContent")
+            try:
+                resp = requests.post(url, headers=headers, json=payload, timeout=40)
+            except Exception as e:
+                ultimo = f"conexión: {e}"
+                break                              # sin red: no sirve probar otras voces
+            if resp.status_code != 200:
+                ultimo = f"{modelo} respondió {resp.status_code}"
+                if resp.status_code in (429, 503, 404):
+                    break                          # cambiar de modelo
+                continue                           # 400: probar la siguiente voz
+            try:
+                parte = resp.json()["candidates"][0]["content"]["parts"][0]
+                inline = parte.get("inlineData") or parte.get("inline_data") or {}
+                audio = base64.b64decode(inline["data"])
+                mime = inline.get("mimeType") or inline.get("mime_type") or ""
+            except Exception:
+                ultimo = f"{modelo} no devolvió audio"
+                continue
+            if audio[:4] == b"RIFF":
+                return audio
+            m = re.search(r"rate=(\d+)", mime)
+            return _pcm_a_wav(audio, int(m.group(1)) if m else 24000)
+    raise RuntimeError(ultimo)
+
+
+def tts_cupo_disponible() -> bool:
+    ahora = time.time()
+    marcas = [t for t in st.session_state.get("tts_marcas", []) if ahora - t < 3600]
+    if len(marcas) >= MAX_VOCES_HORA:
+        st.session_state.tts_marcas = marcas
+        return False
+    marcas.append(ahora)
+    st.session_state.tts_marcas = marcas
+    return True
+
+
 def hablar_en_voz_alta(texto: str):
-    """Lee un texto con la voz del navegador (sin costo ni claves)."""
+    """Respaldo sin costo: la voz del navegador, eligiendo la más natural
+    que tenga instalada en español (las 'Natural'/'Online' o las de Google)."""
     import json as _json
     import streamlit.components.v1 as components
-    limpio = re.sub(r"[*_`#>]", "", texto or "")
-    limpio = re.sub(r"\s*\n+\s*", ". ", limpio)[:600]
-    js_texto = _json.dumps(limpio, ensure_ascii=False).replace("</", "<\\/")
-    components.html(
-        "<script>try{const u=new SpeechSynthesisUtterance(" + js_texto + ");"
-        "u.lang='es-CO';u.rate=1.0;window.speechSynthesis.cancel();"
-        "window.speechSynthesis.speak(u);}catch(e){}</script>", height=0)
+    js_texto = _json.dumps(texto_para_voz(texto), ensure_ascii=False).replace("</", "<\\/")
+    components.html("""<script>
+(function(){
+  const texto = """ + js_texto + """;
+  const S = window.speechSynthesis; if(!S) return;
+  function puntaje(v){
+    let p = 0;
+    if(/natural|neural|online/i.test(v.name)) p += 4;
+    if(/google/i.test(v.name)) p += 3;
+    if(/es[-_]CO/i.test(v.lang)) p += 2;
+    else if(/es[-_](MX|US|419)/i.test(v.lang)) p += 1;
+    return p;
+  }
+  function hablar(){
+    const vs = S.getVoices().filter(v => /^es/i.test(v.lang));
+    const u = new SpeechSynthesisUtterance(texto);
+    u.lang = 'es-CO'; u.rate = 0.97; u.pitch = 1.03;
+    if(vs.length){ vs.sort((a,b)=>puntaje(b)-puntaje(a)); u.voice = vs[0]; u.lang = vs[0].lang; }
+    S.cancel(); S.speak(u);
+  }
+  try {
+    if(S.getVoices().length){ hablar(); }
+    else { S.onvoiceschanged = function(){ S.onvoiceschanged = null; hablar(); }; }
+  } catch(e) {}
+})();
+</script>""", height=0)
+
+
+def reproducir_respuesta(texto: str):
+    """Lee la respuesta del bot en voz alta. Primero intenta la voz natural
+    de Gemini; si no está disponible (sin cupo, sin red, etc.) usa la del
+    navegador para que nunca se quede mudo."""
+    voz_cfg = ""
+    try:
+        voz_cfg = str(st.secrets.get("ECOBOT_VOZ", "")).strip()
+    except Exception:
+        pass
+    limpio = texto_para_voz(texto)
+    if not limpio:
+        return
+    if verificar_gemini_key() and tts_cupo_disponible():
+        try:
+            with st.spinner("Preparando la voz..."):
+                wav = _sintetizar_cache(limpio, voz_cfg)
+            try:
+                st.audio(wav, format="audio/wav", autoplay=True)
+            except TypeError:                      # versión sin autoplay
+                st.audio(wav, format="audio/wav")
+            return
+        except Exception as e:
+            _log.warning("Voz natural no disponible, uso la del navegador: %s", e)
+    hablar_en_voz_alta(texto)
 
 
 def renderizar_foto_ecobot():
     st.markdown("**Mándame una foto y yo la analizo**")
+    _aviso = st.session_state.get("bot_aviso")
+    if _aviso:
+        (st.success if _aviso[0] == "ok" else st.error)(_aviso[1])
     clat, clon = st.session_state.get("click_lat"), st.session_state.get("click_lon")
     punto_ok = (es_residente() and clat is not None
                 and POLIGONO_COMUNA2.contains(Point(clon, clat)))
@@ -3227,12 +3428,16 @@ def renderizar_foto_ecobot():
         if not ecobot_cupo_disponible():
             st.warning("Muchas consultas seguidas. Espera un rato e inténtalo de nuevo.")
             return
+        st.session_state.pop("bot_aviso", None)   # empieza un reporte nuevo
         with st.spinner("Analizando tu foto..."):
             st.session_state.bot_analisis = analizar_foto_para_bot(img)
         st.session_state.bot_hash = h
 
     an = st.session_state.get("bot_analisis")
     if not an:
+        return
+    if an.get("publicado"):
+        st.info("Este reporte ya fue publicado.")
         return
     if not an["valido"]:
         st.error("Esta foto no parece mostrar residuos reales. "
@@ -3266,6 +3471,8 @@ def renderizar_foto_ecobot():
         if st.button("Publicar", type="primary", key="bot_publicar", use_container_width=True):
             ok_p, msg_p = publicar_desde_chat(an, barrio_sel, obs_sel)
             st.session_state.agente_msgs.append({"role": "assistant", "content": msg_p})
+            st.session_state.bot_aviso = ("ok" if ok_p else "err",
+                                          msg_p.split("\n\n")[0].replace("**", ""))
             if ok_p:
                 _terminar()
             st.rerun()
@@ -3685,6 +3892,8 @@ Redirige preguntas no relacionadas al tema de residuos."""
         with st.spinner("EcoBot está pensando..."):
             respuesta = llamar_ecobot(st.session_state.agente_msgs)
         st.session_state.agente_msgs.append({"role": "assistant", "content": respuesta})
+        if st.session_state.get("bot_voz_salida"):
+            st.session_state.bot_hablar = respuesta
         st.rerun()
 
     with _ecobot_panel():
@@ -3803,7 +4012,7 @@ Redirige preguntas no relacionadas al tema de residuos."""
                     st.rerun()
             _por_hablar = st.session_state.pop("bot_hablar", None)
             if _por_hablar:
-                hablar_en_voz_alta(_por_hablar)
+                reproducir_respuesta(_por_hablar)
         else:
             st.caption("La entrada por voz necesita la clave de Gemini configurada.")
 
