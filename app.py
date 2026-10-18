@@ -2145,6 +2145,26 @@ MODELOS_GEMINI_RESPALDO = [
 
 
 @st.cache_resource
+def _contador_tokens() -> dict:
+    """Consumo de IA acumulado por día (se reinicia si la app se reinicia)."""
+    return {}
+
+
+def _sumar_tokens(data, categoria: str = "texto"):
+    """Suma los tokens que Gemini informa haber gastado en una llamada."""
+    try:
+        uso = (data or {}).get("usageMetadata", {}) or {}
+        total = int(uso.get("totalTokenCount", 0) or 0)
+        dia = _hoy_colombia().strftime("%Y-%m-%d")
+        c = _contador_tokens().setdefault(
+            dia, {"texto_llamadas": 0, "texto_tokens": 0, "voz_llamadas": 0, "voz_tokens": 0})
+        c[f"{categoria}_llamadas"] += 1
+        c[f"{categoria}_tokens"] += total
+    except Exception:
+        pass
+
+
+@st.cache_resource
 def _estado_modelos_gemini() -> dict:
     """Memoria compartida por todas las sesiones: qué modelos están caídos
     o sin cupo y hasta cuándo conviene saltárselos."""
@@ -2188,7 +2208,9 @@ def _llamar_gemini_con_respaldo(payload, timeout=30, reintentos_por_modelo=1):
         if resp is None:
             continue
         if resp.status_code == 200:
-            return resp.json(), nombre_modelo, None
+            _datos = resp.json()
+            _sumar_tokens(_datos, "texto")
+            return _datos, nombre_modelo, None
 
         try:
             detalle = resp.json().get("error", {}).get("message", "")
@@ -2745,6 +2767,7 @@ def mostrar_tutorial():
     with tb2:
         if st.button("Saltar tutorial", use_container_width=True, key="tut_skip"):
             st.session_state.tutorial_visto = True
+            st.session_state.guardar_cookie_tutorial = True
             st.rerun()
     with tb3:
         if paso < len(PASOS_TUTORIAL) - 1:
@@ -2756,8 +2779,20 @@ def mostrar_tutorial():
             if st.button("¡Entendido, empezar!", type="primary",
                          use_container_width=True, key="tut_finish"):
                 st.session_state.tutorial_visto = True
+                st.session_state.guardar_cookie_tutorial = True
                 st.rerun()
     st.markdown("---")
+
+
+def _guardar_cookie_tutorial():
+    """Recuerda en el navegador (1 año) que la persona ya vio el tutorial,
+    para no mostrárselo en cada visita. Si el navegador bloquea la cookie, el
+    tutorial solo se oculta durante la sesión actual."""
+    import streamlit.components.v1 as components
+    components.html(
+        "<script>var c='ecocom2_tutorial=1; max-age=31536000; path=/; SameSite=Lax';"
+        "try{document.cookie=c;}catch(e){}"
+        "try{window.parent.document.cookie=c;}catch(e){}</script>", height=0)
 
 
 def mostrar_horarios_recoleccion():
@@ -2798,7 +2833,20 @@ def mostrar_horarios_recoleccion():
     st.markdown("---")
 
 
-def nav_tabs(seccion_actual):
+def nav_tabs(seccion_actual, puede_reportar=True):
+    if not puede_reportar:
+        # Sin ubicación todavía: no se muestran los botones de reportar, solo
+        # los pasos para llegar a ellos y el historial.
+        st.info("Para reportar, primero indica dónde está el residuo: "
+                "1) usa el GPS o escribe tu dirección y 2) toca el punto exacto en el "
+                "mapa. Cuando lo hagas aparecerán aquí los botones para reportar.")
+        col_h, _col_vacia = st.columns([1, 2])
+        with col_h:
+            if st.button("Mi Historial", key="nav_historial", use_container_width=True,
+                         type="primary" if seccion_actual == "historial" else "secondary"):
+                st.session_state.seccion = "historial"
+                st.rerun()
+        return
     SECCIONES = [
         ("residuo",   "Reportar Residuo"),
         ("critico",   "Punto Crítico"),
@@ -3230,7 +3278,37 @@ MODELOS_TTS = [
     ("gemini-3.1-flash-tts-preview", "anterior"),
 ]
 VOZ_RESPALDO_GEMINI = "Sulafat"      # voz 'cálida' del catálogo de Gemini
-MAX_VOCES_HORA = 20                  # respuestas con voz natural por sesión y hora
+MAX_VOCES_HORA = 12                  # respuestas con voz natural por sesión y hora
+
+
+@st.cache_resource
+def _cache_respuestas_bot() -> dict:
+    """Respuestas de IA ya generadas para preguntas generales (compartidas)."""
+    return {}
+
+
+def _necesita_herramientas(texto: str) -> bool:
+    """True si la pregunta depende de datos reales de la app (un código de
+    reporte, cantidades, estados...). Si no, no hace falta mandar las
+    herramientas a Gemini."""
+    n = _normalizar_txt(texto)
+    if re.search(r"\b(rep|crit)[-_ ]?\d", n):
+        return True
+    return any(p in n for p in ["cuantos", "cuantas", "cuanto", "estado", "mis reportes",
+                                "resumen", "total", "hay en", "activos", "pendiente",
+                                "resuelto", "telefono", "mi codigo"])
+
+
+def _primeras_oraciones(texto: str, max_chars: int = 260) -> str:
+    """Recorta a las primeras oraciones que quepan en max_chars (para no pagar
+    por sintetizar en voz un texto largo)."""
+    oraciones = re.split(r"(?<=[.!?])\s+", texto.strip())
+    salida = ""
+    for o in oraciones:
+        if salida and len(salida) + len(o) + 1 > max_chars:
+            break
+        salida = (salida + " " + o).strip()
+    return salida[:max_chars + 80]
 
 
 def texto_para_voz(texto: str) -> str:
@@ -3327,7 +3405,9 @@ def _sintetizar_cache(texto: str, voz_config: str) -> bytes:
                     break                          # cambiar de modelo
                 continue                           # 400: probar la siguiente voz
             try:
-                parte = resp.json()["candidates"][0]["content"]["parts"][0]
+                _json_tts = resp.json()
+                _sumar_tokens(_json_tts, "voz")
+                parte = _json_tts["candidates"][0]["content"]["parts"][0]
                 inline = parte.get("inlineData") or parte.get("inline_data") or {}
                 audio = base64.b64decode(inline["data"])
                 mime = inline.get("mimeType") or inline.get("mime_type") or ""
@@ -3397,10 +3477,18 @@ def reproducir_respuesta(texto: str):
     limpio = texto_para_voz(texto)
     if not limpio:
         return
-    if verificar_gemini_key() and tts_cupo_disponible():
+    # Para apagar la voz de pago y usar siempre la del navegador (gratis):
+    # ECOBOT_VOZ_NATURAL = false en Secrets.
+    try:
+        natural = str(st.secrets.get("ECOBOT_VOZ_NATURAL", "true")).strip().lower() != "false"
+    except Exception:
+        natural = True
+    if natural and verificar_gemini_key() and tts_cupo_disponible():
         try:
             with st.spinner("Preparando la voz..."):
-                wav = _sintetizar_cache(limpio, voz_cfg)
+                # La voz natural lee solo lo principal (primeras oraciones): es lo
+                # que se factura. El texto completo siempre queda en el chat.
+                wav = _sintetizar_cache(_primeras_oraciones(limpio), voz_cfg)
             try:
                 st.audio(wav, format="audio/wav", autoplay=True)
             except TypeError:                      # versión sin autoplay
@@ -3612,12 +3700,24 @@ if st.session_state.pop("ir_a_inicio", False):
     st.session_state.menu_extra = None
 menu_elegido = st.sidebar.radio("Menú", PAGINAS, key="menu_radio")
 
+es_admin = admin_sesion_vigente()
+
+# Todo lo secundario va junto en un solo desplegable: la barra lateral queda limpia.
 with st.sidebar.expander("Más opciones"):
-    st.caption("Estadísticas públicas y gestión — para curiosos y administración.")
     if st.button("Comuna en Cifras", use_container_width=True, key="ir_cifras"):
         st.session_state.menu_extra = "Comuna en Cifras"
         st.rerun()
-    if st.button("Panel Admin", use_container_width=True, key="ir_admin"):
+    if st.button("Horarios de recolección", use_container_width=True, key="ver_horarios_recoleccion"):
+        st.session_state.mostrar_horarios = True
+        st.session_state.menu_extra = None
+        st.rerun()
+    if st.button("Ver tutorial de nuevo", use_container_width=True, key="ver_tutorial_de_nuevo"):
+        st.session_state.tutorial_visto = False
+        st.session_state.tutorial_paso = 0
+        st.session_state.menu_extra = None
+        st.rerun()
+    # El acceso al panel de administración solo existe para quien ya inició sesión
+    if es_admin and st.button("Panel Admin", use_container_width=True, key="ir_admin"):
         st.session_state.menu_extra = "Panel Admin"
         st.rerun()
     if st.session_state.get("menu_extra") and st.button(
@@ -3630,21 +3730,26 @@ if menu == "Reportar y Ver Mapa":
     menu = "Inicio y Mapa"  # nombre interno sin cambiar el resto de la lógica
 
 st.sidebar.markdown("---")
-es_admin = admin_sesion_vigente()
+
+# El login de administrador NO se muestra a los ciudadanos. El personal entra con
+# la dirección de la app terminada en  ?admin=1  (la contraseña sigue siendo
+# necesaria, con bloqueo tras varios intentos fallidos).
+_admin_en_url = str(st.query_params.get("admin", "")).strip().lower() in ("1", "true", "si")
 
 if not es_admin:
-    with st.sidebar.expander("Acceso Administrador"):
-        pwd = st.text_input("Contraseña:", type="password", key="adm_pwd",
-                            placeholder="Ingresa la contraseña")
-        if st.button("Ingresar", key="adm_login", type="primary",
-                     use_container_width=True):
-            ok_adm, msg_adm = verificar_credenciales_admin(pwd)
-            if ok_adm:
-                st.session_state.admin_ok = True
-                st.success(msg_adm)
-                st.rerun()
-            else:
-                st.error(msg_adm)
+    if _admin_en_url:
+        with st.sidebar.expander("Acceso Administrador", expanded=True):
+            pwd = st.text_input("Contraseña:", type="password", key="adm_pwd",
+                                placeholder="Ingresa la contraseña")
+            if st.button("Ingresar", key="adm_login", type="primary",
+                         use_container_width=True):
+                ok_adm, msg_adm = verificar_credenciales_admin(pwd)
+                if ok_adm:
+                    st.session_state.admin_ok = True
+                    st.success(msg_adm)
+                    st.rerun()
+                else:
+                    st.error(msg_adm)
 else:
     st.sidebar.markdown(
         '<div class="badge-ok" style="font-size:12px;margin-bottom:6px;">'
@@ -3655,17 +3760,6 @@ else:
                          use_container_width=True):
         st.session_state.admin_ok = False
         st.rerun()
-
-if st.sidebar.button("Ver tutorial de nuevo", use_container_width=True, key="ver_tutorial_de_nuevo"):
-    st.session_state.tutorial_visto = False
-    st.session_state.tutorial_paso = 0
-    st.session_state.menu_extra = None
-    st.rerun()
-
-if st.sidebar.button("Horarios de recolección", use_container_width=True, key="ver_horarios_recoleccion"):
-    st.session_state.mostrar_horarios = True
-    st.session_state.menu_extra = None
-    st.rerun()
 
 st.sidebar.markdown("---")
 st.sidebar.markdown("""
@@ -3817,35 +3911,26 @@ if menu != "Panel Admin":
         if respuesta_faq:
             return respuesta_faq
 
-        SISTEMA_AGENTE = """Eres EcoBot, el asistente amigable de EcoCom2 Circular IA,
-una app para reportar residuos en la Comuna 2 - Santa Cruz de Medellín, Colombia.
+        SISTEMA_AGENTE = """Eres EcoBot, asistente de EcoCom2 Circular IA (app para reportar \
+residuos en la Comuna 2 - Santa Cruz, Medellín). Responde en español, claro y \
+breve (máximo 3 oraciones), sin emojis y con tono cercano. Si la pregunta \
+depende de datos actuales (estado de un reporte, cantidades, barrios, resumen) \
+usa las herramientas y nunca inventes cifras. Pasos para reportar: 1) verificar \
+la dirección, 2) tocar el punto en el mapa, 3) elegir Reportar Residuo o Punto \
+Crítico, 4) subir la foto (el análisis es automático), 5) publicar. Colores: \
+verde = 60% o más reciclable, amarillo = mezcla, rojo = sin valorizar. Si la \
+pregunta no es de residuos, redirige con amabilidad."""
 
-Responde en español, de forma CLARA y COMPLETA pero breve (máximo 3
-oraciones). NO uses emojis ni símbolos decorativos. Sé accesible para niños,
-adultos y personas mayores, con un tono cercano y profesional. NUNCA respondas con una frase vaga como "¡Es muy fácil!" sin
-explicar el cómo — siempre da el paso concreto que la persona necesita.
-
-Tienes herramientas para consultar datos REALES: el estado de un reporte
-por su código, cuántos reportes tiene un residente, cuántos reportes
-activos hay en un barrio, y el resumen general de la comuna. Úsalas
-siempre que la pregunta dependa de datos actuales — nunca inventes un
-estado o una cifra que podrías consultar con una herramienta.
-
-La app permite:
-- Verificar si el usuario vive en la Comuna 2
-- Tocar el mapa para marcar el punto del residuo
-- La IA (Gemini o YOLO, según el motor elegido) analiza la foto y detecta materiales
-- Verde: ≥60% reciclables | Amarillo: mezcla | Rojo: basura sin valorizar
-- El reporte queda visible en el mapa comunitario
-
-Pasos para reportar:
-1. Escribe tu dirección y presiona Verificar
-2. Toca el mapa en el punto del residuo
-3. Presiona "Reportar Residuo" o "Punto Crítico"
-4. Sube una foto — el análisis corre automáticamente
-5. Presiona Publicar
-
-Redirige preguntas no relacionadas al tema de residuos."""
+        # AHORRO DE TOKENS: respuestas repetidas (sin datos personales ni
+        # conversación previa) se reutilizan en vez de volver a pagar a Gemini.
+        _cache_resp = _cache_respuestas_bot()
+        _clave_cache = _normalizar_txt(ultimo_mensaje)
+        _previos = [m for m in mensajes_historial[:-1] if m["role"] == "user"]
+        _cacheable = (not _previos) and (not _necesita_herramientas(ultimo_mensaje))
+        if _cacheable and _clave_cache in _cache_resp:
+            _txt, _ts = _cache_resp[_clave_cache]
+            if time.time() - _ts < 6 * 3600:
+                return _txt
         if not ecobot_cupo_disponible():
             return ("Has hecho muchas preguntas seguidas. Espera un rato y "
                     "vuelve a intentarlo — mientras tanto, las preguntas rápidas "
@@ -3856,19 +3941,25 @@ Redirige preguntas no relacionadas al tema de residuos."""
                     "rápida: 1 Verifica dirección 2 Toca el mapa "
                     "3 Sube foto 4 Publica.")
         try:
+            # AHORRO: solo los últimos 4 mensajes, sin el saludo inicial, y cada
+            # uno recortado (antes se reenviaban 12 mensajes completos).
+            _recientes = [m for m in mensajes_historial[1:]][-4:] or mensajes_historial[-1:]
             contenidos = [
                 {"role": "model" if m["role"] == "assistant" else "user",
-                 "parts": [{"text": m["content"]}]}
-                for m in mensajes_historial[-12:]   # solo el contexto reciente
+                 "parts": [{"text": m["content"][:350]}]}
+                for m in _recientes
             ]
             payload = {
                 "systemInstruction": {"parts": [{"text": SISTEMA_AGENTE}]},
                 "contents": contenidos,
-                "tools": _herramientas_ecobot_definiciones(),
-                # 1024 (antes 250): los modelos 2.5/3.x gastan tokens
-                # "pensando" y con 250 la respuesta podía llegar vacía.
-                "generationConfig": {"temperature": 0.4, "maxOutputTokens": 1024},
+                # 600: suficiente para 3 oraciones sin dejar que el modelo gaste de más
+                "generationConfig": {"temperature": 0.4, "maxOutputTokens": 600},
             }
+            # Las herramientas pesan cientos de tokens: solo se envían cuando la
+            # pregunta realmente necesita datos de la app.
+            _usa_herr = _necesita_herramientas(ultimo_mensaje)
+            if _usa_herr:
+                payload["tools"] = _herramientas_ecobot_definiciones()
 
             # Hasta 3 rondas de "pregunta → ejecuta función → responde"
             # antes de rendirnos y pedirle a la persona que reformule.
@@ -3884,7 +3975,10 @@ Redirige preguntas no relacionadas al tema de residuos."""
 
                 if not llamadas:
                     textos = [p.get("text", "") for p in partes if "text" in p]
-                    return "\n".join(t for t in textos if t) or "No tengo una respuesta clara para eso."
+                    _resp_final = "\n".join(t for t in textos if t) or "No tengo una respuesta clara para eso."
+                    if _cacheable and textos:
+                        _cache_resp[_clave_cache] = (_resp_final, time.time())
+                    return _resp_final
 
                 # Anexamos el turno del modelo (con sus llamadas) y
                 # ejecutamos cada función localmente contra los datos
@@ -3938,30 +4032,6 @@ Redirige preguntas no relacionadas al tema de residuos."""
                 f'<div>Hola, soy EcoBot<br><span style="font-weight:400;font-size:12px">'
                 f'Escríbeme, háblame o mándame una foto</span></div></div>',
                 unsafe_allow_html=True)
-
-            st.caption("¿Ya sabes qué quieres hacer? Toca directo:")
-            cta1, cta2 = st.columns(2)
-            with cta1:
-                if st.button("Reportar residuo", key="ecobot_cta_residuo",
-                             use_container_width=True, type="primary"):
-                    st.session_state.seccion = "residuo"
-                    st.session_state.ir_a_inicio = True
-                    st.session_state.agente_msgs.append(
-                        {"role": "assistant",
-                         "content": "¡Listo! Te llevé a Reportar Residuo. Ahora solo toca "
-                                    "el punto exacto en el mapa y sube tu foto — yo te espero "
-                                    "aquí si tienes dudas en el camino."})
-                    st.rerun()
-            with cta2:
-                if st.button("Punto crítico", key="ecobot_cta_critico",
-                             use_container_width=True, type="primary"):
-                    st.session_state.seccion = "critico"
-                    st.session_state.ir_a_inicio = True
-                    st.session_state.agente_msgs.append(
-                        {"role": "assistant",
-                         "content": "¡Perfecto! Te llevé a Punto Crítico. Toca el punto en "
-                                    "el mapa y sube tu foto para continuar."})
-                    st.rerun()
 
             for msg in st.session_state.agente_msgs[-8:]:
                 if msg["role"] == "assistant":
@@ -4077,6 +4147,21 @@ Redirige preguntas no relacionadas al tema de residuos."""
 if menu == "Inicio y Mapa":
     st.title("EcoCom2 Circular IA")
     st.caption("Gestión inteligente de residuos — Solo residentes de la **Comuna 2** pueden publicar reportes.")
+
+    # --- Tutorial: solo la primera vez ---
+    if not st.session_state.get("_tut_cookie_leida"):
+        st.session_state._tut_cookie_leida = True
+        try:
+            if st.context.cookies.get("ecocom2_tutorial") == "1":
+                st.session_state.tutorial_visto = True      # ya lo vio en otra visita
+        except Exception:
+            pass
+    if st.session_state.get("validado") and not st.session_state.get("_tut_auto_cerrado"):
+        st.session_state._tut_auto_cerrado = True            # ya verificó: ya sabe cómo se usa
+        st.session_state.tutorial_visto = True
+        st.session_state.guardar_cookie_tutorial = True
+    if st.session_state.pop("guardar_cookie_tutorial", False):
+        _guardar_cookie_tutorial()
 
     if not st.session_state.get("tutorial_visto", False):
         mostrar_tutorial()
@@ -4377,12 +4462,11 @@ if menu == "Inicio y Mapa":
     st.markdown("")
     seccion = st.session_state.get("seccion", "info")
 
-    nav_tabs(seccion)
+    nav_tabs(seccion, puede_reportar=bool(es_residente() and clat and dentro_clk))
     st.markdown("")
 
     if seccion == "info":
-        if not clat:
-            st.info("Toca cualquier punto del mapa y luego usa los botones de arriba para reportar.")
+        pass  # la guía de pasos ya aparece arriba, junto a los botones
 
     # ── SECCIÓN: Reportar Residuo ──────────────────────────────────────
     elif seccion == "residuo":
@@ -5506,6 +5590,17 @@ margin-bottom:8px;">
         st.link_button("Enviar por WhatsApp",
                        f"https://wa.me/?text={url_quote(_txt_resumen)}",
                        use_container_width=True)
+        _hoy_c = _contador_tokens().get(
+            _hoy_colombia().strftime("%Y-%m-%d"),
+            {"texto_llamadas": 0, "texto_tokens": 0, "voz_llamadas": 0, "voz_tokens": 0})
+        st.markdown("#### Consumo de IA hoy")
+        _c1, _c2, _c3, _c4 = st.columns(4)
+        _c1.metric("Llamadas de texto", _hoy_c["texto_llamadas"])
+        _c2.metric("Tokens de texto", f"{_hoy_c['texto_tokens']:,}")
+        _c3.metric("Voces generadas", _hoy_c["voz_llamadas"])
+        _c4.metric("Tokens de voz", f"{_hoy_c['voz_tokens']:,}")
+        st.caption("Se cuenta desde el último reinicio de la app. Incluye chat, "
+                   "transcripción de audios, análisis de fotos y voz.")
         st.markdown("#### Estado del sistema")
         est1, est2, est3, est4 = st.columns(4)
         with est1:
