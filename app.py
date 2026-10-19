@@ -869,6 +869,17 @@ st.markdown("""
     background-color: #f0fdf4 !important;
     border-color: #16a34a !important;
 }
+
+/* Botón "Enviar" del chat (es un botón de formulario, no usa el
+   selector de arriba): verde en vez del rojo por defecto de Streamlit. */
+div[data-testid="stFormSubmitButton"] button {
+    background: linear-gradient(135deg, #16a34a, #15803d) !important;
+    border: none !important;
+}
+div[data-testid="stFormSubmitButton"] button p {
+    color: #ffffff !important;
+    font-weight: 700 !important;
+}
 </style>
 """, unsafe_allow_html=True)
 
@@ -3867,10 +3878,12 @@ def _primeras_oraciones(texto: str, max_chars: int = 260) -> str:
     return salida[:max_chars + 80]
 
 
-def texto_para_voz(texto: str) -> str:
-    """Prepara el texto para que se escuche natural: sin símbolos de
-    formato, sin enlaces y deletreando los códigos (REP-207 -> R E P 207)."""
-    t = texto or ""
+def texto_para_voz(texto: str, max_chars: int = 1400) -> str:
+    """Prepara el texto para que se escuche natural: sin emojis, sin símbolos
+    de formato, sin enlaces y deletreando los códigos (REP-207 -> R E P 207).
+    El límite es amplio porque, por accesibilidad, se debe leer TODA la
+    respuesta y no solo el comienzo."""
+    t = sin_emojis(texto or "")
     t = re.sub(r"https?://\S+", "", t)
     t = re.sub(r"\b(REP|CRIT)-(\d+)\b", lambda m: " ".join(m.group(1)) + " " + m.group(2), t)
     t = re.sub(r"(?m)^\s*-\s+", "", t)
@@ -3879,7 +3892,7 @@ def texto_para_voz(texto: str) -> str:
     t = re.sub(r"\s*\n+\s*", ". ", t)
     t = re.sub(r"\.\s*\.", ".", t)
     t = re.sub(r"[ \t]{2,}", " ", t)
-    return t.strip()[:600]
+    return t.strip()[:max_chars]
 
 
 def _pcm_a_wav(pcm: bytes, rate: int = 24000) -> bytes:
@@ -3892,6 +3905,36 @@ def _pcm_a_wav(pcm: bytes, rate: int = 24000) -> bytes:
         w.setframerate(rate)
         w.writeframes(pcm)
     return buf.getvalue()
+
+
+def _dividir_en_trozos(texto: str, max_chars: int = 380) -> list:
+    """Parte el texto en trozos por oraciones para que la voz suene natural
+    y cada llamada a la voz sea corta."""
+    trozos, actual = [], ""
+    for o in re.split(r"(?<=[.!?])\s+", texto.strip()):
+        if actual and len(actual) + len(o) + 1 > max_chars:
+            trozos.append(actual)
+            actual = o
+        else:
+            actual = (actual + " " + o).strip()
+    if actual:
+        trozos.append(actual)
+    return trozos
+
+
+def _unir_wavs(lista: list) -> bytes:
+    """Une varios audios WAV en uno solo, con una pausa corta entre ellos."""
+    import io
+    import wave
+    out = io.BytesIO()
+    with wave.open(out, "wb") as w:
+        for i, b in enumerate(lista):
+            with wave.open(io.BytesIO(b)) as r:
+                if i == 0:
+                    w.setparams(r.getparams())
+                w.writeframes(r.readframes(r.getnframes()))
+                w.writeframes(b"\x00\x00" * int(r.getframerate() * 0.25))  # pausa corta
+    return out.getvalue()
 
 
 @st.cache_data(show_spinner=False, ttl=86400)
@@ -3929,7 +3972,9 @@ def _sintetizar_cache(texto: str, voz_config: str) -> bytes:
     if not api_key:
         raise RuntimeError("Falta GEMINI_API_KEY")
     headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
-    estilo = "warm, friendly and natural, like a helpful neighbor speaking Colombian Spanish"
+    estilo = ("warm, gentle and smiling, like a kind neighbor from Medellín speaking "
+              "natural Colombian Spanish with a soft paisa accent, relaxed and slightly "
+              "slow pace, short natural pauses between sentences, never robotic")
     voces = [v for v in (voz_config, _voz_colombiana(), VOZ_RESPALDO_GEMINI) if v]
     ultimo = "sin respuesta"
     for modelo, esquema in MODELOS_TTS:
@@ -3943,8 +3988,10 @@ def _sintetizar_cache(texto: str, voz_config: str) -> bytes:
                 }
             else:
                 payload = {
-                    "contents": [{"parts": [{"text": "Dilo con voz cálida, amable y natural, "
-                                                     "con acento colombiano: " + texto}]}],
+                    "contents": [{"parts": [{"text": "Di esto con voz cálida, suave y amable, "
+                                                     "como una vecina paisa de Medellín, "
+                                                     "ritmo pausado y natural, con pausas cortas "
+                                                     "entre frases: " + texto}]}],
                     "generationConfig": {"responseModalities": ["AUDIO"], "speechConfig": {
                         "voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voz}}}},
                 }
@@ -4022,9 +4069,10 @@ def hablar_en_voz_alta(texto: str):
 
 
 def reproducir_respuesta(texto: str):
-    """Lee la respuesta del bot en voz alta. Primero intenta la voz natural
-    de Gemini; si no está disponible (sin cupo, sin red, etc.) usa la del
-    navegador para que nunca se quede mudo."""
+    """Lee TODA la respuesta del bot en voz alta. Primero intenta la voz
+    natural de Gemini (en trozos, unidos en un solo audio); si no está
+    disponible (sin cupo, sin red, etc.) usa la del navegador para que
+    nunca se quede mudo."""
     voz_cfg = ""
     try:
         voz_cfg = str(st.secrets.get("ECOBOT_VOZ", "")).strip()
@@ -4041,10 +4089,10 @@ def reproducir_respuesta(texto: str):
         natural = True
     if natural and verificar_gemini_key() and tts_cupo_disponible():
         try:
+            trozos = _dividir_en_trozos(limpio)[:4]
             with st.spinner("Preparando la voz..."):
-                # La voz natural lee solo lo principal (primeras oraciones): es lo
-                # que se factura. El texto completo siempre queda en el chat.
-                wav = _sintetizar_cache(_primeras_oraciones(limpio), voz_cfg)
+                wavs = [_sintetizar_cache(t, voz_cfg) for t in trozos]
+            wav = wavs[0] if len(wavs) == 1 else _unir_wavs(wavs)
             try:
                 st.audio(wav, format="audio/wav", autoplay=True)
             except TypeError:                      # versión sin autoplay
@@ -4691,15 +4739,33 @@ pregunta no es de residuos, redirige con amabilidad."""
                 f'Escríbeme, háblame o mándame una foto</span></div></div>',
                 unsafe_allow_html=True)
 
+            # ACCESIBILIDAD: el interruptor de lectura en voz alta va arriba,
+            # siempre visible (no depende de la clave de Gemini: si no hay
+            # voz natural, se usa la voz del navegador).
+            st.toggle("Leer las respuestas en voz alta (accesibilidad)",
+                      key="bot_voz_salida",
+                      help="Para personas con baja visión: EcoBot lee cada respuesta en voz alta.")
+
             bloque_avisos_bot(_refrescar_bot)
 
-            for msg in st.session_state.agente_msgs[-8:]:
+            _msgs = st.session_state.agente_msgs
+            _ini = max(0, len(_msgs) - 8)
+            for _i, msg in enumerate(_msgs[_ini:], start=_ini):
                 if msg["role"] == "assistant":
                     with st.chat_message("assistant", avatar=avatar_ecobot()):
                         st.markdown(msg["content"].replace("\n", "  \n"))
+                        if st.button("Escuchar esta respuesta", key=f"escuchar_{_i}"):
+                            st.session_state.bot_hablar = msg["content"]
+                            st.rerun(scope="fragment")
                 else:
                     with st.chat_message("user"):
                         st.markdown(msg["content"].replace("\n", "  \n"))
+
+            # Reproducción central: aquí se lee cualquier respuesta pendiente
+            # (por escritura, por audio, por pregunta rápida o por el botón Escuchar).
+            _por_hablar = st.session_state.pop("bot_hablar", None)
+            if _por_hablar:
+                reproducir_respuesta(_por_hablar)
 
             ultimo_usuario = next(
                 (m["content"] for m in reversed(st.session_state.agente_msgs) if m["role"] == "user"),
@@ -4734,6 +4800,8 @@ pregunta no es de residuos, redirige con amabilidad."""
                     respuesta = llamar_ecobot(st.session_state.agente_msgs)
                 st.session_state.agente_msgs.append(
                     {"role": "assistant", "content": respuesta})
+                if st.session_state.get("bot_voz_salida"):
+                    st.session_state.bot_hablar = respuesta
                 _refrescar_bot()
 
             # ---- Entrada por voz ----
@@ -4742,7 +4810,6 @@ pregunta no es de residuos, redirige con amabilidad."""
                 st.caption("Prefieres hablar: toca el micrófono, di tu mensaje y detén la grabación.")
                 audio_bot = st.audio_input("Hablar con EcoBot", key=f"agente_audio_{_n_aud}",
                                            label_visibility="collapsed")
-                st.toggle("Leer las respuestas en voz alta", key="bot_voz_salida")
                 if audio_bot is not None:
                     _datos_aud = audio_bot.getvalue()
                     _h_aud = hashlib.md5(_datos_aud).hexdigest()
@@ -4770,9 +4837,6 @@ pregunta no es de residuos, redirige con amabilidad."""
                                     st.session_state.bot_hablar = _resp_aud
                         st.session_state.bot_audio_n = _n_aud + 1   # limpia la grabadora
                         _refrescar_bot()
-                _por_hablar = st.session_state.pop("bot_hablar", None)
-                if _por_hablar:
-                    reproducir_respuesta(_por_hablar)
             else:
                 st.caption("La entrada por voz necesita la clave de Gemini configurada.")
 
