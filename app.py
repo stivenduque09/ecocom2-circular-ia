@@ -872,8 +872,10 @@ st.markdown("""
 
 /* Botón "Enviar" del chat (es un botón de formulario, no usa el
    selector de arriba): verde en vez del rojo por defecto de Streamlit. */
-div[data-testid="stFormSubmitButton"] button {
+div[data-testid="stFormSubmitButton"] button,
+button[data-testid^="stBaseButton-primary"] {
     background: linear-gradient(135deg, #16a34a, #15803d) !important;
+    background-color: #16a34a !important;
     border: none !important;
 }
 div[data-testid="stFormSubmitButton"] button p {
@@ -3124,7 +3126,18 @@ div[data-testid="stPopoverBody"] {{
 }}
 div[data-testid="stPopoverBody"] [data-testid="stMarkdownContainer"] p,
 div[data-testid="stPopoverBody"] label {{ color: #14532d !important; }}
-div[data-testid="stPopoverBody"] button[kind="primary"] p {{ color: #ffffff !important; }}
+div[data-testid="stPopoverBody"] button[kind="primary"],
+div[data-testid="stPopoverBody"] button[data-testid^="stBaseButton-primary"],
+div[data-testid="stPopoverBody"] form button {{
+    background: linear-gradient(135deg, #16a34a, #15803d) !important;
+    background-color: #16a34a !important;
+    border: none !important; border-radius: 10px !important;
+}}
+div[data-testid="stPopoverBody"] button[kind="primary"] *,
+div[data-testid="stPopoverBody"] button[data-testid^="stBaseButton-primary"] *,
+div[data-testid="stPopoverBody"] form button * {{
+    color: #ffffff !important; font-weight: 700 !important;
+}}
 </style>""", unsafe_allow_html=True)
 
 
