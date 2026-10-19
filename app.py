@@ -869,19 +869,6 @@ st.markdown("""
     background-color: #f0fdf4 !important;
     border-color: #16a34a !important;
 }
-
-/* Botón "Enviar" del chat (es un botón de formulario, no usa el
-   selector de arriba): verde en vez del rojo por defecto de Streamlit. */
-div[data-testid="stFormSubmitButton"] button,
-button[data-testid^="stBaseButton-primary"] {
-    background: linear-gradient(135deg, #16a34a, #15803d) !important;
-    background-color: #16a34a !important;
-    border: none !important;
-}
-div[data-testid="stFormSubmitButton"] button p {
-    color: #ffffff !important;
-    font-weight: 700 !important;
-}
 </style>
 """, unsafe_allow_html=True)
 
@@ -3126,18 +3113,7 @@ div[data-testid="stPopoverBody"] {{
 }}
 div[data-testid="stPopoverBody"] [data-testid="stMarkdownContainer"] p,
 div[data-testid="stPopoverBody"] label {{ color: #14532d !important; }}
-div[data-testid="stPopoverBody"] button[kind="primary"],
-div[data-testid="stPopoverBody"] button[data-testid^="stBaseButton-primary"],
-div[data-testid="stPopoverBody"] form button {{
-    background: linear-gradient(135deg, #16a34a, #15803d) !important;
-    background-color: #16a34a !important;
-    border: none !important; border-radius: 10px !important;
-}}
-div[data-testid="stPopoverBody"] button[kind="primary"] *,
-div[data-testid="stPopoverBody"] button[data-testid^="stBaseButton-primary"] *,
-div[data-testid="stPopoverBody"] form button * {{
-    color: #ffffff !important; font-weight: 700 !important;
-}}
+div[data-testid="stPopoverBody"] button[kind="primary"] p {{ color: #ffffff !important; }}
 </style>""", unsafe_allow_html=True)
 
 
@@ -3891,21 +3867,90 @@ def _primeras_oraciones(texto: str, max_chars: int = 260) -> str:
     return salida[:max_chars + 80]
 
 
-def texto_para_voz(texto: str, max_chars: int = 1400) -> str:
-    """Prepara el texto para que se escuche natural: sin emojis, sin símbolos
-    de formato, sin enlaces y deletreando los códigos (REP-207 -> R E P 207).
-    El límite es amplio porque, por accesibilidad, se debe leer TODA la
-    respuesta y no solo el comienzo."""
-    t = sin_emojis(texto or "")
+_NUM_HABLADO = {1: "una", 2: "dos", 3: "tres", 4: "cuatro", 5: "cinco", 6: "seis", 7: "siete",
+                8: "ocho", 9: "nueve", 10: "diez", 11: "once", 12: "doce"}
+
+
+def _momento_del_dia(h12: int, ap: str) -> str:
+    if ap == "a":
+        return "de la medianoche" if h12 == 12 else "de la mañana"
+    if h12 == 12:
+        return "del mediodía"
+    return "de la tarde" if h12 <= 6 else "de la noche"
+
+
+def _hora_hablada(h: str, m: str, ap: str, con_momento: bool = True) -> str:
+    """'3', '00', 'p' -> 'las tres de la tarde'; '1', '30', 'a' -> 'la una y media de la mañana'."""
+    h12 = int(h) if 1 <= int(h) <= 12 else 12
+    txt = ("la " if h12 == 1 else "las ") + _NUM_HABLADO[h12]
+    mm = int(m or 0)
+    if mm == 30:
+        txt += " y media"
+    elif mm:
+        txt += f" y {mm}"
+    return txt + (f" {_momento_del_dia(h12, ap)}" if con_momento else "")
+
+
+def _horas_a_palabras(t: str) -> str:
+    """Convierte horarios escritos ('3:00 p.m. – 11:00 p.m.') a como se dicen
+    ('de las tres de la tarde a las once de la noche')."""
+    pm = r"\s*([ap])\.?\s*m\b(\.?)"
+
+    def _punto(m, grupo):   # conserva el punto si cierra la oración
+        resto = m.string[m.end():]
+        cierra = not resto.strip() or re.match(r"\s+[A-ZÁÉÍÓÚÑ¡¿]", resto)
+        return "." if (m.group(grupo) == "." and cierra) else ""
+
+    def _rango(m):
+        h1, m1, a1, _p1, h2, m2, a2, _p2 = m.groups()
+        a1, a2 = a1.lower(), a2.lower()
+        mom1 = _momento_del_dia(int(h1) if 1 <= int(h1) <= 12 else 12, a1)
+        mom2 = _momento_del_dia(int(h2) if 1 <= int(h2) <= 12 else 12, a2)
+        primero = _hora_hablada(h1, m1, a1, con_momento=(mom1 != mom2))
+        return f"de {primero} a {_hora_hablada(h2, m2, a2)}" + _punto(m, 8)
+
+    t = re.sub(r"(?:de\s+)?(\d{1,2}):(\d{2})" + pm + r"\s*[–-]\s*(\d{1,2}):(\d{2})" + pm,
+               _rango, t, flags=re.IGNORECASE)
+
+    def _rango_corto(m):
+        h1, h2, ap = m.group(1), m.group(2), m.group(3).lower()
+        mom1 = _momento_del_dia(int(h1) if 1 <= int(h1) <= 12 else 12, ap)
+        mom2 = _momento_del_dia(int(h2) if 1 <= int(h2) <= 12 else 12, ap)
+        return (f"de {_hora_hablada(h1, '0', ap, con_momento=(mom1 != mom2))} a "
+                f"{_hora_hablada(h2, '0', ap)}" + _punto(m, 4))
+
+    t = re.sub(r"(?:de\s+)?(\d{1,2})\s*[–-]\s*(\d{1,2})" + pm, _rango_corto, t, flags=re.IGNORECASE)
+    t = re.sub(r"(\d{1,2}):(\d{2})" + pm,
+               lambda m: _hora_hablada(m.group(1), m.group(2), m.group(3).lower()) + _punto(m, 4),
+               t, flags=re.IGNORECASE)
+    return re.sub(r"\b(las|la) (las|la) ", r"\1 ", t)     # "a las las seis" -> "a las seis"
+
+
+def texto_para_voz(texto: str) -> str:
+    """Prepara el texto para que se escuche como habla una persona: sin
+    símbolos de formato ni enlaces, deletreando los códigos (REP-207 -> R E P
+    207) y diciendo las horas, números y unidades con palabras ('3:00 p.m.'
+    -> 'las tres de la tarde', '12 kg' -> '12 kilos')."""
+    t = texto or ""
     t = re.sub(r"https?://\S+", "", t)
-    t = re.sub(r"\b(REP|CRIT)-(\d+)\b", lambda m: " ".join(m.group(1)) + " " + m.group(2), t)
-    t = re.sub(r"(?m)^\s*-\s+", "", t)
     t = re.sub(r"[*_`#>]", "", t)
-    t = t.replace("–", " a ").replace("—", ", ").replace("→", " ")
+    t = _horas_a_palabras(t)
+    t = re.sub(r"\b(REP|CRIT)-(\d+)\b", lambda m: " ".join(m.group(1)) + " " + m.group(2), t)
+    t = re.sub(r"\bNo\.\s*(\d+)", r"número \1", t)
+    t = re.sub(r"(\d+)[.,](\d+)\s*kg\b", r"\1 coma \2 kilos", t, flags=re.IGNORECASE)
+    t = re.sub(r"(\d+)\s*kg\b", r"\1 kilos", t, flags=re.IGNORECASE)
+    t = re.sub(r"(\d+)\s*m\b(?!\w)", r"\1 metros", t)
+    t = re.sub(r"(\d+)\s*%", r"\1 por ciento", t)
+    t = re.sub(r"(\d+)\s*h\b(?!\w)", r"\1 horas", t)
+    t = re.sub(r"(?m)^\s*-\s+", "", t)
+    t = t.replace("–", " a ").replace("—", ", ").replace("→", ", ").replace("·", ", ")
+    t = re.sub(r"\s*\(([^)]*)\)", r", \1,", t)          # (paréntesis) -> pausa con comas
     t = re.sub(r"\s*\n+\s*", ". ", t)
+    t = re.sub(r"\s+,", ",", t)
+    t = re.sub(r",\s*([.,;:!?])", r"\1", t)
     t = re.sub(r"\.\s*\.", ".", t)
     t = re.sub(r"[ \t]{2,}", " ", t)
-    return t.strip()[:max_chars]
+    return t.strip()[:600]
 
 
 def _pcm_a_wav(pcm: bytes, rate: int = 24000) -> bytes:
@@ -3918,36 +3963,6 @@ def _pcm_a_wav(pcm: bytes, rate: int = 24000) -> bytes:
         w.setframerate(rate)
         w.writeframes(pcm)
     return buf.getvalue()
-
-
-def _dividir_en_trozos(texto: str, max_chars: int = 380) -> list:
-    """Parte el texto en trozos por oraciones para que la voz suene natural
-    y cada llamada a la voz sea corta."""
-    trozos, actual = [], ""
-    for o in re.split(r"(?<=[.!?])\s+", texto.strip()):
-        if actual and len(actual) + len(o) + 1 > max_chars:
-            trozos.append(actual)
-            actual = o
-        else:
-            actual = (actual + " " + o).strip()
-    if actual:
-        trozos.append(actual)
-    return trozos
-
-
-def _unir_wavs(lista: list) -> bytes:
-    """Une varios audios WAV en uno solo, con una pausa corta entre ellos."""
-    import io
-    import wave
-    out = io.BytesIO()
-    with wave.open(out, "wb") as w:
-        for i, b in enumerate(lista):
-            with wave.open(io.BytesIO(b)) as r:
-                if i == 0:
-                    w.setparams(r.getparams())
-                w.writeframes(r.readframes(r.getnframes()))
-                w.writeframes(b"\x00\x00" * int(r.getframerate() * 0.25))  # pausa corta
-    return out.getvalue()
 
 
 @st.cache_data(show_spinner=False, ttl=86400)
@@ -3985,9 +4000,9 @@ def _sintetizar_cache(texto: str, voz_config: str) -> bytes:
     if not api_key:
         raise RuntimeError("Falta GEMINI_API_KEY")
     headers = {"Content-Type": "application/json", "x-goog-api-key": api_key}
-    estilo = ("warm, gentle and smiling, like a kind neighbor from Medellín speaking "
-              "natural Colombian Spanish with a soft paisa accent, relaxed and slightly "
-              "slow pace, short natural pauses between sentences, never robotic")
+    estilo = ("warm, close and natural, like a kind neighbor from Medellin speaking Colombian "
+              "Spanish, with a gentle smile in the voice, a relaxed and slightly slow pace, "
+              "short natural pauses at commas, never robotic and never like a news announcer")
     voces = [v for v in (voz_config, _voz_colombiana(), VOZ_RESPALDO_GEMINI) if v]
     ultimo = "sin respuesta"
     for modelo, esquema in MODELOS_TTS:
@@ -4001,10 +4016,10 @@ def _sintetizar_cache(texto: str, voz_config: str) -> bytes:
                 }
             else:
                 payload = {
-                    "contents": [{"parts": [{"text": "Di esto con voz cálida, suave y amable, "
-                                                     "como una vecina paisa de Medellín, "
-                                                     "ritmo pausado y natural, con pausas cortas "
-                                                     "entre frases: " + texto}]}],
+                    "contents": [{"parts": [{"text": "Dilo como una vecina paisa muy amable de Medellín: "
+                                                     "voz cálida y cercana, con una sonrisa, ritmo "
+                                                     "tranquilo y pausas cortas en las comas, nada "
+                                                     "robótico: " + texto}]}],
                     "generationConfig": {"responseModalities": ["AUDIO"], "speechConfig": {
                         "voiceConfig": {"prebuiltVoiceConfig": {"voiceName": voz}}}},
                 }
@@ -4037,6 +4052,42 @@ def _sintetizar_cache(texto: str, voz_config: str) -> bytes:
     raise RuntimeError(ultimo)
 
 
+def _elevenlabs_config():
+    """(api_key, voice_id) si en Secrets están ELEVENLABS_API_KEY y
+    ELEVENLABS_VOICE_ID (la voz clonada). Si falta alguno, devuelve None."""
+    try:
+        k = str(st.secrets.get("ELEVENLABS_API_KEY", "")).strip()
+        v = str(st.secrets.get("ELEVENLABS_VOICE_ID", "")).strip()
+    except Exception:
+        k = v = ""
+    k = k or os.environ.get("ELEVENLABS_API_KEY", "").strip()
+    v = v or os.environ.get("ELEVENLABS_VOICE_ID", "").strip()
+    return (k, v) if k and re.fullmatch(r"[A-Za-z0-9]{10,40}", v or "") else None
+
+
+@st.cache_data(show_spinner=False, max_entries=60, ttl=3600)
+def _sintetizar_elevenlabs(texto: str) -> bytes:
+    """Lee el texto con la voz clonada de ElevenLabs. Devuelve MP3. Lanza
+    RuntimeError si falla (los errores no se guardan en caché)."""
+    import requests
+    cfg = _elevenlabs_config()
+    if not cfg:
+        raise RuntimeError("Falta ELEVENLABS_API_KEY o ELEVENLABS_VOICE_ID")
+    api_key, voice_id = cfg
+    r = requests.post(
+        f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}",
+        params={"output_format": "mp3_44100_128"},
+        headers={"xi-api-key": api_key, "Content-Type": "application/json",
+                 "Accept": "audio/mpeg"},
+        json={"text": texto, "model_id": "eleven_multilingual_v2",
+              "voice_settings": {"stability": 0.45, "similarity_boost": 0.85,
+                                 "style": 0.25, "use_speaker_boost": True}},
+        timeout=40)
+    if r.status_code != 200 or not r.content:
+        raise RuntimeError(f"ElevenLabs respondió {r.status_code}")
+    return r.content
+
+
 def tts_cupo_disponible() -> bool:
     ahora = time.time()
     marcas = [t for t in st.session_state.get("tts_marcas", []) if ahora - t < 3600]
@@ -4057,9 +4108,7 @@ def hablar_en_voz_alta(texto: str):
     components.html("""<script>
 (function(){
   const texto = """ + js_texto + """;
-  let W = window;
-  try { if (window.parent && window.parent.speechSynthesis) W = window.parent; } catch(e) {}
-  const S = W.speechSynthesis; if(!S) return;
+  const S = window.speechSynthesis; if(!S) return;
   function puntaje(v){
     let p = 0;
     if(/natural|neural|online/i.test(v.name)) p += 4;
@@ -4070,7 +4119,7 @@ def hablar_en_voz_alta(texto: str):
   }
   function hablar(){
     const vs = S.getVoices().filter(v => /^es/i.test(v.lang));
-    const u = new W.SpeechSynthesisUtterance(texto);
+    const u = new SpeechSynthesisUtterance(texto);
     u.lang = 'es-CO'; u.rate = 0.97; u.pitch = 1.03;
     if(vs.length){ vs.sort((a,b)=>puntaje(b)-puntaje(a)); u.voice = vs[0]; u.lang = vs[0].lang; }
     S.cancel(); S.speak(u);
@@ -4084,10 +4133,9 @@ def hablar_en_voz_alta(texto: str):
 
 
 def reproducir_respuesta(texto: str):
-    """Lee TODA la respuesta del bot en voz alta. Primero intenta la voz
-    natural de Gemini (en trozos, unidos en un solo audio); si no está
-    disponible (sin cupo, sin red, etc.) usa la del navegador para que
-    nunca se quede mudo."""
+    """Lee la respuesta del bot en voz alta. Primero intenta la voz natural
+    de Gemini; si no está disponible (sin cupo, sin red, etc.) usa la del
+    navegador para que nunca se quede mudo."""
     voz_cfg = ""
     try:
         voz_cfg = str(st.secrets.get("ECOBOT_VOZ", "")).strip()
@@ -4102,20 +4150,75 @@ def reproducir_respuesta(texto: str):
         natural = str(st.secrets.get("ECOBOT_VOZ_NATURAL", "true")).strip().lower() != "false"
     except Exception:
         natural = True
-    if natural and verificar_gemini_key() and tts_cupo_disponible():
-        try:
-            trozos = _dividir_en_trozos(limpio)[:4]
-            with st.spinner("Preparando la voz..."):
-                wavs = [_sintetizar_cache(t, voz_cfg) for t in trozos]
-            wav = wavs[0] if len(wavs) == 1 else _unir_wavs(wavs)
+    hay_voz_propia = _elevenlabs_config() is not None
+    if natural and (hay_voz_propia or verificar_gemini_key()) and tts_cupo_disponible():
+        principal = _primeras_oraciones(limpio)   # solo lo principal: es lo que se factura
+        # 1) Tu voz clonada (si está configurada)
+        if hay_voz_propia:
             try:
-                st.audio(wav, format="audio/wav", autoplay=True)
-            except TypeError:                      # versión sin autoplay
-                st.audio(wav, format="audio/wav")
-            return
-        except Exception as e:
-            _log.warning("Voz natural no disponible, uso la del navegador: %s", e)
+                with st.spinner("Preparando la voz..."):
+                    mp3 = _sintetizar_elevenlabs(principal)
+                try:
+                    st.audio(mp3, format="audio/mp3", autoplay=True)
+                except TypeError:                  # versión sin autoplay
+                    st.audio(mp3, format="audio/mp3")
+                return
+            except Exception as e:
+                _log.warning("Voz clonada no disponible, pruebo la de Gemini: %s", e)
+        # 2) Voz natural de Gemini
+        if verificar_gemini_key():
+            try:
+                with st.spinner("Preparando la voz..."):
+                    wav = _sintetizar_cache(principal, voz_cfg)
+                try:
+                    st.audio(wav, format="audio/wav", autoplay=True)
+                except TypeError:
+                    st.audio(wav, format="audio/wav")
+                return
+            except Exception as e:
+                _log.warning("Voz natural no disponible, uso la del navegador: %s", e)
+    # 3) Voz del navegador (gratis)
     hablar_en_voz_alta(texto)
+
+
+def _chat_acepta_audio() -> bool:
+    """True si esta versión de Streamlit trae st.chat_input con micrófono
+    integrado (junto al botón de enviar)."""
+    try:
+        import inspect
+        return "accept_audio" in inspect.signature(st.chat_input).parameters
+    except Exception:
+        return False
+
+
+def _marca_msgs(msgs) -> tuple:
+    """Huella del último mensaje del chat, para no leer dos veces lo mismo."""
+    if not msgs:
+        return (0, "")
+    return (len(msgs), hashlib.md5(str(msgs[-1].get("content", "")).encode()).hexdigest()[:10])
+
+
+def leer_ultima_respuesta_si_corresponde():
+    """Si 'Leer las respuestas en voz alta' está activo, lee en voz alta cada
+    respuesta nueva de EcoBot, venga de un mensaje escrito, de un audio, de
+    una pregunta rápida o de una foto. Con el interruptor apagado no lee nada
+    y deja marcado lo ya existente, para que al encenderlo no lea lo viejo."""
+    msgs = st.session_state.get("agente_msgs") or []
+    activo = bool(st.session_state.get("bot_voz_salida"))
+    marca = _marca_msgs(msgs)
+    if st.session_state.pop("_voz_confirmar", False) and activo:
+        st.session_state.bot_ultimo_leido = marca
+        hablar_en_voz_alta("Lectura en voz alta activada.")   # confirma con voz gratis
+        return
+    if not activo:
+        st.session_state.bot_ultimo_leido = marca
+        return
+    if not msgs or msgs[-1].get("role") != "assistant":
+        return
+    if st.session_state.get("bot_ultimo_leido") == marca:
+        return
+    st.session_state.bot_ultimo_leido = marca
+    reproducir_respuesta(str(msgs[-1].get("content", "")))
 
 
 def bloque_avisos_bot(refrescar):
@@ -4736,8 +4839,6 @@ pregunta no es de residuos, redirige con amabilidad."""
             with st.spinner("EcoBot está pensando..."):
                 respuesta = llamar_ecobot(st.session_state.agente_msgs)
             st.session_state.agente_msgs.append({"role": "assistant", "content": respuesta})
-            if st.session_state.get("bot_voz_salida"):
-                st.session_state.bot_hablar = respuesta
             if st.session_state.pop("bot_accion_global", False):
                 st.rerun()          # el bot cambió algo de la página: recarga completa
 
@@ -4756,24 +4857,15 @@ pregunta no es de residuos, redirige con amabilidad."""
 
             bloque_avisos_bot(_refrescar_bot)
 
-            _msgs = st.session_state.agente_msgs
-            _ini = max(0, len(_msgs) - 8)
-            for _i, msg in enumerate(_msgs[_ini:], start=_ini):
+            for msg in st.session_state.agente_msgs[-8:]:
                 if msg["role"] == "assistant":
                     with st.chat_message("assistant", avatar=avatar_ecobot()):
                         st.markdown(msg["content"].replace("\n", "  \n"))
-                        if st.button("Escuchar esta respuesta", key=f"escuchar_{_i}"):
-                            st.session_state.bot_hablar = msg["content"]
-                            st.rerun(scope="fragment")
                 else:
                     with st.chat_message("user"):
                         st.markdown(msg["content"].replace("\n", "  \n"))
 
-            # Reproducción central: aquí se lee cualquier respuesta pendiente
-            # (por escritura, por audio, por pregunta rápida o por el botón Escuchar).
-            _por_hablar = st.session_state.pop("bot_hablar", None)
-            if _por_hablar:
-                reproducir_respuesta(_por_hablar)
+            leer_ultima_respuesta_si_corresponde()
 
             ultimo_usuario = next(
                 (m["content"] for m in reversed(st.session_state.agente_msgs) if m["role"] == "user"),
@@ -4785,72 +4877,108 @@ pregunta no es de residuos, redirige con amabilidad."""
                     st.session_state.ir_a_inicio = True
                     st.rerun()
 
-            # Fila de envío: escribir, hablar (micrófono) y Enviar quedan juntos.
-            # Todo va dentro del mismo formulario: con "Enviar" se manda el audio
-            # grabado o el texto escrito, y el formulario se limpia solo.
-            _hay_voz = verificar_gemini_key()
-            with st.form("form_agente", clear_on_submit=True, border=False):
-                pregunta = st.text_input(
-                    "Pregunta:", placeholder="Escribe tu mensaje o graba un audio",
-                    key="agente_input", label_visibility="collapsed",
-                    max_chars=MAX_LARGO_MENSAJE_BOT)
-                if _hay_voz:
-                    col_mic, col_send = st.columns([3, 1.3])
-                    with col_mic:
-                        audio_bot = st.audio_input("Hablar con EcoBot", key="agente_audio",
-                                                   label_visibility="collapsed")
+            def _responder_con_audio(audio_in, texto_extra=""):
+                """Transcribe el audio grabado y devuelve el texto (o None si falló)."""
+                if not verificar_gemini_key():
+                    st.session_state.agente_msgs.append({"role": "assistant", "content":
+                        "La entrada por voz necesita la clave de Gemini configurada. "
+                        "Puedes escribirme tu mensaje."})
+                    return None
+                if not ecobot_cupo_disponible():
+                    st.session_state.agente_msgs.append({"role": "assistant", "content":
+                        "Has enviado muchos mensajes seguidos. Espera un rato e inténtalo de nuevo."})
+                    return None
+                with st.spinner("Escuchando tu mensaje..."):
+                    _texto_aud, _err_aud = transcribir_audio_gemini(
+                        audio_in.getvalue(), getattr(audio_in, "type", "audio/wav"))
+                if _err_aud or not _texto_aud:
+                    st.session_state.agente_msgs.append({"role": "assistant", "content":
+                        f"{_err_aud or 'No logré entender el audio.'} Puedes intentarlo "
+                        f"de nuevo o escribirme tu mensaje."})
+                    return None
+                return (texto_extra + " " + _texto_aud).strip()
+
+            if _chat_acepta_audio():
+                # Caja de chat con el micrófono pegado al botón de enviar. Sirve
+                # igual para escribir que para hablar.
+                entrada = st.chat_input("Escribe o toca el micrófono para hablar",
+                                        accept_audio=True, key="agente_chat",
+                                        max_chars=MAX_LARGO_MENSAJE_BOT)
+                if entrada:
+                    texto_in = (entrada.text or "").strip()
+                    if entrada.audio is not None:
+                        texto_in = _responder_con_audio(entrada.audio, texto_in) or ""
+                    if texto_in:
+                        st.session_state.agente_msgs.append(
+                            {"role": "user", "content": texto_in[:MAX_LARGO_MENSAJE_BOT]})
+                        st.session_state.agente_pendiente = True
+                    _refrescar_bot()
+            else:
+                # Respaldo para versiones antiguas de Streamlit: formulario y grabadora aparte.
+                with st.form("form_agente", clear_on_submit=True, border=False):
+                    col_in, col_send = st.columns([4, 2])
+                    with col_in:
+                        pregunta = st.text_input(
+                            "Pregunta:", placeholder="Escribe tu mensaje",
+                            key="agente_input", label_visibility="collapsed",
+                            max_chars=MAX_LARGO_MENSAJE_BOT)
                     with col_send:
                         enviar = st.form_submit_button("Enviar", type="primary",
                                                        use_container_width=True)
-                else:
-                    audio_bot = None
-                    enviar = st.form_submit_button("Enviar", type="primary",
-                                                   use_container_width=True)
+                if enviar and pregunta.strip():
+                    st.session_state.agente_msgs.append(
+                        {"role": "user", "content": pregunta.strip()[:MAX_LARGO_MENSAJE_BOT]})
+                    st.session_state.agente_pendiente = True
+                    _refrescar_bot()
+                if verificar_gemini_key():
+                    _n_aud = st.session_state.get("bot_audio_n", 0)
+                    st.caption("Prefieres hablar: toca el micrófono, di tu mensaje y detén la grabación.")
+                    audio_bot = st.audio_input("Hablar con EcoBot", key=f"agente_audio_{_n_aud}",
+                                               label_visibility="collapsed")
+                    if audio_bot is not None:
+                        _h_aud = hashlib.md5(audio_bot.getvalue()).hexdigest()
+                        if _h_aud != st.session_state.get("bot_audio_hash"):
+                            st.session_state.bot_audio_hash = _h_aud
+                            _t = _responder_con_audio(audio_bot)
+                            if _t:
+                                st.session_state.agente_msgs.append({"role": "user", "content": _t})
+                                st.session_state.agente_pendiente = True
+                            st.session_state.bot_audio_n = _n_aud + 1   # limpia la grabadora
+                            _refrescar_bot()
 
-            # Lectura en voz alta: vale igual para mensajes escritos, audios y
-            # preguntas rápidas. Activado = lee cada respuesta; desactivado = no lee.
-            st.toggle("Leer la respuesta en voz alta", key="bot_voz_salida",
-                      help="Si está activado, EcoBot lee en voz alta cada respuesta, "
-                           "sea que hayas escrito o hablado. Útil para personas con baja visión.")
-            if _hay_voz:
-                st.caption("Para hablar: toca el micrófono, di tu mensaje, detén la "
-                           "grabación y presiona Enviar.")
-            else:
-                st.caption("La entrada por voz necesita la clave de Gemini configurada.")
+            # ---- Leer en voz alta (accesibilidad): siempre visible, vale para escribir y hablar ----
+            def _al_cambiar_voz():
+                activo = bool(st.session_state.get("bot_voz_salida"))
+                st.session_state._voz_cookie_pendiente = "1" if activo else "0"
+                if activo:
+                    st.session_state._voz_confirmar = True
 
+            if "bot_voz_salida" not in st.session_state:   # recuerda la preferencia entre visitas
+                try:
+                    st.session_state.bot_voz_salida = (st.context.cookies.get("ecocom2_voz") == "1")
+                except Exception:
+                    st.session_state.bot_voz_salida = False
+            col_voz, col_rep = st.columns([3, 2])
+            with col_voz:
+                st.toggle("Leer las respuestas en voz alta", key="bot_voz_salida",
+                          on_change=_al_cambiar_voz,
+                          help="Para personas con baja visión: EcoBot lee cada respuesta, "
+                               "ya sea que escribas o hables. Se recuerda en este navegador.")
+            with col_rep:
+                if st.session_state.get("bot_voz_salida"):
+                    if st.button("Repetir", key="bot_repetir_voz", use_container_width=True,
+                                 help="Vuelve a leer la última respuesta"):
+                        _ultima_resp = next((m["content"] for m in reversed(st.session_state.agente_msgs)
+                                             if m["role"] == "assistant"), "")
+                        if _ultima_resp:
+                            reproducir_respuesta(_ultima_resp)
+            _voz_cookie = st.session_state.pop("_voz_cookie_pendiente", None)
+            if _voz_cookie is not None:
+                _escribir_cookie("ecocom2_voz", _voz_cookie, 31536000)
             if st.button("Limpiar conversación", key="agente_limpiar", use_container_width=True):
                 st.session_state.agente_msgs = [st.session_state.agente_msgs[0]]
+                st.session_state.bot_ultimo_leido = _marca_msgs(st.session_state.agente_msgs)
                 _refrescar_bot()
-
-            if enviar:
-                _texto_envio = ""
-                if audio_bot is not None:
-                    if not ecobot_cupo_disponible():
-                        st.session_state.agente_msgs.append({"role": "assistant", "content":
-                            "Has enviado muchos mensajes seguidos. Espera un rato e inténtalo de nuevo."})
-                    else:
-                        with st.spinner("Escuchando tu mensaje..."):
-                            _texto_aud, _err_aud = transcribir_audio_gemini(
-                                audio_bot.getvalue(), getattr(audio_bot, "type", "audio/wav"))
-                        if _err_aud or not _texto_aud:
-                            st.session_state.agente_msgs.append({"role": "assistant", "content":
-                                f"{_err_aud or 'No logré entender el audio.'} Puedes intentarlo "
-                                f"de nuevo o escribirme tu mensaje."})
-                        else:
-                            _texto_envio = _texto_aud
-                elif pregunta.strip():
-                    _texto_envio = pregunta.strip()[:MAX_LARGO_MENSAJE_BOT]
-
-                if _texto_envio:
-                    st.session_state.agente_msgs.append({"role": "user", "content": _texto_envio})
-                    with st.spinner("EcoBot está pensando..."):
-                        _resp_envio = llamar_ecobot(st.session_state.agente_msgs)
-                    st.session_state.agente_msgs.append(
-                        {"role": "assistant", "content": _resp_envio})
-                    if st.session_state.get("bot_voz_salida"):
-                        st.session_state.bot_hablar = _resp_envio
-                if _texto_envio or audio_bot is not None:
-                    _refrescar_bot()
 
             st.markdown("---")
             renderizar_foto_ecobot()
@@ -7111,6 +7239,9 @@ EcoCom2 Circular IA informa lo siguiente sobre los datos que recoge:
   reporte. Para convertir coordenadas en dirección se consulta el servicio público
   Nominatim (OpenStreetMap). Puedes retirar tu autorización en cualquier momento desde
   "Más opciones" en el menú; al hacerlo se borra tu ubicación de esa sesión.
+- Si activas **"Leer las respuestas en voz alta"**, el texto de la respuesta de EcoBot (no tus
+  datos personales) se envía al servicio de voz (Google Gemini o, si está configurado, ElevenLabs).
+  Tu preferencia de activar o no la lectura se guarda en una cookie de tu navegador.
 - El nombre de tu barrio, **solo si le pides a EcoBot que lo recuerde** (o lo eliges en el
   horario del camión): se guarda únicamente en una cookie de tu navegador para avisarte cuándo
   pasa el camión. "Revocar autorización de datos" también la borra.
