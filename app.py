@@ -4057,7 +4057,9 @@ def hablar_en_voz_alta(texto: str):
     components.html("""<script>
 (function(){
   const texto = """ + js_texto + """;
-  const S = window.speechSynthesis; if(!S) return;
+  let W = window;
+  try { if (window.parent && window.parent.speechSynthesis) W = window.parent; } catch(e) {}
+  const S = W.speechSynthesis; if(!S) return;
   function puntaje(v){
     let p = 0;
     if(/natural|neural|online/i.test(v.name)) p += 4;
@@ -4068,7 +4070,7 @@ def hablar_en_voz_alta(texto: str):
   }
   function hablar(){
     const vs = S.getVoices().filter(v => /^es/i.test(v.lang));
-    const u = new SpeechSynthesisUtterance(texto);
+    const u = new W.SpeechSynthesisUtterance(texto);
     u.lang = 'es-CO'; u.rate = 0.97; u.pitch = 1.03;
     if(vs.length){ vs.sort((a,b)=>puntaje(b)-puntaje(a)); u.voice = vs[0]; u.lang = vs[0].lang; }
     S.cancel(); S.speak(u);
@@ -4752,13 +4754,6 @@ pregunta no es de residuos, redirige con amabilidad."""
                 f'Escríbeme, háblame o mándame una foto</span></div></div>',
                 unsafe_allow_html=True)
 
-            # ACCESIBILIDAD: el interruptor de lectura en voz alta va arriba,
-            # siempre visible (no depende de la clave de Gemini: si no hay
-            # voz natural, se usa la voz del navegador).
-            st.toggle("Leer las respuestas en voz alta (accesibilidad)",
-                      key="bot_voz_salida",
-                      help="Para personas con baja visión: EcoBot lee cada respuesta en voz alta.")
-
             bloque_avisos_bot(_refrescar_bot)
 
             _msgs = st.session_state.agente_msgs
@@ -4790,68 +4785,72 @@ pregunta no es de residuos, redirige con amabilidad."""
                     st.session_state.ir_a_inicio = True
                     st.rerun()
 
-            # Formulario con clear_on_submit: la caja se vacía sola al enviar y
-            # también se puede enviar con la tecla Enter.
+            # Fila de envío: escribir, hablar (micrófono) y Enviar quedan juntos.
+            # Todo va dentro del mismo formulario: con "Enviar" se manda el audio
+            # grabado o el texto escrito, y el formulario se limpia solo.
+            _hay_voz = verificar_gemini_key()
             with st.form("form_agente", clear_on_submit=True, border=False):
-                col_in, col_send = st.columns([4, 2])
-                with col_in:
-                    pregunta = st.text_input(
-                        "Pregunta:", placeholder="Escribe tu mensaje",
-                        key="agente_input", label_visibility="collapsed",
-                        max_chars=MAX_LARGO_MENSAJE_BOT)
-                with col_send:
+                pregunta = st.text_input(
+                    "Pregunta:", placeholder="Escribe tu mensaje o graba un audio",
+                    key="agente_input", label_visibility="collapsed",
+                    max_chars=MAX_LARGO_MENSAJE_BOT)
+                if _hay_voz:
+                    col_mic, col_send = st.columns([3, 1.3])
+                    with col_mic:
+                        audio_bot = st.audio_input("Hablar con EcoBot", key="agente_audio",
+                                                   label_visibility="collapsed")
+                    with col_send:
+                        enviar = st.form_submit_button("Enviar", type="primary",
+                                                       use_container_width=True)
+                else:
+                    audio_bot = None
                     enviar = st.form_submit_button("Enviar", type="primary",
                                                    use_container_width=True)
+
+            # Lectura en voz alta: vale igual para mensajes escritos, audios y
+            # preguntas rápidas. Activado = lee cada respuesta; desactivado = no lee.
+            st.toggle("Leer la respuesta en voz alta", key="bot_voz_salida",
+                      help="Si está activado, EcoBot lee en voz alta cada respuesta, "
+                           "sea que hayas escrito o hablado. Útil para personas con baja visión.")
+            if _hay_voz:
+                st.caption("Para hablar: toca el micrófono, di tu mensaje, detén la "
+                           "grabación y presiona Enviar.")
+            else:
+                st.caption("La entrada por voz necesita la clave de Gemini configurada.")
+
             if st.button("Limpiar conversación", key="agente_limpiar", use_container_width=True):
                 st.session_state.agente_msgs = [st.session_state.agente_msgs[0]]
                 _refrescar_bot()
 
-            if enviar and pregunta.strip():
-                st.session_state.agente_msgs.append(
-                    {"role": "user", "content": pregunta.strip()[:MAX_LARGO_MENSAJE_BOT]})
-                with st.spinner("EcoBot está pensando..."):
-                    respuesta = llamar_ecobot(st.session_state.agente_msgs)
-                st.session_state.agente_msgs.append(
-                    {"role": "assistant", "content": respuesta})
-                if st.session_state.get("bot_voz_salida"):
-                    st.session_state.bot_hablar = respuesta
-                _refrescar_bot()
-
-            # ---- Entrada por voz ----
-            if verificar_gemini_key():
-                _n_aud = st.session_state.get("bot_audio_n", 0)
-                st.caption("Prefieres hablar: toca el micrófono, di tu mensaje y detén la grabación.")
-                audio_bot = st.audio_input("Hablar con EcoBot", key=f"agente_audio_{_n_aud}",
-                                           label_visibility="collapsed")
+            if enviar:
+                _texto_envio = ""
                 if audio_bot is not None:
-                    _datos_aud = audio_bot.getvalue()
-                    _h_aud = hashlib.md5(_datos_aud).hexdigest()
-                    if _h_aud != st.session_state.get("bot_audio_hash"):
-                        st.session_state.bot_audio_hash = _h_aud
-                        if not ecobot_cupo_disponible():
+                    if not ecobot_cupo_disponible():
+                        st.session_state.agente_msgs.append({"role": "assistant", "content":
+                            "Has enviado muchos mensajes seguidos. Espera un rato e inténtalo de nuevo."})
+                    else:
+                        with st.spinner("Escuchando tu mensaje..."):
+                            _texto_aud, _err_aud = transcribir_audio_gemini(
+                                audio_bot.getvalue(), getattr(audio_bot, "type", "audio/wav"))
+                        if _err_aud or not _texto_aud:
                             st.session_state.agente_msgs.append({"role": "assistant", "content":
-                                "Has enviado muchos mensajes seguidos. Espera un rato e inténtalo de nuevo."})
+                                f"{_err_aud or 'No logré entender el audio.'} Puedes intentarlo "
+                                f"de nuevo o escribirme tu mensaje."})
                         else:
-                            with st.spinner("Escuchando tu mensaje..."):
-                                _texto_aud, _err_aud = transcribir_audio_gemini(
-                                    _datos_aud, getattr(audio_bot, "type", "audio/wav"))
-                            if _err_aud or not _texto_aud:
-                                st.session_state.agente_msgs.append({"role": "assistant", "content":
-                                    f"{_err_aud or 'No logré entender el audio.'} Puedes intentarlo "
-                                    f"de nuevo o escribirme tu mensaje."})
-                            else:
-                                st.session_state.agente_msgs.append(
-                                    {"role": "user", "content": _texto_aud})
-                                with st.spinner("EcoBot está pensando..."):
-                                    _resp_aud = llamar_ecobot(st.session_state.agente_msgs)
-                                st.session_state.agente_msgs.append(
-                                    {"role": "assistant", "content": _resp_aud})
-                                if st.session_state.get("bot_voz_salida"):
-                                    st.session_state.bot_hablar = _resp_aud
-                        st.session_state.bot_audio_n = _n_aud + 1   # limpia la grabadora
-                        _refrescar_bot()
-            else:
-                st.caption("La entrada por voz necesita la clave de Gemini configurada.")
+                            _texto_envio = _texto_aud
+                elif pregunta.strip():
+                    _texto_envio = pregunta.strip()[:MAX_LARGO_MENSAJE_BOT]
+
+                if _texto_envio:
+                    st.session_state.agente_msgs.append({"role": "user", "content": _texto_envio})
+                    with st.spinner("EcoBot está pensando..."):
+                        _resp_envio = llamar_ecobot(st.session_state.agente_msgs)
+                    st.session_state.agente_msgs.append(
+                        {"role": "assistant", "content": _resp_envio})
+                    if st.session_state.get("bot_voz_salida"):
+                        st.session_state.bot_hablar = _resp_envio
+                if _texto_envio or audio_bot is not None:
+                    _refrescar_bot()
 
             st.markdown("---")
             renderizar_foto_ecobot()
