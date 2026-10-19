@@ -40,6 +40,7 @@ BLOQUEO_ADMIN_SEGUNDOS = 300          # 5 min de bloqueo tras demasiados intento
 MAX_BYTES_FOTO = 8 * 1024 * 1024      # 8 MB por foto
 MAX_PIXELES_FOTO = 40_000_000         # evita "bombas de descompresión"
 MAX_LADO_FOTO = 1600                  # lado mayor al que se reducen las fotos para analizarlas
+APP_BUILD = "19-oct-2026 voz"         # sello para comprobar qué versión está corriendo
 MAX_LARGO_MENSAJE_BOT = 500           # caracteres por mensaje a EcoBot
 MAX_MENSAJES_BOT_HORA = 30            # mensajes a EcoBot por sesión y hora
 MAX_LARGO_TEXTO_LIBRE = 600           # observaciones / referencia
@@ -4588,10 +4589,10 @@ st.sidebar.markdown("---")
 st.sidebar.markdown("""
 <div class="ecocom2-footer" style="font-size:11px;padding:8px;background:rgba(16,185,129,0.06);
 border-radius:6px;border:1px solid rgba(74,222,128,0.15);">
-<b style="color:#16a34a">EcoCom2 v7.0</b><br>
+<b style="color:#16a34a">EcoCom2 v7.0</b> · __BUILD__<br>
 Territorio INN 2026 | ITM Medellín<br>
 Dev: <b style="color:#16a34a">Brandon Duque</b>
-</div>""", unsafe_allow_html=True)
+</div>""".replace("__BUILD__", APP_BUILD), unsafe_allow_html=True)
 
 # ====================================================================
 # ECOBOT EN TODAS LAS PANTALLAS (menos el Panel Admin, para no tapar
@@ -4980,6 +4981,7 @@ pregunta no es de residuos, redirige con amabilidad."""
                 st.session_state.bot_ultimo_leido = _marca_msgs(st.session_state.agente_msgs)
                 _refrescar_bot()
 
+            st.caption(f"Versión de la app: {APP_BUILD}")
             st.markdown("---")
             renderizar_foto_ecobot()
             st.markdown("---")
